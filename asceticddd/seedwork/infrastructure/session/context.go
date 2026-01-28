@@ -11,7 +11,7 @@ import (
 
 	"database/sql"
 
-	"github.com/emacsway/grade/grade/internal/seedwork/application/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
 )
 
 type sessionKey struct{}

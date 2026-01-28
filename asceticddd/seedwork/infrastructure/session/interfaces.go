@@ -1,8 +1,8 @@
 package session
 
 import (
-	"github.com/emacsway/grade/grade/internal/seedwork/application/session"
-	"github.com/emacsway/grade/grade/internal/seedwork/infrastructure/deferred"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/deferred"
 )
 
 type Result interface {

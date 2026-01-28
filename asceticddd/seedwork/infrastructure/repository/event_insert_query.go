@@ -3,9 +3,8 @@ package repository
 import (
 	"encoding/json"
 
-	tenantVal "github.com/emacsway/grade/grade/internal/domain/tenant/values"
-	"github.com/emacsway/grade/grade/internal/seedwork/domain/aggregate"
-	"github.com/emacsway/grade/grade/internal/seedwork/infrastructure/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/aggregate"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/session"
 )
 
 type EventInsertQuery struct {
@@ -21,10 +20,8 @@ func (q EventInsertQuery) sql() string {
 		VALUES
 		($1, $2, $3, $4, $5, $6, $7, $8)`
 }
-func (q *EventInsertQuery) SetTenantId(val tenantVal.TenantId) {
-	var v uint
-	val.Export(func(u uint) { v = u })
-	q.params[0] = v
+func (q *EventInsertQuery) SetTenantId(val any) {
+	q.params[0] = val
 }
 func (q *EventInsertQuery) SetStreamType(val string) {
 	q.params[1] = val

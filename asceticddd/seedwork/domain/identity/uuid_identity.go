@@ -1,8 +1,8 @@
 package identity
 
 import (
-	"github.com/emacsway/grade/grade/internal/seedwork/domain/specification"
-	"github.com/emacsway/grade/grade/internal/seedwork/domain/uuid"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/specification"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/uuid"
 )
 
 func NewUuidIdentity(value uuid.Uuid) (UuidIdentity, error) {

@@ -3,7 +3,7 @@ package identity
 import (
 	"errors"
 
-	"github.com/emacsway/grade/grade/pkg/collections"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/pkg/collections"
 )
 
 type IsolationLevel uint

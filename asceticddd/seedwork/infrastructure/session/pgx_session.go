@@ -8,7 +8,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
 
-	"github.com/emacsway/grade/grade/internal/seedwork/application/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
 )
 
 func NewPgxSession(db *sql.DB) *PgxSession {

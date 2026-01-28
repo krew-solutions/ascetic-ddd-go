@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/emacsway/grade/grade/internal/seedwork/domain/identity"
-	s "github.com/emacsway/grade/grade/internal/seedwork/domain/specification"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/identity"
+	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/specification"
 )
 
 type SomethingCriteria struct {

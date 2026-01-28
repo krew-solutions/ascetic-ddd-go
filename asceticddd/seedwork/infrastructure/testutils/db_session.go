@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"errors"
 
-	appSession "github.com/emacsway/grade/grade/internal/seedwork/application/session"
-	"github.com/emacsway/grade/grade/internal/seedwork/infrastructure/session"
+	appSession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/session"
 )
 
 func NewDbSessionStub(rows *RowsStub) *DbSessionStub {

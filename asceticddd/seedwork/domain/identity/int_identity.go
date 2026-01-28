@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/emacsway/grade/grade/internal/seedwork/domain/specification"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/specification"
 )
 
 var (

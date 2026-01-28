@@ -3,7 +3,7 @@ package aggregate
 import (
 	"time"
 
-	"github.com/emacsway/grade/grade/internal/seedwork/domain/uuid"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/uuid"
 )
 
 // The source of this data is application layer.

@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/emacsway/grade/grade/internal/seedwork/domain/uuid"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/uuid"
 )
 
 func TestUuidIdentityEqual(t *testing.T) {

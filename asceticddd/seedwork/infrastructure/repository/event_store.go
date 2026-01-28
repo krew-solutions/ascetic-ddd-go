@@ -1,9 +1,9 @@
 package repository
 
 import (
-	"github.com/emacsway/grade/grade/internal/seedwork/domain/aggregate"
-	"github.com/emacsway/grade/grade/internal/seedwork/domain/uuid"
-	"github.com/emacsway/grade/grade/internal/seedwork/infrastructure/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/aggregate"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/uuid"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/session"
 )
 
 type EventQueryFactory func(aggregate.PersistentDomainEvent) session.EventSourcedQueryEvaluator
