@@ -13,16 +13,14 @@ type EventSourcedQueryEvaluator interface {
 
 type EventQueryFactory func(aggregate.PersistentDomainEvent) EventSourcedQueryEvaluator
 
-func NewEventStore(currentSession session.DbSession, streamType string, eventQuery EventQueryFactory) *EventStore {
+func NewEventStore(streamType string, eventQuery EventQueryFactory) *EventStore {
 	return &EventStore{
-		session:    currentSession,
 		streamType: streamType,
 		eventQuery: eventQuery,
 	}
 }
 
 type EventStore struct {
-	session    session.DbSession
 	streamType string
 	eventQuery EventQueryFactory
 }
@@ -35,6 +33,7 @@ func (r EventStore) NewStreamId(
 }
 
 func (r *EventStore) Save(
+	s session.DbSession,
 	agg aggregate.DomainEventAccessor[aggregate.PersistentDomainEvent],
 	eventMeta aggregate.EventMeta,
 ) error {
@@ -46,7 +45,7 @@ func (r *EventStore) Save(
 		iEvent.SetEventMeta(eventMeta)
 		q := r.eventQuery(iEvent)
 		q.SetStreamType(r.streamType)
-		_, err := q.Evaluate(r.session)
+		_, err := q.Evaluate(s)
 		if err != nil {
 			return err
 		}
