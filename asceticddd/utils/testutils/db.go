@@ -1,22 +1,30 @@
 package testutils
 
 import (
-	"database/sql"
+	"context"
 	"os"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	pgxsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pgx"
 )
 
-func NewTestDb() (*sql.DB, error) {
+func NewPgxSessionPool() (session.SessionPool, error) {
 	var db_username string = getEnv("DB_USERNAME", "devel")
 	var db_password string = getEnv("DB_PASSWORD", "devel")
 	var db_host string = getEnv("DB_HOST", "localhost")
 	var db_port string = getEnv("DB_PORT", "5432")
 	var db_basename string = getEnv("DB_DATABASE", "devel_grade")
 
-	// https://github.com/jackc/pgx/wiki/Getting-started-with-pgx-through-database-sql
-	// postgres://username:password@host:port/base_name
-	return sql.Open("pgx", "postgres://"+db_username+":"+db_password+"@"+db_host+":"+db_port+"/"+db_basename)
+	connString := "postgres://" + db_username + ":" + db_password + "@" + db_host + ":" + db_port + "/" + db_basename
+
+	pool, err := pgxpool.New(context.Background(), connString)
+	if err != nil {
+		return nil, err
+	}
+
+	return pgxsession.NewSessionPool(pool), nil
 }
 
 func getEnv(key, fallback string) string {
