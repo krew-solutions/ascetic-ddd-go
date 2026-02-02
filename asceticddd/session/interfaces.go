@@ -19,6 +19,12 @@ type SessionContext interface {
 	Atomic(SessionContextCallback) error
 }
 
+type SessionPoolCallback func(Session) error
+
+type SessionPool interface {
+	Session(context.Context, SessionPoolCallback) error
+}
+
 type Result interface {
 	LastInsertId() (int64, error)
 	RowsAffected() (int64, error)
