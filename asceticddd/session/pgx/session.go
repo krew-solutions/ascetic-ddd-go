@@ -5,6 +5,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pkg/errors"
 
@@ -156,7 +157,7 @@ func (s *SavepointSession) Atomic(callback session.SessionCallback) error {
 
 // executor interface for both *pgxpool.Conn and pgx.Tx
 type executor interface {
-	Exec(ctx context.Context, query string, args ...any) (pgx.CommandTag, error)
+	Exec(ctx context.Context, query string, args ...any) (pgconn.CommandTag, error)
 	Query(ctx context.Context, query string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, query string, args ...any) pgx.Row
 }
@@ -191,9 +192,14 @@ func (c *connection) insert(query string, args ...any) (session.Result, error) {
 }
 
 func (c *connection) Query(query string, args ...any) (session.Rows, error) {
-	return c.exec.Query(c.ctx, query, args...)
+	rows, err := c.exec.Query(c.ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return &rowsAdapter{rows: rows}, nil
 }
 
 func (c *connection) QueryRow(query string, args ...any) session.Row {
-	return c.exec.QueryRow(c.ctx, query, args...)
+	row := c.exec.QueryRow(c.ctx, query, args...)
+	return &rowAdapter{row: row}
 }
