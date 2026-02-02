@@ -4,6 +4,8 @@ import (
 	"errors"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/result"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
 )
 
 func NewQueryCollector() *QueryCollector {
@@ -24,9 +26,9 @@ type QueryCollector struct {
 
 func (c *QueryCollector) Exec(query string, args ...any) (session.DeferredResult, error) {
 	if _, found := c.multiQueryMap[query]; !found {
-		if session.IsAutoincrementInsertQuery(query) {
+		if utils.IsAutoincrementInsertQuery(query) {
 			c.multiQueryMap[query] = NewAutoincrementMultiInsertQuery()
-		} else if session.IsInsertQuery(query) {
+		} else if utils.IsInsertQuery(query) {
 			c.multiQueryMap[query] = NewMultiInsertQuery()
 		}
 	}
@@ -54,5 +56,5 @@ func (c *QueryCollector) Evaluate(s session.DbSession) (session.Result, error) {
 			}
 		}
 	}
-	return session.NewResult(0, rowsAffected), nil
+	return result.NewResult(0, rowsAffected), nil
 }

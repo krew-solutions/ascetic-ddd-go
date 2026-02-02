@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 var reQuestionPlaceholder = regexp.MustCompile(`'(?:[^']|'')*'|"(?:[^"]|"")*"|(\?)`)
@@ -28,4 +29,12 @@ func RebindReverse(query string) string {
 		}
 		return s
 	})
+}
+
+func IsInsertQuery(query string) bool {
+	return strings.TrimSpace(query)[:6] == "INSERT" && !strings.Contains(query, "RETURNING")
+}
+
+func IsAutoincrementInsertQuery(query string) bool {
+	return strings.TrimSpace(query)[:6] == "INSERT" && strings.Contains(query, "RETURNING")
 }

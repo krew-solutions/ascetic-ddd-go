@@ -1,12 +1,14 @@
-package session
+package pgx
 
 import (
-	"strings"
-
 	"database/sql"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
+
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/result"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
 )
 
 func NewPgxSession(db *sql.DB) *PgxSession {
@@ -21,7 +23,7 @@ type PgxSession struct {
 	dbExecutor DbExecutor
 }
 
-func (s *PgxSession) Atomic(callback SessionCallback) error {
+func (s *PgxSession) Atomic(callback session.SessionCallback) error {
 	// TODO: Add support for SavePoint:
 	// https://github.com/golang/go/issues/7898#issuecomment-580080390
 	if s.db == nil {
@@ -47,27 +49,27 @@ func (s *PgxSession) Atomic(callback SessionCallback) error {
 	return nil
 }
 
-func (s *PgxSession) Exec(query string, args ...any) (Result, error) {
-	if IsAutoincrementInsertQuery(query) {
+func (s *PgxSession) Exec(query string, args ...any) (session.Result, error) {
+	if utils.IsAutoincrementInsertQuery(query) {
 		return s.insert(query, args...)
 	}
 	return s.dbExecutor.Exec(query, args...)
 }
 
-func (s *PgxSession) insert(query string, args ...any) (Result, error) {
+func (s *PgxSession) insert(query string, args ...any) (session.Result, error) {
 	var id int64
 	err := s.dbExecutor.QueryRow(query, args...).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
-	return NewResult(id, 0), nil
+	return result.NewResult(id, 0), nil
 }
 
-func (s *PgxSession) Query(query string, args ...any) (Rows, error) {
+func (s *PgxSession) Query(query string, args ...any) (session.Rows, error) {
 	return s.dbExecutor.Query(query, args...)
 }
 
-func (s *PgxSession) QueryRow(query string, args ...any) Row {
+func (s *PgxSession) QueryRow(query string, args ...any) session.Row {
 	return s.dbExecutor.QueryRow(query, args...)
 }
 
@@ -75,12 +77,4 @@ type DbExecutor interface {
 	Exec(query string, args ...any) (sql.Result, error)
 	Query(query string, args ...any) (*sql.Rows, error)
 	QueryRow(query string, args ...any) *sql.Row
-}
-
-func IsInsertQuery(query string) bool {
-	return strings.TrimSpace(query)[:6] == "INSERT" && !strings.Contains(query, "RETURNING")
-}
-
-func IsAutoincrementInsertQuery(query string) bool {
-	return strings.TrimSpace(query)[:6] == "INSERT" && strings.Contains(query, "RETURNING")
 }

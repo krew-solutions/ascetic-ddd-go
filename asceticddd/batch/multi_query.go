@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/result"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
 )
 
@@ -38,7 +39,7 @@ type MultiQueryBase struct {
 	sqlTemplate  string
 	placeholders string
 	params       [][]any
-	results      []*session.DeferredResultImp
+	results      []*result.DeferredResultImp
 	re           *regexp.Regexp
 	replacement  string
 	concat       string
@@ -68,7 +69,7 @@ func (q *MultiQueryBase) Exec(query string, args ...any) (session.DeferredResult
 	q.placeholders = q.re.FindStringSubmatch(query)[1]
 	q.sqlTemplate = q.re.ReplaceAllLiteralString(query, q.replacement)
 	q.params = append(q.params, args)
-	result := session.NewDeferredResult()
+	result := result.NewDeferredResult()
 	q.results = append(q.results, result)
 	return result, nil
 }
@@ -124,5 +125,5 @@ func (q AutoincrementMultiInsertQuery) Evaluate(s session.DbSession) (session.Re
 	if err != nil {
 		return nil, err
 	}
-	return session.NewResult(0, int64(len(q.results))), errs
+	return result.NewResult(0, int64(len(q.results))), errs
 }

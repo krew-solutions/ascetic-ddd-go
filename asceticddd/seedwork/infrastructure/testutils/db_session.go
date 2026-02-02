@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/result"
 )
 
 func NewDbSessionStub(rows *RowsStub) *DbSessionStub {
@@ -26,7 +27,7 @@ func (s DbSessionStub) Atomic(callback session.SessionCallback) error {
 func (s *DbSessionStub) Exec(query string, args ...any) (session.Result, error) {
 	s.ActualQuery = query
 	s.ActualParams = args
-	return session.NewDeferredResult(), nil
+	return result.NewDeferredResult(), nil
 }
 
 func (s *DbSessionStub) Query(query string, args ...any) (session.Rows, error) {
