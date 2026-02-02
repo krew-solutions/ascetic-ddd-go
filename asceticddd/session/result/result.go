@@ -2,7 +2,7 @@ package result
 
 import "errors"
 
-func NewResultImp(lastInsertId, rowsAffected int64) ResultImp {
+func NewResult(lastInsertId, rowsAffected int64) ResultImp {
 	return ResultImp{lastInsertId, rowsAffected}
 }
 

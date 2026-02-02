@@ -43,7 +43,7 @@ type connectionStub struct {
 func (c *connectionStub) Exec(query string, args ...any) (session.Result, error) {
 	c.session.ActualQuery = query
 	c.session.ActualParams = args
-	return result.NewDeferredResult(), nil
+	return result.NewResult(0, 0), nil
 }
 
 func (c *connectionStub) Query(query string, args ...any) (session.Rows, error) {

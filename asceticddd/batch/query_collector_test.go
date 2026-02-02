@@ -41,7 +41,7 @@ func TestQueryCollectorMultiInsertQuery(t *testing.T) {
                 ON CONFLICT DO NOTHING`
 			q := NewQueryCollector()
 			for _, v := range c.params {
-				_, err := q.Exec(fmt.Sprintf(sqlTemplate, c.sql), v...)
+				_, err := q.Connection().Exec(fmt.Sprintf(sqlTemplate, c.sql), v...)
 				assert.Nil(t, err)
 			}
 			s := testutils.NewDbSessionStub(testutils.NewRowsStub())
@@ -85,7 +85,7 @@ func TestQueryCollectorAutoincrementMultiInsertQuery(t *testing.T) {
                 RETURNING id`
 			q := NewQueryCollector()
 			for _, v := range c.params {
-				_, err := q.Exec(fmt.Sprintf(sqlTemplate, c.sql), v...)
+				_, err := q.Connection().Exec(fmt.Sprintf(sqlTemplate, c.sql), v...)
 				assert.Nil(t, err)
 			}
 			s := testutils.NewDbSessionStub(testutils.NewRowsStub([]any{1}, []any{2}, []any{3}))

@@ -39,7 +39,7 @@ type MultiQueryBase struct {
 	sqlTemplate  string
 	placeholders string
 	params       [][]any
-	results      []*result.DeferredResultImp
+	results      []*DeferredResultImp
 	re           *regexp.Regexp
 	replacement  string
 	concat       string
@@ -69,9 +69,9 @@ func (q *MultiQueryBase) Exec(query string, args ...any) (session.DeferredResult
 	q.placeholders = q.re.FindStringSubmatch(query)[1]
 	q.sqlTemplate = q.re.ReplaceAllLiteralString(query, q.replacement)
 	q.params = append(q.params, args)
-	result := result.NewDeferredResult()
-	q.results = append(q.results, result)
-	return result, nil
+	r := NewDeferredResult()
+	q.results = append(q.results, r)
+	return r, nil
 }
 
 type MultiQuery struct {

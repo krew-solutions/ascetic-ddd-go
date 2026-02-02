@@ -1,6 +1,7 @@
 package batch
 
 import (
+	"context"
 	"errors"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
@@ -12,19 +13,33 @@ func NewQueryCollector() *QueryCollector {
 	r := &QueryCollector{
 		multiQueryMap: make(map[string]MultiQuerier),
 	}
+	r.conn = &connectionCollector{collector: r}
 	return r
 }
 
 type MultiQuerier interface {
 	session.QueryEvaluator
-	session.DeferredDbExecutor
+	Exec(query string, args ...any) (session.DeferredResult, error)
 }
 
 type QueryCollector struct {
 	multiQueryMap map[string]MultiQuerier
+	conn          *connectionCollector
 }
 
-func (c *QueryCollector) Exec(query string, args ...any) (session.DeferredResult, error) {
+func (c *QueryCollector) Context() context.Context {
+	return context.Background()
+}
+
+func (c *QueryCollector) Atomic(callback session.SessionCallback) error {
+	return callback(c)
+}
+
+func (c *QueryCollector) Connection() session.DeferredDbConnection {
+	return c.conn
+}
+
+func (c *QueryCollector) collectQuery(query string, args ...any) (session.DeferredResult, error) {
 	if _, found := c.multiQueryMap[query]; !found {
 		if utils.IsAutoincrementInsertQuery(query) {
 			c.multiQueryMap[query] = NewAutoincrementMultiInsertQuery()
@@ -57,4 +72,20 @@ func (c *QueryCollector) Evaluate(s session.DbSession) (session.Result, error) {
 		}
 	}
 	return result.NewResult(0, rowsAffected), nil
+}
+
+type connectionCollector struct {
+	collector *QueryCollector
+}
+
+func (c *connectionCollector) Exec(query string, args ...any) (session.DeferredResult, error) {
+	return c.collector.collectQuery(query, args...)
+}
+
+func (c *connectionCollector) Query(query string, args ...any) (session.DeferredRows, error) {
+	return nil, errors.New("Query not supported in batch collector")
+}
+
+func (c *connectionCollector) QueryRow(query string, args ...any) session.DeferredRow {
+	return nil
 }

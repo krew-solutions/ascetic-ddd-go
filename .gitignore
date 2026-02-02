@@ -42,5 +42,5 @@ go.work.sum
 *.crt
 
 .claude
-CLAUDE.md
+.CLAUDE.md
 
