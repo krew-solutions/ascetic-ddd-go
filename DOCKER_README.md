@@ -15,7 +15,7 @@
 7. В данном контейнере выполнить `bash`
 ![Alt text](readme_images/docker_readme/db-ascetic-ddd-go-bash-cmd-exmpl.png)
 - и перейти в директорию в `app` - `cd app` (по умолчанию откроется сразу данная директория, но лучше убедиться)
-8. После в этом же контейнере и директории `app` выполнить команду ```psql -U devel -p 5432 -d devel_ascetic-ddd-go < ./ascetic-ddd-go/internal/infrastructure/sql/init.sql```
+8. После в этом же контейнере и директории `app` выполнить команду ```psql -U devel -p 5432 -d devel_grade < ./sql/init.sql```
 ![Alt text](readme_images/docker_readme/db-ascetic-ddd-go-init-sql-exmpl.png)
 - если все успешно, БД будет "поднята"
 9. Теперь осталось настроить `pgAdmin` (если нужно)
