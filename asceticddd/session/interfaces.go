@@ -9,21 +9,17 @@ import (
 type SessionCallback func(Session) error
 
 type Session interface {
+	Context() context.Context
 	Atomic(SessionCallback) error
 }
 
-type SessionContextCallback func(SessionContext) error
-
-type SessionContext interface {
-	context.Context
-	Atomic(SessionContextCallback) error
-}
-
-type SessionPoolCallback func(Session) error
+type SessionPoolCallback func(SessionContext) error
 
 type SessionPool interface {
 	Session(context.Context, SessionPoolCallback) error
 }
+
+// Db
 
 type Result interface {
 	LastInsertId() (int64, error)
@@ -42,34 +38,31 @@ type Row interface {
 	Scan(dest ...any) error
 }
 
-// Db
-
-type DbSessionExecutor interface {
+type DbExecutor interface {
 	Exec(query string, args ...any) (Result, error)
 }
 
-type DbSessionQuerier interface {
+type DbQuerier interface {
 	Query(query string, args ...any) (Rows, error)
 }
 
-type DbSessionSingleQuerier interface {
+type DbSingleQuerier interface {
 	QueryRow(query string, args ...any) Row
 }
 
-type DbSession interface {
-	Session
+type DbConnection interface {
 	DbSessionExecutor
 	DbSessionQuerier
 	DbSessionSingleQuerier
 }
 
-type QueryEvaluator interface {
-	Evaluate(s DbSession) (Result, error)
+type DbSession interface {
+	Session
+	Connection() DbConnection
 }
 
-type EventSourcedQueryEvaluator interface {
-	QueryEvaluator
-	SetStreamType(string)
+type QueryEvaluator interface {
+	Evaluate(s DbSession) (Result, error)
 }
 
 // Deferred
@@ -86,20 +79,25 @@ type DeferredRow interface {
 	deferred.Deferred[Row]
 }
 
-type DeferredDbSessionExecutor interface {
+type DeferredDbExecutor interface {
 	Exec(query string, args ...any) (DeferredResult, error)
 }
 
-type DeferredDbSessionQuerier interface {
+type DeferredDbQuerier interface {
 	Query(query string, args ...any) (DeferredRows, error)
 }
 
-type DeferredDbSessionSingleQuerier interface {
+type DeferredDbSingleQuerier interface {
 	QueryRow(query string, args ...any) DeferredRow
 }
 
-type DeferredDbSession interface {
+type DeferredDbConnection interface {
 	DeferredDbSessionExecutor
 	DeferredDbSessionQuerier
 	DeferredDbSessionSingleQuerier
+}
+
+type DeferredDbSession interface {
+	Session
+	Connection() Connection
 }

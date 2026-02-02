@@ -40,3 +40,7 @@ go.work.sum
 /db_data
 
 *.crt
+
+.claude
+CLAUDE.md
+
