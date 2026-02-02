@@ -1,4 +1,4 @@
-package pgx
+package context
 
 /*
  * Some parts of the code based on
@@ -8,8 +8,6 @@ package pgx
 
 import (
 	"context"
-
-	"database/sql"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 )
@@ -30,22 +28,21 @@ func SessionFromContext(ctx context.Context) session.DbSession {
 	return sess
 }
 
-func NewPgxSessionContext(ctx context.Context, db *sql.DB) *PgxSessionContext {
-	sess := NewPgxSession(db)
-	return &PgxSessionContext{
+func NewSessionContext(ctx context.Context, sess session.DbSession) *SessionContext {
+	return &SessionContext{
 		context.WithValue(ctx, sessionKey{}, sess),
 		sess,
 	}
 }
 
-type PgxSessionContext struct {
+type SessionContext struct {
 	context.Context
 	session.DbSession
 }
 
-func (s *PgxSessionContext) Atomic(callback session.SessionContextCallback) error {
+func (s *SessionContext) Atomic(callback session.SessionContextCallback) error {
 	callbackUnclothed := func(dbSession session.Session) error {
-		sessionContext := &PgxSessionContext{
+		sessionContext := &SessionContext{
 			NewBackgroundContext(s.Context),
 			dbSession.(session.DbSession),
 		}
