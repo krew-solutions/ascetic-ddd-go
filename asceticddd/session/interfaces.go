@@ -1,9 +1,23 @@
 package session
 
 import (
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
+	"context"
+
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/deferred"
 )
+
+type SessionCallback func(Session) error
+
+type Session interface {
+	Atomic(SessionCallback) error
+}
+
+type SessionContextCallback func(SessionContext) error
+
+type SessionContext interface {
+	context.Context
+	Atomic(SessionContextCallback) error
+}
 
 type Result interface {
 	LastInsertId() (int64, error)
@@ -37,7 +51,7 @@ type DbSessionSingleQuerier interface {
 }
 
 type DbSession interface {
-	session.Session
+	Session
 	DbSessionExecutor
 	DbSessionQuerier
 	DbSessionSingleQuerier

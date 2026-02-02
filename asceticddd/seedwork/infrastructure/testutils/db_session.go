@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 
-	appSession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 )
 
@@ -20,7 +19,7 @@ type DbSessionStub struct {
 	ActualParams []any
 }
 
-func (s DbSessionStub) Atomic(callback appSession.SessionCallback) error {
+func (s DbSessionStub) Atomic(callback session.SessionCallback) error {
 	return callback(s)
 }
 

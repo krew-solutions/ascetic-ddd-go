@@ -7,8 +7,6 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/pkg/errors"
-
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
 )
 
 func NewPgxSession(db *sql.DB) *PgxSession {
@@ -23,7 +21,7 @@ type PgxSession struct {
 	dbExecutor DbExecutor
 }
 
-func (s *PgxSession) Atomic(callback session.SessionCallback) error {
+func (s *PgxSession) Atomic(callback SessionCallback) error {
 	// TODO: Add support for SavePoint:
 	// https://github.com/golang/go/issues/7898#issuecomment-580080390
 	if s.db == nil {

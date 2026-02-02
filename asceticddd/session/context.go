@@ -10,8 +10,6 @@ import (
 	"context"
 
 	"database/sql"
-
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
 )
 
 type sessionKey struct{}
@@ -30,22 +28,22 @@ func SessionFromContext(ctx context.Context) DbSession {
 	return sess
 }
 
-func NewSessionContext(ctx context.Context, db *sql.DB) *SessionContext {
+func NewPgxSessionContext(ctx context.Context, db *sql.DB) *PgxSessionContext {
 	sess := NewPgxSession(db)
-	return &SessionContext{
+	return &PgxSessionContext{
 		context.WithValue(ctx, sessionKey{}, sess),
 		sess,
 	}
 }
 
-type SessionContext struct {
+type PgxSessionContext struct {
 	context.Context
 	DbSession
 }
 
-func (s *SessionContext) Atomic(callback session.SessionContextCallback) error {
-	callbackUnclothed := func(dbSession session.Session) error {
-		sessionContext := &SessionContext{
+func (s *PgxSessionContext) Atomic(callback SessionContextCallback) error {
+	callbackUnclothed := func(dbSession Session) error {
+		sessionContext := &PgxSessionContext{
 			NewBackgroundContext(s.Context),
 			dbSession.(DbSession),
 		}
