@@ -1,7 +1,7 @@
 package identity
 
 import (
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/specification"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/uuid"
 )
 

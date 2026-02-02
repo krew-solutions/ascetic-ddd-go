@@ -1,7 +1,7 @@
 package specification
 
 import (
-	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/specification"
+	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 )
 
 type ExpressionComposer interface {

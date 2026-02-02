@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/identity"
-	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/specification"
+	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 )
 
 type SomethingCriteria struct {

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/specification"
+	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 )
 
 var (

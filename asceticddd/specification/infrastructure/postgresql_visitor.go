@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/specification"
+	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 )
 
 func Compile(context Context, exp s.Visitable) (sql string, params []any, err error) {
