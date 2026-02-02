@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/session"
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/utils"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
 )
 
 var reInsert = regexp.MustCompile(`VALUES\s*(\((?:'(?:[^']|'')*'|[^)])+\))`)
