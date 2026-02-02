@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	appSession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 )
 
 func NewDbSessionStub(rows *RowsStub) *DbSessionStub {

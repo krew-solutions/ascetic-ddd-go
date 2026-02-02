@@ -3,7 +3,7 @@ package repository
 import (
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/aggregate"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/uuid"
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 )
 
 type EventQueryFactory func(aggregate.PersistentDomainEvent) session.EventSourcedQueryEvaluator

@@ -3,7 +3,7 @@ package batch
 import (
 	"errors"
 
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 )
 
 func NewQueryCollector() *QueryCollector {

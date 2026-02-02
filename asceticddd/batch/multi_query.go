@@ -6,7 +6,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
 )
 

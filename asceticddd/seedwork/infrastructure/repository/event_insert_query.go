@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/aggregate"
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 )
 
 type EventInsertQuery struct {
