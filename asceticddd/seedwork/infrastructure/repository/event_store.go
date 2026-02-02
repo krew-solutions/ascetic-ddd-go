@@ -6,7 +6,12 @@ import (
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 )
 
-type EventQueryFactory func(aggregate.PersistentDomainEvent) session.EventSourcedQueryEvaluator
+type EventSourcedQueryEvaluator interface {
+	session.QueryEvaluator
+	SetStreamType(string)
+}
+
+type EventQueryFactory func(aggregate.PersistentDomainEvent) EventSourcedQueryEvaluator
 
 func NewEventStore(currentSession session.DbSession, streamType string, eventQuery EventQueryFactory) *EventStore {
 	return &EventStore{
