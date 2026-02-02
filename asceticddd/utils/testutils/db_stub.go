@@ -1,6 +1,7 @@
 package testutils
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
@@ -9,37 +10,52 @@ import (
 )
 
 func NewDbSessionStub(rows *RowsStub) *DbSessionStub {
-	return &DbSessionStub{
+	stub := &DbSessionStub{
 		Rows: rows,
 	}
+	stub.conn = &connectionStub{session: stub}
+	return stub
 }
 
 type DbSessionStub struct {
 	Rows         *RowsStub
 	ActualQuery  string
 	ActualParams []any
+	conn         *connectionStub
 }
 
-func (s DbSessionStub) Atomic(callback session.SessionCallback) error {
+func (s *DbSessionStub) Context() context.Context {
+	return context.Background()
+}
+
+func (s *DbSessionStub) Atomic(callback session.SessionCallback) error {
 	return callback(s)
 }
 
-func (s *DbSessionStub) Exec(query string, args ...any) (session.Result, error) {
-	s.ActualQuery = query
-	s.ActualParams = args
+func (s *DbSessionStub) Connection() session.DbConnection {
+	return s.conn
+}
+
+type connectionStub struct {
+	session *DbSessionStub
+}
+
+func (c *connectionStub) Exec(query string, args ...any) (session.Result, error) {
+	c.session.ActualQuery = query
+	c.session.ActualParams = args
 	return result.NewDeferredResult(), nil
 }
 
-func (s *DbSessionStub) Query(query string, args ...any) (session.Rows, error) {
-	s.ActualQuery = query
-	s.ActualParams = args
-	return s.Rows, nil
+func (c *connectionStub) Query(query string, args ...any) (session.Rows, error) {
+	c.session.ActualQuery = query
+	c.session.ActualParams = args
+	return c.session.Rows, nil
 }
 
-func (s *DbSessionStub) QueryRow(query string, args ...any) session.Row {
-	s.ActualQuery = query
-	s.ActualParams = args
-	return s.Rows
+func (c *connectionStub) QueryRow(query string, args ...any) session.Row {
+	c.session.ActualQuery = query
+	c.session.ActualParams = args
+	return c.session.Rows
 }
 
 func NewRowsStub(rows ...[]any) *RowsStub {

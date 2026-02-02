@@ -17,7 +17,7 @@ func NewQueryCollector() *QueryCollector {
 
 type MultiQuerier interface {
 	session.QueryEvaluator
-	session.DeferredDbSessionExecutor
+	session.DeferredDbExecutor
 }
 
 type QueryCollector struct {

@@ -56,5 +56,5 @@ func (q *EventInsertQuery) Evaluate(s session.DbSession) (session.Result, error)
 		return nil, err
 	}
 	q.params[7] = meta
-	return s.Exec(q.sql(), q.params[:]...)
+	return s.Connection().Exec(q.sql(), q.params[:]...)
 }
