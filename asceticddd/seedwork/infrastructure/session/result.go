@@ -3,7 +3,7 @@ package session
 import (
 	"errors"
 
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/deferred"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/deferred"
 )
 
 func NewResult(lastInsertId, rowsAffected int64) *DeferredResultImp {

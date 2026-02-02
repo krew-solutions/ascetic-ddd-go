@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/go-multierror"
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/domain/disposable"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/disposable"
 )
 
 var (

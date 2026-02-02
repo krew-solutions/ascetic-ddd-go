@@ -2,7 +2,7 @@ package session
 
 import (
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/application/session"
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/deferred"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/deferred"
 )
 
 type Result interface {
