@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/deferred"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/result"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
@@ -39,7 +40,7 @@ type MultiQueryBase struct {
 	sqlTemplate  string
 	placeholders string
 	params       [][]any
-	results      []*DeferredResultImp
+	results      []*deferred.DeferredImp[session.Result]
 	re           *regexp.Regexp
 	replacement  string
 	concat       string
@@ -64,12 +65,12 @@ func (q *MultiQueryBase) flatParams() []any {
 	return result
 }
 
-func (q *MultiQueryBase) Exec(query string, args ...any) (session.DeferredResult, error) {
+func (q *MultiQueryBase) Exec(query string, args ...any) (deferred.Deferred[session.Result], error) {
 	query = utils.RebindReverse(query)
 	q.placeholders = q.re.FindStringSubmatch(query)[1]
 	q.sqlTemplate = q.re.ReplaceAllLiteralString(query, q.replacement)
 	q.params = append(q.params, args)
-	r := NewDeferredResult()
+	r := &deferred.DeferredImp[session.Result]{}
 	q.results = append(q.results, r)
 	return r, nil
 }
@@ -86,7 +87,7 @@ func (q MultiQuery) Evaluate(s session.DbSession) (session.Result, error) {
 	}
 	for i := range q.results {
 		d := q.results[i]
-		d.Resolve(0, 0)
+		d.Resolve(result.NewResult(0, 0))
 		occurredErr := d.OccurredErr()
 		if occurredErr != nil {
 			errs = multierror.Append(errs, occurredErr)
@@ -114,7 +115,7 @@ func (q AutoincrementMultiInsertQuery) Evaluate(s session.DbSession) (session.Re
 			return nil, err
 		}
 		d := q.results[i]
-		d.Resolve(id, 0)
+		d.Resolve(result.NewResult(id, 0))
 		occurredErr := d.OccurredErr()
 		if occurredErr != nil {
 			errs = multierror.Append(errs, occurredErr)

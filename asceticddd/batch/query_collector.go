@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/deferred"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/result"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
@@ -19,7 +20,7 @@ func NewQueryCollector() *QueryCollector {
 
 type MultiQuerier interface {
 	session.QueryEvaluator
-	Exec(query string, args ...any) (session.DeferredResult, error)
+	Exec(query string, args ...any) (deferred.Deferred[session.Result], error)
 }
 
 type QueryCollector struct {
@@ -35,11 +36,11 @@ func (c *QueryCollector) Atomic(callback session.SessionCallback) error {
 	return callback(c)
 }
 
-func (c *QueryCollector) Connection() session.DeferredDbConnection {
+func (c *QueryCollector) Connection() DeferredDbConnection {
 	return c.conn
 }
 
-func (c *QueryCollector) collectQuery(query string, args ...any) (session.DeferredResult, error) {
+func (c *QueryCollector) collectQuery(query string, args ...any) (deferred.Deferred[session.Result], error) {
 	if _, found := c.multiQueryMap[query]; !found {
 		if utils.IsAutoincrementInsertQuery(query) {
 			c.multiQueryMap[query] = NewAutoincrementMultiInsertQuery()
@@ -78,14 +79,14 @@ type connectionCollector struct {
 	collector *QueryCollector
 }
 
-func (c *connectionCollector) Exec(query string, args ...any) (session.DeferredResult, error) {
+func (c *connectionCollector) Exec(query string, args ...any) (deferred.Deferred[session.Result], error) {
 	return c.collector.collectQuery(query, args...)
 }
 
-func (c *connectionCollector) Query(query string, args ...any) (session.DeferredRows, error) {
+func (c *connectionCollector) Query(query string, args ...any) (deferred.Deferred[session.Rows], error) {
 	return nil, errors.New("Query not supported in batch collector")
 }
 
-func (c *connectionCollector) QueryRow(query string, args ...any) session.DeferredRow {
+func (c *connectionCollector) QueryRow(query string, args ...any) deferred.Deferred[session.Row] {
 	return nil
 }

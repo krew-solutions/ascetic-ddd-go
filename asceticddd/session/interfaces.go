@@ -2,8 +2,6 @@ package session
 
 import (
 	"context"
-
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/deferred"
 )
 
 type SessionCallback func(Session) error
@@ -63,41 +61,4 @@ type DbSession interface {
 
 type QueryEvaluator interface {
 	Evaluate(s DbSession) (Result, error)
-}
-
-// Deferred
-
-type DeferredResult interface {
-	deferred.Deferred[Result]
-}
-
-type DeferredRows interface {
-	deferred.Deferred[Rows]
-}
-
-type DeferredRow interface {
-	deferred.Deferred[Row]
-}
-
-type DeferredDbExecutor interface {
-	Exec(query string, args ...any) (DeferredResult, error)
-}
-
-type DeferredDbQuerier interface {
-	Query(query string, args ...any) (DeferredRows, error)
-}
-
-type DeferredDbSingleQuerier interface {
-	QueryRow(query string, args ...any) DeferredRow
-}
-
-type DeferredDbConnection interface {
-	DeferredDbExecutor
-	DeferredDbQuerier
-	DeferredDbSingleQuerier
-}
-
-type DeferredDbSession interface {
-	Session
-	Connection() DeferredDbConnection
 }
