@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/seedwork/infrastructure/testutils"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils/testutils"
 )
 
 func TestQueryCollectorMultiInsertQuery(t *testing.T) {
