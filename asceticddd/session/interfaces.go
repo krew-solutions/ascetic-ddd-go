@@ -51,9 +51,9 @@ type DbSingleQuerier interface {
 }
 
 type DbConnection interface {
-	DbSessionExecutor
-	DbSessionQuerier
-	DbSessionSingleQuerier
+	DbExecutor
+	DbQuerier
+	DbSingleQuerier
 }
 
 type DbSession interface {
@@ -99,5 +99,5 @@ type DeferredDbConnection interface {
 
 type DeferredDbSession interface {
 	Session
-	Connection() Connection
+	Connection() DeferredDbConnection
 }
