@@ -1,4 +1,4 @@
-package pgx
+package sql
 
 import (
 	"database/sql"
@@ -11,19 +11,19 @@ import (
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
 )
 
-func NewPgxSession(db *sql.DB) *PgxSession {
-	return &PgxSession{
+func NewSession(db *sql.DB) *Session {
+	return &Session{
 		db:         db,
 		dbExecutor: db,
 	}
 }
 
-type PgxSession struct {
+type Session struct {
 	db         *sql.DB
 	dbExecutor DbExecutor
 }
 
-func (s *PgxSession) Atomic(callback session.SessionCallback) error {
+func (s *Session) Atomic(callback session.SessionCallback) error {
 	// TODO: Add support for SavePoint:
 	// https://github.com/golang/go/issues/7898#issuecomment-580080390
 	if s.db == nil {
@@ -33,7 +33,7 @@ func (s *PgxSession) Atomic(callback session.SessionCallback) error {
 	if err != nil {
 		return errors.Wrap(err, "unable to start transaction")
 	}
-	newSession := &PgxSession{
+	newSession := &Session{
 		dbExecutor: tx,
 	}
 	err = callback(newSession)
@@ -49,14 +49,14 @@ func (s *PgxSession) Atomic(callback session.SessionCallback) error {
 	return nil
 }
 
-func (s *PgxSession) Exec(query string, args ...any) (session.Result, error) {
+func (s *Session) Exec(query string, args ...any) (session.Result, error) {
 	if utils.IsAutoincrementInsertQuery(query) {
 		return s.insert(query, args...)
 	}
 	return s.dbExecutor.Exec(query, args...)
 }
 
-func (s *PgxSession) insert(query string, args ...any) (session.Result, error) {
+func (s *Session) insert(query string, args ...any) (session.Result, error) {
 	var id int64
 	err := s.dbExecutor.QueryRow(query, args...).Scan(&id)
 	if err != nil {
@@ -65,11 +65,11 @@ func (s *PgxSession) insert(query string, args ...any) (session.Result, error) {
 	return result.NewResult(id, 0), nil
 }
 
-func (s *PgxSession) Query(query string, args ...any) (session.Rows, error) {
+func (s *Session) Query(query string, args ...any) (session.Rows, error) {
 	return s.dbExecutor.Query(query, args...)
 }
 
-func (s *PgxSession) QueryRow(query string, args ...any) session.Row {
+func (s *Session) QueryRow(query string, args ...any) session.Row {
 	return s.dbExecutor.QueryRow(query, args...)
 }
 
