@@ -3,7 +3,7 @@ package identitymap
 import (
 	"errors"
 
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/pkg/collections"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/identitymap/collections"
 )
 
 type IsolationLevel uint
