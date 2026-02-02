@@ -6,7 +6,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
-	sessioncontext "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/context"
 )
 
 type SessionPool struct {
@@ -22,18 +21,15 @@ func (p *SessionPool) Session(ctx context.Context, callback session.SessionPoolC
 		return err
 	}
 
-	// Захватываем соединение из пула
+	// Acquire connection from pool
 	conn, err := p.pool.Acquire(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Release()
 
-	// Создаём сессию с захваченным соединением
+	// Create session with acquired connection
 	sess := NewSession(ctx, conn)
 
-	// Оборачиваем в SessionContext
-	sctx := sessioncontext.NewSessionContext(ctx, sess)
-
-	return callback(sctx)
+	return callback(sess)
 }

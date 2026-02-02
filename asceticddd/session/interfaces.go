@@ -13,7 +13,7 @@ type Session interface {
 	Atomic(SessionCallback) error
 }
 
-type SessionPoolCallback func(SessionContext) error
+type SessionPoolCallback func(Session) error
 
 type SessionPool interface {
 	Session(context.Context, SessionPoolCallback) error
@@ -92,9 +92,9 @@ type DeferredDbSingleQuerier interface {
 }
 
 type DeferredDbConnection interface {
-	DeferredDbSessionExecutor
-	DeferredDbSessionQuerier
-	DeferredDbSessionSingleQuerier
+	DeferredDbExecutor
+	DeferredDbQuerier
+	DeferredDbSingleQuerier
 }
 
 type DeferredDbSession interface {
