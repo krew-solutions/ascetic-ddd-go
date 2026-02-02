@@ -1,13 +1,13 @@
 version: "3.9"
 
 services:
-  app-grade:
+  app-ascetic-ddd-go:
     build:
       context: .
-    image: grade
+    image: ascetic-ddd-go
     stdin_open: true # docker run -i
     tty: true        # docker run -t
-    container_name: app-grade
+    container_name: app-ascetic-ddd-go
     restart: unless-stopped
     working_dir: /app
     env_file:
@@ -15,11 +15,11 @@ services:
     volumes:
       - ./:/app
     networks:
-      - grade
+      - ascetic-ddd-go
     entrypoint: /bin/sh
 
-  db-grade:
-    container_name: db-grade
+  db-ascetic-ddd-go:
+    container_name: db-ascetic-ddd-go
     image: postgres:15.3
     working_dir: /app
     environment:
@@ -30,16 +30,16 @@ services:
     volumes:
       - ./:/app
       - ./docker-compose/postgresql/master/:/docker-entrypoint-initdb.d
-      - ./docker-compose/postgresql/master/grade.conf:/etc/postgresql/postgresql.conf
+      - ./docker-compose/postgresql/master/ascetic-ddd-go.conf:/etc/postgresql/postgresql.conf
       - ./db_data/master:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     restart: unless-stopped
     networks:
-      - grade
+      - ascetic-ddd-go
 
-  pgadmin-grade:
-    container_name: pgadmin-grade
+  pgadmin-ascetic-ddd-go:
+    container_name: pgadmin-ascetic-ddd-go
     image: dpage/pgadmin4:latest
     environment:
       PGADMIN_DEFAULT_EMAIL: "${PGADMIN_DEFAULT_EMAIL}"
@@ -51,8 +51,8 @@ services:
       - "5052:80"
     restart: unless-stopped
     networks:
-      - grade
+      - ascetic-ddd-go
 
 networks:
-  grade:
+  ascetic-ddd-go:
       driver: bridge
