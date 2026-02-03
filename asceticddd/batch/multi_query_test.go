@@ -88,7 +88,7 @@ func TestAutoincrementMultiInsertQuery(t *testing.T) {
 				_, err := q.Exec(fmt.Sprintf(sqlTemplate, c.sql), v...)
 				assert.Nil(t, err)
 			}
-			s := testutils.NewDbSessionStub(testutils.NewRowsStub([]any{1}, []any{2}, []any{3}))
+			s := testutils.NewDbSessionStub(testutils.NewRowsStub([]any{1}, []any{2}))
 			_, err := q.Evaluate(s)
 			assert.Equal(t, fmt.Sprintf(sqlTemplate, c.expectedSql), s.ActualQuery)
 			assert.Equal(t, c.expectedParams, s.ActualParams)

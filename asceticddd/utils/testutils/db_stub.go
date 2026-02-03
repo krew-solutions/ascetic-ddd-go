@@ -55,12 +55,14 @@ func (c *connectionStub) Query(query string, args ...any) (session.Rows, error) 
 func (c *connectionStub) QueryRow(query string, args ...any) session.Row {
 	c.session.ActualQuery = query
 	c.session.ActualParams = args
-	return c.session.Rows
+	return &RowStub{rows: c.session.Rows}
 }
 
 func NewRowsStub(rows ...[]any) *RowsStub {
 	return &RowsStub{
-		rows, 0, false,
+		rows:   rows,
+		idx:    -1,
+		Closed: false,
 	}
 }
 
@@ -75,27 +77,121 @@ func (r *RowsStub) Close() error {
 	return nil
 }
 
-func (r RowsStub) Err() error {
+func (r *RowsStub) Err() error {
 	return nil
 }
 
 func (r *RowsStub) Next() bool {
 	r.idx++
-	return len(r.rows) < r.idx
+	return r.idx < len(r.rows)
 }
 
-func (r RowsStub) Scan(dest ...any) error {
-	for i, d := range dest {
-		dt, ok := d.(sql.Scanner)
-		if !ok {
-			return errors.New("value should implement sql.Scanner interface")
+func (r *RowsStub) Scan(dest ...any) error {
+	if r.idx < 0 || r.idx >= len(r.rows) {
+		return errors.New("no current row")
+	}
+
+	row := r.rows[r.idx]
+	for i, val := range row {
+		if i >= len(dest) {
+			break
 		}
-		err := dt.Scan(r.rows[r.idx][i])
-		if err != nil {
-			return err
+
+		switch d := dest[i].(type) {
+		case *int:
+			*d = toInt(val)
+		case *int64:
+			*d = toInt64(val)
+		case *int32:
+			*d = toInt32(val)
+		case *string:
+			*d = val.(string)
+		case *bool:
+			*d = val.(bool)
+		case *[]byte:
+			*d = val.([]byte)
+		case *float64:
+			*d = toFloat64(val)
+		case *float32:
+			*d = toFloat32(val)
+		case sql.Scanner:
+			if err := d.Scan(val); err != nil {
+				return err
+			}
+		default:
+			return errors.New("unsupported scan type")
 		}
 	}
 	return nil
+}
+
+func toInt(val any) int {
+	switch v := val.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case int32:
+		return int(v)
+	default:
+		panic("cannot convert to int")
+	}
+}
+
+func toInt64(val any) int64 {
+	switch v := val.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case int32:
+		return int64(v)
+	default:
+		panic("cannot convert to int64")
+	}
+}
+
+func toInt32(val any) int32 {
+	switch v := val.(type) {
+	case int:
+		return int32(v)
+	case int64:
+		return int32(v)
+	case int32:
+		return v
+	default:
+		panic("cannot convert to int32")
+	}
+}
+
+func toFloat64(val any) float64 {
+	switch v := val.(type) {
+	case float64:
+		return v
+	case float32:
+		return float64(v)
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	default:
+		panic("cannot convert to float64")
+	}
+}
+
+func toFloat32(val any) float32 {
+	switch v := val.(type) {
+	case float32:
+		return v
+	case float64:
+		return float32(v)
+	case int:
+		return float32(v)
+	case int64:
+		return float32(v)
+	default:
+		panic("cannot convert to float32")
+	}
 }
 
 type RowStub struct {

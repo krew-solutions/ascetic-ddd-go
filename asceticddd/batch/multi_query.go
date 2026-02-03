@@ -110,6 +110,9 @@ func (q AutoincrementMultiInsertQuery) Evaluate(s session.DbSession) (session.Re
 	defer rows.Close()
 	i := 0
 	for rows.Next() {
+		if i >= len(q.results) {
+			break
+		}
 		err := rows.Scan(&id)
 		if err != nil {
 			return nil, err
