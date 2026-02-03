@@ -19,11 +19,11 @@ The Inbox pattern ensures:
 import (
     "github.com/krew-solutions/ascetic-ddd-go/asceticddd/inbox"
     "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
-    pgxsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pgx"
+    pgsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pg"
 )
 
 // Setup session pool
-pool := pgxsession.NewSessionPool(pgxPool)
+pool := pgsession.NewSessionPool(pgxPool)
 
 // Create inbox with default URI-based partitioning
 inb := inbox.NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
@@ -96,12 +96,12 @@ import (
 
     "github.com/confluentinc/confluent-kafka-go/v2/kafka"
     "github.com/krew-solutions/ascetic-ddd-go/asceticddd/inbox"
-    pgxsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pgx"
+    pgsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pg"
 )
 
 func main() {
     // Setup inbox
-    pool := pgxsession.NewSessionPool(pgxPool)
+    pool := pgsession.NewSessionPool(pgxPool)
     inb := inbox.NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
     if err := inb.Setup(); err != nil {
         log.Fatal(err)

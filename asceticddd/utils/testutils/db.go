@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
-	pgxsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pgx"
+	pgsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pg"
 )
 
 func NewPgSessionPool() (session.SessionPool, error) {
@@ -24,7 +24,7 @@ func NewPgSessionPool() (session.SessionPool, error) {
 		return nil, err
 	}
 
-	return pgxsession.NewSessionPool(pool), nil
+	return pgsession.NewSessionPool(pool), nil
 }
 
 func getEnv(key, fallback string) string {
