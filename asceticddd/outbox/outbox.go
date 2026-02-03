@@ -145,6 +145,78 @@ func (o *PgOutbox) Run(ctx context.Context, subscriber Subscriber, consumerGroup
 	return <-errCh
 }
 
+func (o *PgOutbox) Messages(ctx context.Context, consumerGroup string, uri string, workerID int, numWorkers int, pollInterval float64) <-chan *OutboxMessage {
+	effectiveConsumerGroup := consumerGroup
+	if numWorkers > 1 {
+		effectiveConsumerGroup = fmt.Sprintf("%s:%d", consumerGroup, workerID)
+	}
+
+	messageCh := make(chan *OutboxMessage)
+
+	go func() {
+		defer close(messageCh)
+
+		bgCtx := context.Background()
+		err := o.sessionPool.Session(bgCtx, func(s session.Session) error {
+			return o.ensureConsumerGroup(s.(session.DbSession), effectiveConsumerGroup, uri)
+		})
+		if err != nil {
+			return
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			var messages []*OutboxMessage
+			err := o.sessionPool.Session(bgCtx, func(s session.Session) error {
+				return s.Atomic(func(txSession session.Session) error {
+					var err error
+					messages, err = o.fetchMessages(txSession.(session.DbSession), effectiveConsumerGroup, uri, workerID, numWorkers)
+					if err != nil {
+						return err
+					}
+
+					if len(messages) == 0 {
+						return nil
+					}
+
+					for _, msg := range messages {
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						case messageCh <- msg:
+						}
+					}
+
+					last := messages[len(messages)-1]
+					return o.ackMessage(txSession.(session.DbSession), effectiveConsumerGroup, uri, *last.TransactionID, *last.Position)
+				})
+			})
+
+			if err != nil {
+				if err == context.Canceled || err == context.DeadlineExceeded {
+					return
+				}
+				continue
+			}
+
+			if len(messages) == 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(pollInterval * float64(time.Second))):
+				}
+			}
+		}
+	}()
+
+	return messageCh
+}
+
 func (o *PgOutbox) GetPosition(s session.DbSession, consumerGroup string, uri string) (int64, int64, error) {
 	sql := fmt.Sprintf(`
 		SELECT last_processed_transaction_id, offset_acked
