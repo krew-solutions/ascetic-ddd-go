@@ -15,7 +15,7 @@ import (
 // specgen generates AST code from specification predicate functions.
 //
 // Usage:
-//   //go:generate specgen -type=User
+//   //go:generate go run github.com/krew-solutions/ascetic-ddd-go/cmd/specgen -type=User
 //
 // This will scan all functions with //spec:sql comment and generate
 // corresponding AST builder functions in *_spec_gen.go files.
@@ -188,7 +188,7 @@ func generateCode(outputPath, pkgName, typeName string, specs []SpecFunc) error 
 		// Generate AST function
 		fmt.Fprintf(f, "// %sAST returns AST for %s\n", s.Name, s.Name)
 		fmt.Fprintf(f, "func %sAST() spec.Visitable {\n", s.Name)
-		fmt.Fprintf(f, "\treturn %s\n", convertExprToAST(s.Body, typeName))
+		fmt.Fprintf(f, "\treturn %s\n", convertExprToAST(s.Body, typeName, "", false))
 		fmt.Fprintf(f, "}\n\n")
 
 		// Generate SQL helper
@@ -203,17 +203,24 @@ func generateCode(outputPath, pkgName, typeName string, specs []SpecFunc) error 
 }
 
 // convertExprToAST converts Go expression to Specification AST builder code
-func convertExprToAST(expr ast.Expr, typeName string) string {
+// paramName is the main parameter name (e.g., "u" in func(u User))
+// itemName is the current item name in wildcard context (e.g., "item" in Any(items, func(item Item)))
+// inWildcard indicates if we're inside a wildcard predicate
+func convertExprToAST(expr ast.Expr, typeName string, itemName string, inWildcard bool) string {
 	switch e := expr.(type) {
 	case *ast.BinaryExpr:
-		return convertBinaryExpr(e, typeName)
+		return convertBinaryExpr(e, typeName, itemName, inWildcard)
 
 	case *ast.UnaryExpr:
-		return convertUnaryExpr(e, typeName)
+		return convertUnaryExpr(e, typeName, itemName, inWildcard)
 
 	case *ast.SelectorExpr:
-		// e.g., u.Age
-		return fmt.Sprintf("spec.Field(spec.GlobalScope(), %q)", e.Sel.Name)
+		// e.g., u.Age or item.Price
+		return convertSelectorExpr(e, typeName, itemName, inWildcard)
+
+	case *ast.CallExpr:
+		// Function calls (Any, All, IsNull, IsNotNull, etc.)
+		return convertCallExpr(e, typeName, itemName, inWildcard)
 
 	case *ast.BasicLit:
 		// Constant literal
@@ -221,26 +228,175 @@ func convertExprToAST(expr ast.Expr, typeName string) string {
 
 	case *ast.Ident:
 		// Boolean constants or field access
-		if e.Name == "true" || e.Name == "false" {
+		if e.Name == "true" || e.Name == "false" || e.Name == "nil" {
 			return fmt.Sprintf("spec.Value(%s)", e.Name)
 		}
-		// Could be a field of the type
+		// Direct field access (rare, but possible)
 		return fmt.Sprintf("spec.Field(spec.GlobalScope(), %q)", e.Name)
 
 	case *ast.ParenExpr:
 		// Unwrap parentheses
-		return convertExprToAST(e.X, typeName)
+		return convertExprToAST(e.X, typeName, itemName, inWildcard)
 
 	default:
-		return fmt.Sprintf("spec.Value(nil) // TODO: unsupported expr %T", expr)
+		return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported expr %T */", expr)
 	}
 }
 
-func convertBinaryExpr(expr *ast.BinaryExpr, typeName string) string {
-	left := convertExprToAST(expr.X, typeName)
-	right := convertExprToAST(expr.Y, typeName)
+func convertSelectorExpr(expr *ast.SelectorExpr, typeName string, itemName string, inWildcard bool) string {
+	// Build the chain of field accesses
+	var path []string
+	var baseIdent *ast.Ident
+
+	// Walk up the chain to collect all field names
+	current := expr
+	for {
+		path = append([]string{current.Sel.Name}, path...) // prepend
+
+		switch x := current.X.(type) {
+		case *ast.SelectorExpr:
+			// Nested selector (e.g., u.Profile.Age)
+			current = x
+			continue
+		case *ast.Ident:
+			// Base identifier (u, item, etc.)
+			baseIdent = x
+		default:
+			// Unknown base
+			return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported selector base %T */", current.X)
+		}
+		break
+	}
+
+	// Determine the scope based on context
+	var scope string
+	if inWildcard && baseIdent.Name == itemName {
+		// Inside wildcard, referring to item
+		scope = "spec.Item()"
+	} else {
+		// Normal context, referring to root object
+		scope = "spec.GlobalScope()"
+	}
+
+	// Build nested Object chain for all but the last field
+	for i := 0; i < len(path)-1; i++ {
+		scope = fmt.Sprintf("spec.Object(%s, %q)", scope, path[i])
+	}
+
+	// Last element is the field
+	return fmt.Sprintf("spec.Field(%s, %q)", scope, path[len(path)-1])
+}
+
+func convertCallExpr(expr *ast.CallExpr, typeName string, itemName string, inWildcard bool) string {
+	// Check if it's a function we recognize
+	switch fun := expr.Fun.(type) {
+	case *ast.Ident:
+		switch fun.Name {
+		case "Any", "All":
+			return convertAnyAll(expr, typeName, fun.Name)
+		}
+	case *ast.SelectorExpr:
+		// Check for spec.Any, spec.All, or method calls
+		switch fun.Sel.Name {
+		case "Any", "All":
+			return convertAnyAll(expr, typeName, fun.Sel.Name)
+		case "IsNull":
+			return convertIsNull(expr, typeName, itemName, inWildcard)
+		case "IsNotNull":
+			return convertIsNotNull(expr, typeName, itemName, inWildcard)
+		}
+	}
+
+	return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported call %T */", expr.Fun)
+}
+
+func convertAnyAll(expr *ast.CallExpr, typeName string, funcName string) string {
+	// Any/All(collection, func(item Type) bool { return predicate })
+	if len(expr.Args) != 2 {
+		return fmt.Sprintf("spec.Value(nil) /* %s requires 2 arguments */", funcName)
+	}
+
+	// First arg is the collection selector (e.g., store.Items)
+	collectionExpr := expr.Args[0]
+	collectionSelector, ok := collectionExpr.(*ast.SelectorExpr)
+	if !ok {
+		return fmt.Sprintf("spec.Value(nil) /* %s first arg must be selector */", funcName)
+	}
+
+	collectionField := collectionSelector.Sel.Name
+
+	// Build parent scope for collection
+	var parentScope string
+	switch x := collectionSelector.X.(type) {
+	case *ast.Ident:
+		// Simple case: store.Items
+		parentScope = "spec.GlobalScope()"
+	case *ast.SelectorExpr:
+		// Nested case: store.Nested.Items
+		parentScope = convertSelectorExpr(x, typeName, "", false)
+		// Convert Field to Object
+		parentScope = fmt.Sprintf("spec.Object(%s.Object(), %s.Name())", parentScope, parentScope)
+	default:
+		return fmt.Sprintf("spec.Value(nil) /* unsupported collection parent %T */", collectionSelector.X)
+	}
+
+	// Second arg is the lambda function
+	lambdaExpr := expr.Args[1]
+	funcLit, ok := lambdaExpr.(*ast.FuncLit)
+	if !ok {
+		return fmt.Sprintf("spec.Value(nil) /* %s second arg must be func literal */", funcName)
+	}
+
+	// Extract lambda parameter name
+	if len(funcLit.Type.Params.List) != 1 || len(funcLit.Type.Params.List[0].Names) != 1 {
+		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have exactly one param */", funcName)
+	}
+	itemName := funcLit.Type.Params.List[0].Names[0].Name
+
+	// Extract lambda body (should be a return statement)
+	if len(funcLit.Body.List) != 1 {
+		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have exactly one statement */", funcName)
+	}
+	retStmt, ok := funcLit.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(retStmt.Results) != 1 {
+		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have return statement */", funcName)
+	}
+
+	// Convert predicate in wildcard context
+	predicate := convertExprToAST(retStmt.Results[0], typeName, itemName, true)
+
+	// Generate Wildcard node
+	return fmt.Sprintf("spec.Wildcard(spec.Object(%s, %q), %s)", parentScope, collectionField, predicate)
+}
+
+func convertIsNull(expr *ast.CallExpr, typeName string, itemName string, inWildcard bool) string {
+	// value.IsNull() -> IsNull(value)
+	sel, ok := expr.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "spec.Value(nil) /* IsNull: invalid selector */"
+	}
+
+	operand := convertExprToAST(sel.X, typeName, itemName, inWildcard)
+	return fmt.Sprintf("spec.IsNull(%s)", operand)
+}
+
+func convertIsNotNull(expr *ast.CallExpr, typeName string, itemName string, inWildcard bool) string {
+	// value.IsNotNull() -> IsNotNull(value)
+	sel, ok := expr.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "spec.Value(nil) /* IsNotNull: invalid selector */"
+	}
+
+	operand := convertExprToAST(sel.X, typeName, itemName, inWildcard)
+	return fmt.Sprintf("spec.IsNotNull(%s)", operand)
+}
+
+func convertBinaryExpr(expr *ast.BinaryExpr, typeName string, itemName string, inWildcard bool) string {
+	left := convertExprToAST(expr.X, typeName, itemName, inWildcard)
+	right := convertExprToAST(expr.Y, typeName, itemName, inWildcard)
 
 	switch expr.Op {
+	// Comparison
 	case token.EQL: // ==
 		return fmt.Sprintf("spec.Equal(%s, %s)", left, right)
 	case token.NEQ: // !=
@@ -253,10 +409,14 @@ func convertBinaryExpr(expr *ast.BinaryExpr, typeName string) string {
 		return fmt.Sprintf("spec.GreaterThan(%s, %s)", left, right)
 	case token.GEQ: // >=
 		return fmt.Sprintf("spec.GreaterThanEqual(%s, %s)", left, right)
+
+	// Logical
 	case token.LAND: // &&
 		return fmt.Sprintf("spec.And(%s, %s)", left, right)
 	case token.LOR: // ||
 		return fmt.Sprintf("spec.Or(%s, %s)", left, right)
+
+	// Arithmetic
 	case token.ADD: // +
 		return fmt.Sprintf("spec.Add(%s, %s)", left, right)
 	case token.SUB: // -
@@ -267,18 +427,33 @@ func convertBinaryExpr(expr *ast.BinaryExpr, typeName string) string {
 		return fmt.Sprintf("spec.Div(%s, %s)", left, right)
 	case token.REM: // %
 		return fmt.Sprintf("spec.Mod(%s, %s)", left, right)
+
+	// Bitwise
+	case token.AND: // & (bitwise AND)
+		// Note: In Go, & is used for both bitwise AND and address-of
+		// In expression context, it's bitwise AND
+		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise AND not yet implemented in spec */", left, right)
+	case token.OR: // | (bitwise OR)
+		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise OR not yet implemented in spec */", left, right)
+	case token.XOR: // ^ (bitwise XOR)
+		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise XOR not yet implemented in spec */", left, right)
+	case token.SHL: // <<
+		return fmt.Sprintf("spec.LeftShift(%s, %s)", left, right)
+	case token.SHR: // >>
+		return fmt.Sprintf("spec.RightShift(%s, %s)", left, right)
+
 	default:
-		return fmt.Sprintf("spec.Value(nil) // TODO: unsupported op %v", expr.Op)
+		return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported op %v */", expr.Op)
 	}
 }
 
-func convertUnaryExpr(expr *ast.UnaryExpr, typeName string) string {
-	operand := convertExprToAST(expr.X, typeName)
+func convertUnaryExpr(expr *ast.UnaryExpr, typeName string, itemName string, inWildcard bool) string {
+	operand := convertExprToAST(expr.X, typeName, itemName, inWildcard)
 
 	switch expr.Op {
 	case token.NOT: // !
 		return fmt.Sprintf("spec.Not(%s)", operand)
 	default:
-		return fmt.Sprintf("spec.Value(nil) // TODO: unsupported unary op %v", expr.Op)
+		return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported unary op %v */", expr.Op)
 	}
 }
