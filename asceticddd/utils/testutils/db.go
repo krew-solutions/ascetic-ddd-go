@@ -10,7 +10,7 @@ import (
 	pgxsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pgx"
 )
 
-func NewPgxSessionPool() (session.SessionPool, error) {
+func NewPgSessionPool() (session.SessionPool, error) {
 	var db_username string = getEnv("DB_USERNAME", "devel")
 	var db_password string = getEnv("DB_PASSWORD", "devel")
 	var db_host string = getEnv("DB_HOST", "localhost")

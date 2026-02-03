@@ -12,7 +12,7 @@ import (
 func setupInboxIntegrationTest(t *testing.T) (*PgInbox, session.SessionPool, func()) {
 	t.Helper()
 
-	pool, err := testutils.NewPgxSessionPool()
+	pool, err := testutils.NewPgSessionPool()
 	if err != nil {
 		t.Fatalf("Failed to create session pool: %v", err)
 	}

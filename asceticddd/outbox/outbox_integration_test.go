@@ -19,7 +19,7 @@ const (
 )
 
 func setupOutbox(t *testing.T) (*PgOutbox, session.SessionPool) {
-	pool, err := testutils.NewPgxSessionPool()
+	pool, err := testutils.NewPgSessionPool()
 	require.NoError(t, err)
 
 	outbox := NewOutbox(pool, testOutboxTable, testOffsetsTable, 100)
