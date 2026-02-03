@@ -133,11 +133,11 @@ func TestPublishInsertsMessage(t *testing.T) {
 	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
 
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{"type": "OrderCreated", "amount": 100},
 		Metadata:       map[string]any{"event_id": "uuid-123"},
 	}
@@ -252,18 +252,18 @@ func TestDispatchProcessesMessageWithoutDependencies(t *testing.T) {
 		t.Fatalf("Expected 1 handled message, got %d", len(handled))
 	}
 
-	if handled[0].TenantID != "tenant1" {
-		t.Errorf("Expected tenant_id=tenant1, got %s", handled[0].TenantID)
+	if handled[0].TenantId != "tenant1" {
+		t.Errorf("Expected tenant_id=tenant1, got %s", handled[0].TenantId)
 	}
 }
 
 func TestDependenciesSatisfiedWhenEmpty(t *testing.T) {
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{"type": "OrderCreated"},
 		Metadata:       nil,
 	}
@@ -430,8 +430,8 @@ func TestMessagesChannelYieldsMessages(t *testing.T) {
 		t.Errorf("Expected 1 message, got %d", len(received))
 	}
 
-	if len(received) > 0 && received[0].TenantID != "tenant1" {
-		t.Errorf("Expected tenant_id=tenant1, got %s", received[0].TenantID)
+	if len(received) > 0 && received[0].TenantId != "tenant1" {
+		t.Errorf("Expected tenant_id=tenant1, got %s", received[0].TenantId)
 	}
 }
 

@@ -193,7 +193,7 @@ func (i *PgInbox) insertMessage(s session.DbSession, message *InboxMessage) erro
 		ON CONFLICT (tenant_id, stream_type, stream_id, stream_position) DO NOTHING
 	`, i.table)
 
-	streamIDBytes, err := json.Marshal(message.StreamID)
+	streamIDBytes, err := json.Marshal(message.StreamId)
 	if err != nil {
 		return err
 	}
@@ -213,11 +213,11 @@ func (i *PgInbox) insertMessage(s session.DbSession, message *InboxMessage) erro
 
 	_, err = s.Connection().Exec(
 		sql,
-		message.TenantID,
+		message.TenantId,
 		message.StreamType,
 		streamIDBytes,
 		message.StreamPosition,
-		message.URI,
+		message.Uri,
 		payloadBytes,
 		metadataBytes,
 	)
@@ -260,7 +260,7 @@ func (i *PgInbox) fetchUnprocessedMessage(
 ) (*InboxMessage, error) {
 	partitionFilter := ""
 	if numWorkers > 1 {
-		partitionExpr := i.partitionKeyStrategy.GetSQLExpression()
+		partitionExpr := i.partitionKeyStrategy.GetSqlExpression()
 		partitionFilter = fmt.Sprintf(
 			"AND hashtext(%s) %% %d = %d",
 			partitionExpr,
@@ -332,11 +332,11 @@ func (i *PgInbox) fetchUnprocessedMessage(
 	}
 
 	return &InboxMessage{
-		TenantID:          tenantID,
+		TenantId:          tenantID,
 		StreamType:        streamType,
-		StreamID:          streamID,
+		StreamId:          streamID,
 		StreamPosition:    streamPosition,
-		URI:               uri,
+		Uri:               uri,
 		Payload:           payload,
 		Metadata:          metadata,
 		ReceivedPosition:  &receivedPosition,
@@ -410,14 +410,14 @@ func (i *PgInbox) markProcessed(s session.DbSession, message *InboxMessage) erro
 		  AND stream_position = $4
 	`, i.table, i.sequence)
 
-	streamIDBytes, err := json.Marshal(message.StreamID)
+	streamIDBytes, err := json.Marshal(message.StreamId)
 	if err != nil {
 		return err
 	}
 
 	_, err = s.Connection().Exec(
 		sql,
-		message.TenantID,
+		message.TenantId,
 		message.StreamType,
 		streamIDBytes,
 		message.StreamPosition,

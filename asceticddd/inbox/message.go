@@ -4,18 +4,18 @@ package inbox
 //
 // Attributes:
 //
-//	TenantID: Tenant identifier. Extracted from payload. Use "1" if tenant is not used.
+//	TenantId: Tenant identifier. Extracted from payload. Use "1" if tenant is not used.
 //	StreamType: Type of the event stream. Can be one of:
 //	    - bounded_context_name.aggregate_name extracted from payload
 //	    - topic/channel name
-//	StreamID: Identifier of the stream (stored as jsonb). Can be one of:
+//	StreamId: Identifier of the stream (stored as jsonb). Can be one of:
 //	    - aggregate.id.internal_id extracted from payload for composite aggregate.id
 //	    - aggregate.id extracted from payload for primitive aggregate.id
 //	    - partition key of topic/channel
 //	StreamPosition: Position in the stream (monotonically increasing). Can be one of:
 //	    - aggregate.version from payload
 //	    - position/offset of topic/channel
-//	URI: Routing URI (e.g., 'kafka://orders', 'amqp://exchange/key'). Can be one of:
+//	Uri: Routing URI (e.g., 'kafka://orders', 'amqp://exchange/key'). Can be one of:
 //	    - bus_type://topic_or_channel_name
 //	    - bus_type://topic_or_channel_name/partition_key
 //	Payload: Event payload data (must contain 'type' for deserialization).
@@ -23,11 +23,11 @@ package inbox
 //	ReceivedPosition: Position when message was received (auto-assigned by DB).
 //	ProcessedPosition: Position when message was processed (nil if not processed).
 type InboxMessage struct {
-	TenantID          string
+	TenantId          string
 	StreamType        string
-	StreamID          map[string]any
+	StreamId          map[string]any
 	StreamPosition    int
-	URI               string
+	Uri               string
 	Payload           map[string]any
 	Metadata          map[string]any
 	ReceivedPosition  *int64
@@ -55,14 +55,14 @@ func (m *InboxMessage) CausalDependencies() []map[string]any {
 	return result
 }
 
-// EventID returns event_id from metadata if present.
-func (m *InboxMessage) EventID() *string {
+// EventId returns event_id from metadata if present.
+func (m *InboxMessage) EventId() *string {
 	if m.Metadata == nil {
 		return nil
 	}
-	eventID, ok := m.Metadata["event_id"].(string)
+	eventId, ok := m.Metadata["event_id"].(string)
 	if !ok {
 		return nil
 	}
-	return &eventID
+	return &eventId
 }

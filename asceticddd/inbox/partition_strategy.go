@@ -2,11 +2,11 @@ package inbox
 
 // PartitionKeyStrategy defines strategy for computing partition key SQL expression.
 type PartitionKeyStrategy interface {
-	// GetSQLExpression returns SQL expression for partition key.
+	// GetSqlExpression returns SQL expression for partition key.
 	//
 	// The expression is used with hashtext() for worker distribution:
 	// WHERE hashtext(<expression>) % num_workers = worker_id
-	GetSQLExpression() string
+	GetSqlExpression() string
 }
 
 // StreamPartitionKeyStrategy partitions by stream identity.
@@ -18,7 +18,7 @@ type PartitionKeyStrategy interface {
 // SQL expression: tenant_id || ':' || stream_type || ':' || stream_id::text
 type StreamPartitionKeyStrategy struct{}
 
-func (s *StreamPartitionKeyStrategy) GetSQLExpression() string {
+func (s *StreamPartitionKeyStrategy) GetSqlExpression() string {
 	return "tenant_id || ':' || stream_type || ':' || stream_id::text"
 }
 
@@ -33,6 +33,6 @@ func (s *StreamPartitionKeyStrategy) GetSQLExpression() string {
 // SQL expression: uri
 type UriPartitionKeyStrategy struct{}
 
-func (s *UriPartitionKeyStrategy) GetSQLExpression() string {
+func (s *UriPartitionKeyStrategy) GetSqlExpression() string {
 	return "uri"
 }

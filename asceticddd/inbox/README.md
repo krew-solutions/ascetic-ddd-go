@@ -34,11 +34,11 @@ inb.Setup()
 
 ```go
 message := &inbox.InboxMessage{
-    TenantID:       "tenant1",
+    TenantId:       "tenant1",
     StreamType:     "Order",
-    StreamID:       map[string]any{"id": "order-123"},
+    StreamId:       map[string]any{"id": "order-123"},
     StreamPosition: 1,
-    URI:            "kafka://orders",
+    Uri:            "kafka://orders",
     Payload: map[string]any{
         "type":     "OrderCreated",
         "order_id": "123",
@@ -71,7 +71,7 @@ for sessionMsg := range inb.Messages(ctx, 0, 1, 0.1) {
 
 ```go
 subscriber := func(s session.DbSession, msg *inbox.InboxMessage) error {
-    fmt.Printf("Processing: %s\n", msg.URI)
+    fmt.Printf("Processing: %s\n", msg.Uri)
     return processMessage(s, msg)
 }
 
@@ -148,11 +148,11 @@ func main() {
             json.Unmarshal(msg.Value, &payload)
 
             inboxMsg := &inbox.InboxMessage{
-                TenantID:       "default",
+                TenantId:       "default",
                 StreamType:     *msg.TopicPartition.Topic,
-                StreamID:       map[string]any{"partition": msg.TopicPartition.Partition},
+                StreamId:       map[string]any{"partition": msg.TopicPartition.Partition},
                 StreamPosition: int(msg.TopicPartition.Offset),
-                URI:            "kafka://" + *msg.TopicPartition.Topic,
+                Uri:            "kafka://" + *msg.TopicPartition.Topic,
                 Payload:        payload,
             }
 
@@ -166,7 +166,7 @@ func main() {
 
     // Process from inbox
     for sessionMsg := range inb.Messages(ctx, 0, 1, 0.1) {
-        log.Printf("Processing: %s", sessionMsg.Message.URI)
+        log.Printf("Processing: %s", sessionMsg.Message.Uri)
         // Process message within transaction
         processOrder(sessionMsg.Session, sessionMsg.Message)
     }
@@ -187,7 +187,7 @@ for workerID := 0; workerID < numWorkers; workerID++ {
     go func(id int) {
         // Each worker gets its partition of messages
         for sessionMsg := range inb.Messages(ctx, id, numWorkers, 0.1) {
-            fmt.Printf("Worker %d: %s\n", id, sessionMsg.Message.URI)
+            fmt.Printf("Worker %d: %s\n", id, sessionMsg.Message.Uri)
             processMessage(sessionMsg.Session, sessionMsg.Message)
         }
     }(workerID)
@@ -201,22 +201,22 @@ Messages can specify dependencies that must be processed first:
 ```go
 // First message - creates order
 orderCreated := &inbox.InboxMessage{
-    TenantID:       "tenant1",
+    TenantId:       "tenant1",
     StreamType:     "Order",
-    StreamID:       map[string]any{"id": "order-123"},
+    StreamId:       map[string]any{"id": "order-123"},
     StreamPosition: 1,
-    URI:            "kafka://orders",
+    Uri:            "kafka://orders",
     Payload:        map[string]any{"type": "OrderCreated"},
 }
 inb.Publish(orderCreated)
 
 // Second message - depends on order creation
 orderShipped := &inbox.InboxMessage{
-    TenantID:       "tenant1",
+    TenantId:       "tenant1",
     StreamType:     "Order",
-    StreamID:       map[string]any{"id": "order-123"},
+    StreamId:       map[string]any{"id": "order-123"},
     StreamPosition: 2,
-    URI:            "kafka://shipments",
+    Uri:            "kafka://shipments",
     Payload:        map[string]any{"type": "OrderShipped"},
     Metadata: map[string]any{
         "causal_dependencies": []map[string]any{

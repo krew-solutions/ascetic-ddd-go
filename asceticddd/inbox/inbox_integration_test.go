@@ -54,11 +54,11 @@ func TestPublishAndDispatch(t *testing.T) {
 	defer cleanup()
 
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{"amount": 100},
 		Metadata:       map[string]any{"event_id": "uuid-123"},
 	}
@@ -87,12 +87,12 @@ func TestPublishAndDispatch(t *testing.T) {
 		t.Fatalf("Expected 1 message, got %d", len(handled))
 	}
 
-	if handled[0].TenantID != "tenant1" {
-		t.Errorf("Expected tenant_id=tenant1, got %s", handled[0].TenantID)
+	if handled[0].TenantId != "tenant1" {
+		t.Errorf("Expected tenant_id=tenant1, got %s", handled[0].TenantId)
 	}
 
-	if handled[0].StreamID["id"] != "order-123" {
-		t.Errorf("Expected stream_id.id=order-123, got %v", handled[0].StreamID["id"])
+	if handled[0].StreamId["id"] != "order-123" {
+		t.Errorf("Expected stream_id.id=order-123, got %v", handled[0].StreamId["id"])
 	}
 }
 
@@ -101,11 +101,11 @@ func TestIdempotency(t *testing.T) {
 	defer cleanup()
 
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{"amount": 100},
 	}
 
@@ -152,11 +152,11 @@ func TestCausalDependencies(t *testing.T) {
 
 	// Message that depends on another
 	dependentMessage := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 2,
-		URI:            "kafka://shipments",
+		Uri:            "kafka://shipments",
 		Payload:        map[string]any{"tracking": "123"},
 		Metadata: map[string]any{
 			"causal_dependencies": []any{
@@ -192,11 +192,11 @@ func TestCausalDependencies(t *testing.T) {
 
 	// Now publish the dependency
 	dependencyMessage := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{"amount": 100},
 	}
 	if err := inbox.Publish(dependencyMessage); err != nil {
@@ -211,7 +211,7 @@ func TestCausalDependencies(t *testing.T) {
 	if !result {
 		t.Error("Expected dispatch to return true")
 	}
-	if len(handled) != 1 || handled[0].URI != "kafka://orders" {
+	if len(handled) != 1 || handled[0].Uri != "kafka://orders" {
 		t.Error("Expected to process dependency first")
 	}
 
@@ -223,7 +223,7 @@ func TestCausalDependencies(t *testing.T) {
 	if !result {
 		t.Error("Expected dispatch to return true")
 	}
-	if len(handled) != 2 || handled[1].URI != "kafka://shipments" {
+	if len(handled) != 2 || handled[1].Uri != "kafka://shipments" {
 		t.Error("Expected to process dependent message second")
 	}
 }
@@ -235,11 +235,11 @@ func TestOrderingByReceivedPosition(t *testing.T) {
 	// Publish 3 messages
 	for i := 0; i < 3; i++ {
 		message := &InboxMessage{
-			TenantID:       "tenant1",
+			TenantId:       "tenant1",
 			StreamType:     "Order",
-			StreamID:       map[string]any{"id": "order-" + string(rune('0'+i))},
+			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
 			StreamPosition: 1,
-			URI:            "kafka://orders",
+			Uri:            "kafka://orders",
 			Payload:        map[string]any{"type": "OrderCreated", "order": i},
 		}
 		if err := inbox.Publish(message); err != nil {
@@ -283,22 +283,22 @@ func TestRoutingByUri(t *testing.T) {
 
 	// Publish messages with different URIs
 	if err := inbox.Publish(&InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-1"},
+		StreamId:       map[string]any{"id": "order-1"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{"type": "OrderCreated"},
 	}); err != nil {
 		t.Fatalf("Failed to publish: %v", err)
 	}
 
 	if err := inbox.Publish(&InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-2"},
+		StreamId:       map[string]any{"id": "order-2"},
 		StreamPosition: 1,
-		URI:            "kafka://shipments",
+		Uri:            "kafka://shipments",
 		Payload:        map[string]any{"type": "OrderShipped"},
 	}); err != nil {
 		t.Fatalf("Failed to publish: %v", err)
@@ -310,16 +310,16 @@ func TestRoutingByUri(t *testing.T) {
 	}
 
 	subscriber := func(s session.DbSession, message *InboxMessage) error {
-		if message.URI == "kafka://orders" {
+		if message.Uri == "kafka://orders" {
 			handledEvents = append(handledEvents, struct {
 				uri      string
 				streamID map[string]any
-			}{"orders", message.StreamID})
-		} else if message.URI == "kafka://shipments" {
+			}{"orders", message.StreamId})
+		} else if message.Uri == "kafka://shipments" {
 			handledEvents = append(handledEvents, struct {
 				uri      string
 				streamID map[string]any
-			}{"shipments", message.StreamID})
+			}{"shipments", message.StreamId})
 		}
 		return nil
 	}
@@ -351,11 +351,11 @@ func TestRunWithSingleWorker(t *testing.T) {
 	// Publish 3 messages
 	for i := 0; i < 3; i++ {
 		if err := inbox.Publish(&InboxMessage{
-			TenantID:       "tenant1",
+			TenantId:       "tenant1",
 			StreamType:     "Order",
-			StreamID:       map[string]any{"id": "order-" + string(rune('0'+i))},
+			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
 			StreamPosition: 1,
-			URI:            "kafka://orders",
+			Uri:            "kafka://orders",
 			Payload:        map[string]any{"type": "OrderCreated", "order": i},
 		}); err != nil {
 			t.Fatalf("Failed to publish: %v", err)
@@ -386,11 +386,11 @@ func TestMessagesChannelAPI(t *testing.T) {
 	// Publish 2 messages
 	for i := 0; i < 2; i++ {
 		if err := inbox.Publish(&InboxMessage{
-			TenantID:       "tenant1",
+			TenantId:       "tenant1",
 			StreamType:     "Order",
-			StreamID:       map[string]any{"id": "order-" + string(rune('0'+i))},
+			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
 			StreamPosition: 1,
-			URI:            "kafka://orders",
+			Uri:            "kafka://orders",
 			Payload:        map[string]any{"type": "OrderCreated", "order": i},
 		}); err != nil {
 			t.Fatalf("Failed to publish: %v", err)
@@ -423,11 +423,11 @@ func TestForUpdateSkipLocked(t *testing.T) {
 
 	// Publish a single message
 	if err := inbox.Publish(&InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-1"},
+		StreamId:       map[string]any{"id": "order-1"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{},
 	}); err != nil {
 		t.Fatalf("Failed to publish: %v", err)
@@ -458,11 +458,11 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 	// Publish 10 messages
 	for i := 0; i < 10; i++ {
 		if err := inbox.Publish(&InboxMessage{
-			TenantID:       "tenant1",
+			TenantId:       "tenant1",
 			StreamType:     "Order",
-			StreamID:       map[string]any{"id": "order-" + string(rune('0'+i))},
+			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
 			StreamPosition: 1,
-			URI:            "kafka://orders",
+			Uri:            "kafka://orders",
 			Payload:        map[string]any{"type": "OrderCreated", "order": i},
 		}); err != nil {
 			t.Fatalf("Failed to publish: %v", err)

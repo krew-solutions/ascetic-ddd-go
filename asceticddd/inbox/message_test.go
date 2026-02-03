@@ -6,28 +6,28 @@ import (
 
 func TestCreateMessage(t *testing.T) {
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{"amount": 100},
 	}
 
-	if message.TenantID != "tenant1" {
-		t.Errorf("Expected tenant_id=tenant1, got %s", message.TenantID)
+	if message.TenantId != "tenant1" {
+		t.Errorf("Expected tenant_id=tenant1, got %s", message.TenantId)
 	}
 	if message.StreamType != "Order" {
 		t.Errorf("Expected stream_type=Order, got %s", message.StreamType)
 	}
-	if message.StreamID["id"] != "order-123" {
-		t.Errorf("Expected stream_id.id=order-123, got %v", message.StreamID["id"])
+	if message.StreamId["id"] != "order-123" {
+		t.Errorf("Expected stream_id.id=order-123, got %v", message.StreamId["id"])
 	}
 	if message.StreamPosition != 1 {
 		t.Errorf("Expected stream_position=1, got %d", message.StreamPosition)
 	}
-	if message.URI != "kafka://orders" {
-		t.Errorf("Expected uri=kafka://orders, got %s", message.URI)
+	if message.Uri != "kafka://orders" {
+		t.Errorf("Expected uri=kafka://orders, got %s", message.Uri)
 	}
 	if message.Payload["amount"] != 100 {
 		t.Errorf("Expected payload.amount=100, got %v", message.Payload["amount"])
@@ -45,11 +45,11 @@ func TestCreateMessage(t *testing.T) {
 
 func TestCreateMessageWithMetadata(t *testing.T) {
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{"amount": 100},
 		Metadata: map[string]any{
 			"event_id":  "uuid-123",
@@ -64,11 +64,11 @@ func TestCreateMessageWithMetadata(t *testing.T) {
 
 func TestCausalDependenciesEmptyWhenNoMetadata(t *testing.T) {
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{},
 	}
 
@@ -80,11 +80,11 @@ func TestCausalDependenciesEmptyWhenNoMetadata(t *testing.T) {
 
 func TestCausalDependenciesEmptyWhenNotPresent(t *testing.T) {
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{},
 		Metadata:       map[string]any{"event_id": "uuid-123"},
 	}
@@ -112,11 +112,11 @@ func TestCausalDependenciesReturnsList(t *testing.T) {
 	}
 
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{},
 		Metadata:       map[string]any{"causal_dependencies": deps},
 	}
@@ -136,15 +136,15 @@ func TestCausalDependenciesReturnsList(t *testing.T) {
 
 func TestEventIDNoneWhenNoMetadata(t *testing.T) {
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{},
 	}
 
-	eventID := message.EventID()
+	eventID := message.EventId()
 	if eventID != nil {
 		t.Errorf("Expected nil event_id, got %v", *eventID)
 	}
@@ -152,16 +152,16 @@ func TestEventIDNoneWhenNoMetadata(t *testing.T) {
 
 func TestEventIDReturnsValue(t *testing.T) {
 	message := &InboxMessage{
-		TenantID:       "tenant1",
+		TenantId:       "tenant1",
 		StreamType:     "Order",
-		StreamID:       map[string]any{"id": "order-123"},
+		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
-		URI:            "kafka://orders",
+		Uri:            "kafka://orders",
 		Payload:        map[string]any{},
 		Metadata:       map[string]any{"event_id": "uuid-456"},
 	}
 
-	eventID := message.EventID()
+	eventID := message.EventId()
 	if eventID == nil {
 		t.Fatal("Expected event_id to be non-nil")
 	}
@@ -175,11 +175,11 @@ func TestReceivedAndProcessedPositions(t *testing.T) {
 	processedPos := int64(50)
 
 	message := &InboxMessage{
-		TenantID:          "tenant1",
+		TenantId:          "tenant1",
 		StreamType:        "Order",
-		StreamID:          map[string]any{"id": "order-123"},
+		StreamId:          map[string]any{"id": "order-123"},
 		StreamPosition:    1,
-		URI:               "kafka://orders",
+		Uri:               "kafka://orders",
 		Payload:           map[string]any{},
 		ReceivedPosition:  &receivedPos,
 		ProcessedPosition: &processedPos,
