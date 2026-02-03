@@ -1,9 +1,12 @@
 package specification
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 )
+
+var ErrKeyNotFound = errors.New("key not found")
 
 func NewEvaluateVisitor(context Context) *EvaluateVisitor {
 	return &EvaluateVisitor{
@@ -219,59 +222,139 @@ func (v EvaluateVisitor) evalYieldBooleanInfix(left any, op Operator, right any)
 		return v.evalGt(left, right)
 	case OperatorGte:
 		return v.evalGte(left, right)
+	case OperatorLt:
+		return v.evalLt(left, right)
+	case OperatorLte:
+		return v.evalLte(left, right)
 	case OperatorAnd:
 		return v.evalAnd(left, right)
+	case OperatorOr:
+		return v.evalOr(left, right)
 	default:
 		return false, fmt.Errorf("operator \"%s\" is not supported", op)
 	}
 }
 
 func (v EvaluateVisitor) evalEq(left, right any) (bool, error) {
+	// Try EqualOperand interface first
 	leftTyped, ok := left.(EqualOperand)
-	if !ok {
-		return false, errors.New("left operand is not an EqualOperand")
+	if ok {
+		rightTyped, ok := right.(EqualOperand)
+		if !ok {
+			return false, errors.New("right operand is not an EqualOperand")
+		}
+		return leftTyped.Equal(rightTyped), nil
 	}
-	rightTyped, ok := right.(EqualOperand)
-	if !ok {
-		return false, errors.New("right operand is not an EqualOperand")
-	}
-	return leftTyped.Equal(rightTyped), nil
+
+	// Fallback to simple comparison for basic types
+	return left == right, nil
 }
 
 func (v EvaluateVisitor) evalNe(left, right any) (bool, error) {
+	// Try EqualOperand interface first
 	leftTyped, ok := left.(EqualOperand)
-	if !ok {
-		return false, errors.New("left operand is not an EqualOperand")
+	if ok {
+		rightTyped, ok := right.(EqualOperand)
+		if !ok {
+			return false, errors.New("right operand is not an EqualOperand")
+		}
+		return !leftTyped.Equal(rightTyped), nil
 	}
-	rightTyped, ok := right.(EqualOperand)
-	if !ok {
-		return false, errors.New("right operand is not an EqualOperand")
-	}
-	return !leftTyped.Equal(rightTyped), nil
+
+	// Fallback to simple comparison for basic types
+	return left != right, nil
 }
 
 func (v EvaluateVisitor) evalGt(left, right any) (bool, error) {
+	// Try GreaterThanOperand interface first
 	leftTyped, ok := left.(GreaterThanOperand)
-	if !ok {
-		return false, errors.New("left operand is not a GreaterThanOperand")
+	if ok {
+		rightTyped, ok := right.(GreaterThanOperand)
+		if !ok {
+			return false, errors.New("right operand is not a GreaterThanOperand")
+		}
+		return leftTyped.GreaterThan(rightTyped), nil
 	}
-	rightTyped, ok := right.(GreaterThanOperand)
-	if !ok {
-		return false, errors.New("right operand is not a GreaterThanOperand")
-	}
-	return leftTyped.GreaterThan(rightTyped), nil
+
+	// Fallback to cmp.Ordered for basic numeric types
+	return compareOrdered(left, right, func(c int) bool { return c > 0 })
 }
 
 func (v EvaluateVisitor) evalGte(left, right any) (bool, error) {
+	// Try GreaterThanEqualOperand interface first
 	leftTyped, ok := left.(GreaterThanEqualOperand)
-	if !ok {
-		return false, errors.New("left operand is not a GreaterThanEqualOperand")
+	if ok {
+		rightTyped, ok := right.(GreaterThanEqualOperand)
+		if !ok {
+			return false, errors.New("right operand is not a GreaterThanEqualOperand")
+		}
+		return leftTyped.GreaterThanEqual(rightTyped), nil
 	}
-	rightTyped, ok := right.(GreaterThanEqualOperand)
-	if !ok {
-		return false, errors.New("right operand is not a GreaterThanEqualOperand")
+
+	// Fallback to cmp.Ordered for basic numeric types
+	return compareOrdered(left, right, func(c int) bool { return c >= 0 })
+}
+
+// compareOrdered compares two values if they are cmp.Ordered types
+func compareOrdered(left, right any, predicate func(int) bool) (bool, error) {
+	switch l := left.(type) {
+	case int:
+		r, ok := right.(int)
+		if !ok {
+			return false, errors.New("operands are not comparable")
+		}
+		return predicate(cmp.Compare(l, r)), nil
+	case int64:
+		r, ok := right.(int64)
+		if !ok {
+			return false, errors.New("operands are not comparable")
+		}
+		return predicate(cmp.Compare(l, r)), nil
+	case float64:
+		r, ok := right.(float64)
+		if !ok {
+			return false, errors.New("operands are not comparable")
+		}
+		return predicate(cmp.Compare(l, r)), nil
+	case string:
+		r, ok := right.(string)
+		if !ok {
+			return false, errors.New("operands are not comparable")
+		}
+		return predicate(cmp.Compare(l, r)), nil
+	default:
+		return false, fmt.Errorf("type %T is not comparable", left)
 	}
-	return leftTyped.GreaterThanEqual(rightTyped), nil
+}
+
+func (v EvaluateVisitor) evalLt(left, right any) (bool, error) {
+	// Try LessThanOperand interface first
+	leftTyped, ok := left.(LessThanOperand)
+	if ok {
+		rightTyped, ok := right.(LessThanOperand)
+		if !ok {
+			return false, errors.New("right operand is not a LessThanOperand")
+		}
+		return leftTyped.LessThan(rightTyped), nil
+	}
+
+	// Fallback to cmp.Ordered for basic numeric types
+	return compareOrdered(left, right, func(c int) bool { return c < 0 })
+}
+
+func (v EvaluateVisitor) evalLte(left, right any) (bool, error) {
+	// Try LessThanEqualOperand interface first
+	leftTyped, ok := left.(LessThanEqualOperand)
+	if ok {
+		rightTyped, ok := right.(LessThanEqualOperand)
+		if !ok {
+			return false, errors.New("right operand is not a LessThanEqualOperand")
+		}
+		return leftTyped.LessThanEqual(rightTyped), nil
+	}
+
+	// Fallback to cmp.Ordered for basic numeric types
+	return compareOrdered(left, right, func(c int) bool { return c <= 0 })
 }
 
 func (v EvaluateVisitor) evalAnd(left, right any) (bool, error) {
@@ -284,6 +367,18 @@ func (v EvaluateVisitor) evalAnd(left, right any) (bool, error) {
 		return false, errors.New("right operand is not a bool")
 	}
 	return leftTyped && rightTyped, nil
+}
+
+func (v EvaluateVisitor) evalOr(left, right any) (bool, error) {
+	leftTyped, ok := left.(bool)
+	if !ok {
+		return false, errors.New("left operand is not a bool")
+	}
+	rightTyped, ok := right.(bool)
+	if !ok {
+		return false, errors.New("right operand is not a bool")
+	}
+	return leftTyped || rightTyped, nil
 }
 
 func (v EvaluateVisitor) Result() (bool, error) {
@@ -311,6 +406,10 @@ func ExtractFieldPath(n FieldNode) []string {
 
 type CollectionContext struct {
 	items []Context
+}
+
+func NewCollectionContext(items []Context) CollectionContext {
+	return CollectionContext{items: items}
 }
 
 func (c CollectionContext) Get(slice string) (any, error) {
