@@ -4,45 +4,45 @@ import (
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 )
 
-// IDelegating represents a type that can delegate to a Visitable node.
-type IDelegating interface {
+// Delegating represents a type that can delegate to a Visitable node.
+type Delegating interface {
 	Delegate() s.Visitable
 }
 
-// INullable represents a type that supports NULL checks.
-type INullable interface {
-	IDelegating
-	IsNull() ILogical
-	IsNotNull() ILogical
+// Nullable represents a type that supports NULL checks.
+type Nullable interface {
+	Delegating
+	IsNull() Logical
+	IsNotNull() Logical
 }
 
-// ILogical represents a type that supports logical operations.
-type ILogical interface {
-	IDelegating
-	And(other ILogical) ILogical
-	Or(other ILogical) ILogical
-	Is(other ILogical) ILogical
+// Logical represents a type that supports logical operations.
+type Logical interface {
+	Delegating
+	And(other Logical) Logical
+	Or(other Logical) Logical
+	Is(other Logical) Logical
 }
 
-// IComparison represents a type that supports comparison operations.
-type IComparison interface {
-	IDelegating
-	Eq(other IComparison) ILogical
-	Ne(other IComparison) ILogical
-	Gt(other IComparison) ILogical
-	Lt(other IComparison) ILogical
-	Gte(other IComparison) ILogical
-	Lte(other IComparison) ILogical
-	Lshift(other IComparison) ILogical
-	Rshift(other IComparison) ILogical
+// Comparison represents a type that supports comparison operations.
+type Comparison interface {
+	Delegating
+	Eq(other Comparison) Logical
+	Ne(other Comparison) Logical
+	Gt(other Comparison) Logical
+	Lt(other Comparison) Logical
+	Gte(other Comparison) Logical
+	Lte(other Comparison) Logical
+	Lshift(other Comparison) Logical
+	Rshift(other Comparison) Logical
 }
 
-// IMathematical represents a type that supports mathematical operations.
-type IMathematical interface {
-	IDelegating
-	Add(other IMathematical) IMathematical
-	Sub(other IMathematical) IMathematical
-	Mul(other IMathematical) IMathematical
-	Div(other IMathematical) IMathematical
-	Mod(other IMathematical) IMathematical
+// Mathematical represents a type that supports mathematical operations.
+type Mathematical interface {
+	Delegating
+	Add(other Mathematical) Mathematical
+	Sub(other Mathematical) Mathematical
+	Mul(other Mathematical) Mathematical
+	Div(other Mathematical) Mathematical
+	Mod(other Mathematical) Mathematical
 }

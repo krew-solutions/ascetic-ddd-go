@@ -6,12 +6,12 @@ import (
 
 // Boolean represents a boolean field that supports logical operations.
 type Boolean struct {
-	*Logical
+	*LogicalImp
 }
 
 // NewBoolean creates a new Boolean instance.
 func NewBoolean(delegate s.Visitable) *Boolean {
-	return &Boolean{Logical: NewLogical(delegate)}
+	return &Boolean{LogicalImp: NewLogical(delegate)}
 }
 
 // MakeBooleanField creates a Boolean field from a field name.
@@ -47,23 +47,23 @@ func MakeNullBooleanValue(value any) *NullBoolean {
 }
 
 // Nullable methods for NullBoolean
-func (n *NullBoolean) IsNull() ILogical {
+func (n *NullBoolean) IsNull() Logical {
 	return NewLogical(s.IsNull(n.Delegate()))
 }
 
-func (n *NullBoolean) IsNotNull() ILogical {
+func (n *NullBoolean) IsNotNull() Logical {
 	return NewLogical(s.IsNotNull(n.Delegate()))
 }
 
 // Number represents a numeric field that supports comparison and mathematical operations.
 type Number struct {
-	*Delegating
+	*DelegatingImp
 }
 
 // NewNumber creates a new Number instance.
 func NewNumber(delegate s.Visitable) *Number {
 	return &Number{
-		Delegating: NewDelegating(delegate),
+		DelegatingImp: NewDelegating(delegate),
 	}
 }
 
@@ -78,56 +78,56 @@ func MakeNumberValue(value any) *Number {
 }
 
 // Comparison methods
-func (n *Number) Eq(other IComparison) ILogical {
+func (n *Number) Eq(other Comparison) Logical {
 	return NewLogical(s.Equal(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Ne(other IComparison) ILogical {
+func (n *Number) Ne(other Comparison) Logical {
 	return NewLogical(s.NotEqual(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Gt(other IComparison) ILogical {
+func (n *Number) Gt(other Comparison) Logical {
 	return NewLogical(s.GreaterThan(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Lt(other IComparison) ILogical {
+func (n *Number) Lt(other Comparison) Logical {
 	return NewLogical(s.LessThan(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Gte(other IComparison) ILogical {
+func (n *Number) Gte(other Comparison) Logical {
 	return NewLogical(s.GreaterThanEqual(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Lte(other IComparison) ILogical {
+func (n *Number) Lte(other Comparison) Logical {
 	return NewLogical(s.LessThanEqual(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Lshift(other IComparison) ILogical {
+func (n *Number) Lshift(other Comparison) Logical {
 	return NewLogical(s.LeftShift(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Rshift(other IComparison) ILogical {
+func (n *Number) Rshift(other Comparison) Logical {
 	return NewLogical(s.RightShift(n.Delegate(), other.Delegate()))
 }
 
 // Mathematical methods
-func (n *Number) Add(other IMathematical) IMathematical {
+func (n *Number) Add(other Mathematical) Mathematical {
 	return NewNumber(s.Add(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Sub(other IMathematical) IMathematical {
+func (n *Number) Sub(other Mathematical) Mathematical {
 	return NewNumber(s.Sub(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Mul(other IMathematical) IMathematical {
+func (n *Number) Mul(other Mathematical) Mathematical {
 	return NewNumber(s.Mul(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Div(other IMathematical) IMathematical {
+func (n *Number) Div(other Mathematical) Mathematical {
 	return NewNumber(s.Div(n.Delegate(), other.Delegate()))
 }
 
-func (n *Number) Mod(other IMathematical) IMathematical {
+func (n *Number) Mod(other Mathematical) Mathematical {
 	return NewNumber(s.Mod(n.Delegate(), other.Delegate()))
 }
 
@@ -154,23 +154,23 @@ func MakeNullNumberValue(value any) *NullNumber {
 }
 
 // Nullable methods for NullNumber
-func (n *NullNumber) IsNull() ILogical {
+func (n *NullNumber) IsNull() Logical {
 	return NewLogical(s.IsNull(n.Delegate()))
 }
 
-func (n *NullNumber) IsNotNull() ILogical {
+func (n *NullNumber) IsNotNull() Logical {
 	return NewLogical(s.IsNotNull(n.Delegate()))
 }
 
 // Datetime represents a datetime field that supports comparison and mathematical operations.
 type Datetime struct {
-	*Delegating
+	*DelegatingImp
 }
 
 // NewDatetime creates a new Datetime instance.
 func NewDatetime(delegate s.Visitable) *Datetime {
 	return &Datetime{
-		Delegating: NewDelegating(delegate),
+		DelegatingImp: NewDelegating(delegate),
 	}
 }
 
@@ -185,56 +185,56 @@ func MakeDatetimeValue(value any) *Datetime {
 }
 
 // Comparison methods for Datetime
-func (d *Datetime) Eq(other IComparison) ILogical {
+func (d *Datetime) Eq(other Comparison) Logical {
 	return NewLogical(s.Equal(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Ne(other IComparison) ILogical {
+func (d *Datetime) Ne(other Comparison) Logical {
 	return NewLogical(s.NotEqual(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Gt(other IComparison) ILogical {
+func (d *Datetime) Gt(other Comparison) Logical {
 	return NewLogical(s.GreaterThan(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Lt(other IComparison) ILogical {
+func (d *Datetime) Lt(other Comparison) Logical {
 	return NewLogical(s.LessThan(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Gte(other IComparison) ILogical {
+func (d *Datetime) Gte(other Comparison) Logical {
 	return NewLogical(s.GreaterThanEqual(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Lte(other IComparison) ILogical {
+func (d *Datetime) Lte(other Comparison) Logical {
 	return NewLogical(s.LessThanEqual(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Lshift(other IComparison) ILogical {
+func (d *Datetime) Lshift(other Comparison) Logical {
 	return NewLogical(s.LeftShift(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Rshift(other IComparison) ILogical {
+func (d *Datetime) Rshift(other Comparison) Logical {
 	return NewLogical(s.RightShift(d.Delegate(), other.Delegate()))
 }
 
 // Mathematical methods for Datetime (for date arithmetic)
-func (d *Datetime) Add(other IMathematical) IMathematical {
+func (d *Datetime) Add(other Mathematical) Mathematical {
 	return NewMathematical(s.Add(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Sub(other IMathematical) IMathematical {
+func (d *Datetime) Sub(other Mathematical) Mathematical {
 	return NewMathematical(s.Sub(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Mul(other IMathematical) IMathematical {
+func (d *Datetime) Mul(other Mathematical) Mathematical {
 	return NewMathematical(s.Mul(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Div(other IMathematical) IMathematical {
+func (d *Datetime) Div(other Mathematical) Mathematical {
 	return NewMathematical(s.Div(d.Delegate(), other.Delegate()))
 }
 
-func (d *Datetime) Mod(other IMathematical) IMathematical {
+func (d *Datetime) Mod(other Mathematical) Mathematical {
 	return NewMathematical(s.Mod(d.Delegate(), other.Delegate()))
 }
 
@@ -261,22 +261,22 @@ func MakeNullDatetimeValue(value any) *NullDatetime {
 }
 
 // Nullable methods for NullDatetime
-func (n *NullDatetime) IsNull() ILogical {
+func (n *NullDatetime) IsNull() Logical {
 	return NewLogical(s.IsNull(n.Delegate()))
 }
 
-func (n *NullDatetime) IsNotNull() ILogical {
+func (n *NullDatetime) IsNotNull() Logical {
 	return NewLogical(s.IsNotNull(n.Delegate()))
 }
 
 // Text represents a text field that supports comparison operations.
 type Text struct {
-	*Comparison
+	*ComparisonImp
 }
 
 // NewText creates a new Text instance.
 func NewText(delegate s.Visitable) *Text {
-	return &Text{Comparison: NewComparison(delegate)}
+	return &Text{ComparisonImp: NewComparison(delegate)}
 }
 
 // MakeTextField creates a Text field from a field name.
@@ -312,10 +312,10 @@ func MakeNullTextValue(value any) *NullText {
 }
 
 // Nullable methods for NullText
-func (n *NullText) IsNull() ILogical {
+func (n *NullText) IsNull() Logical {
 	return NewLogical(s.IsNull(n.Delegate()))
 }
 
-func (n *NullText) IsNotNull() ILogical {
+func (n *NullText) IsNotNull() Logical {
 	return NewLogical(s.IsNotNull(n.Delegate()))
 }

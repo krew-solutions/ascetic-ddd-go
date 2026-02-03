@@ -35,9 +35,9 @@ func TestLogical(t *testing.T) {
 		right := NewLogical(s.Value(false))
 		result := left.And(right)
 
-		_, ok := result.(*Logical)
+		_, ok := result.(Logical)
 		if !ok {
-			t.Error("Expected result to be *Logical")
+			t.Error("Expected result to implement Logical")
 		}
 
 		delegate := result.Delegate()
@@ -55,9 +55,9 @@ func TestLogical(t *testing.T) {
 		right := NewLogical(s.Value(false))
 		result := left.Or(right)
 
-		_, ok := result.(*Logical)
+		_, ok := result.(Logical)
 		if !ok {
-			t.Error("Expected result to be *Logical")
+			t.Error("Expected result to implement Logical")
 		}
 
 		delegate := result.Delegate()
@@ -75,9 +75,9 @@ func TestLogical(t *testing.T) {
 		right := NewLogical(s.Value(true))
 		result := left.Is(right)
 
-		_, ok := result.(*Logical)
+		_, ok := result.(Logical)
 		if !ok {
-			t.Error("Expected result to be *Logical")
+			t.Error("Expected result to implement Logical")
 		}
 
 		delegate := result.Delegate()
@@ -97,9 +97,9 @@ func TestNullable(t *testing.T) {
 		nullable := NewNullable(s.Value(nil))
 		result := nullable.IsNull()
 
-		_, ok := result.(*Logical)
+		_, ok := result.(Logical)
 		if !ok {
-			t.Error("Expected result to be *Logical")
+			t.Error("Expected result to implement Logical")
 		}
 
 		delegate := result.Delegate()
@@ -116,9 +116,9 @@ func TestNullable(t *testing.T) {
 		nullable := NewNullable(s.Value(42))
 		result := nullable.IsNotNull()
 
-		_, ok := result.(*Logical)
+		_, ok := result.(Logical)
 		if !ok {
-			t.Error("Expected result to be *Logical")
+			t.Error("Expected result to implement Logical")
 		}
 
 		delegate := result.Delegate()
@@ -139,9 +139,9 @@ func TestComparison(t *testing.T) {
 		right := NewComparison(s.Value(5))
 		result := left.Eq(right)
 
-		_, ok := result.(*Logical)
+		_, ok := result.(Logical)
 		if !ok {
-			t.Error("Expected result to be *Logical")
+			t.Error("Expected result to implement Logical")
 		}
 
 		delegate := result.Delegate()
@@ -243,9 +243,9 @@ func TestMathematical(t *testing.T) {
 		right := NewMathematical(s.Value(3))
 		result := left.Add(right)
 
-		_, ok := result.(*Mathematical)
+		_, ok := result.(Mathematical)
 		if !ok {
-			t.Error("Expected result to be *Mathematical")
+			t.Error("Expected result to implement Mathematical")
 		}
 
 		delegate := result.Delegate()
@@ -303,11 +303,11 @@ func TestMathematical(t *testing.T) {
 func TestDatatypes(t *testing.T) {
 	t.Run("BooleanInheritance", func(t *testing.T) {
 		boolean := NewBoolean(s.Value(true))
-		// Check that boolean implements ILogical
-		var _ ILogical = boolean
-		// Check that it embeds *Logical
-		if boolean.Logical == nil {
-			t.Error("Expected Boolean to embed *Logical")
+		// Check that boolean implements Logical
+		var _ Logical = boolean
+		// Check that it embeds *LogicalImp
+		if boolean.LogicalImp == nil {
+			t.Error("Expected Boolean to embed *LogicalImp")
 		}
 	})
 
@@ -317,18 +317,18 @@ func TestDatatypes(t *testing.T) {
 		if nullBoolean.Boolean == nil {
 			t.Error("Expected NullBoolean to embed *Boolean")
 		}
-		// Check that it implements INullable
-		var _ INullable = nullBoolean
+		// Check that it implements Nullable
+		var _ Nullable = nullBoolean
 	})
 
 	t.Run("NumberInheritance", func(t *testing.T) {
 		number := NewNumber(s.Value(42))
 		// Check that number implements both interfaces
-		var _ IComparison = number
-		var _ IMathematical = number
-		// Check Delegating embedding
-		if number.Delegating == nil {
-			t.Error("Expected Number to embed *Delegating")
+		var _ Comparison = number
+		var _ Mathematical = number
+		// Check DelegatingImp embedding
+		if number.DelegatingImp == nil {
+			t.Error("Expected Number to embed *DelegatingImp")
 		}
 	})
 
@@ -337,17 +337,17 @@ func TestDatatypes(t *testing.T) {
 		if nullNumber.Number == nil {
 			t.Error("Expected NullNumber to embed *Number")
 		}
-		// Check that it implements INullable
-		var _ INullable = nullNumber
+		// Check that it implements Nullable
+		var _ Nullable = nullNumber
 	})
 
 	t.Run("DatetimeInheritance", func(t *testing.T) {
 		dt := NewDatetime(s.Value(time.Now()))
 		// Check that datetime implements both interfaces
-		var _ IComparison = dt
-		var _ IMathematical = dt
-		if dt.Delegating == nil {
-			t.Error("Expected Datetime to embed *Delegating")
+		var _ Comparison = dt
+		var _ Mathematical = dt
+		if dt.DelegatingImp == nil {
+			t.Error("Expected Datetime to embed *DelegatingImp")
 		}
 	})
 
@@ -356,16 +356,16 @@ func TestDatatypes(t *testing.T) {
 		if nullDt.Datetime == nil {
 			t.Error("Expected NullDatetime to embed *Datetime")
 		}
-		// Check that it implements INullable
-		var _ INullable = nullDt
+		// Check that it implements Nullable
+		var _ Nullable = nullDt
 	})
 
 	t.Run("TextInheritance", func(t *testing.T) {
 		text := NewText(s.Value("hello"))
-		// Check that text implements IComparison
-		var _ IComparison = text
-		if text.Comparison == nil {
-			t.Error("Expected Text to embed *Comparison")
+		// Check that text implements Comparison
+		var _ Comparison = text
+		if text.ComparisonImp == nil {
+			t.Error("Expected Text to embed *ComparisonImp")
 		}
 	})
 
@@ -374,8 +374,8 @@ func TestDatatypes(t *testing.T) {
 		if nullText.Text == nil {
 			t.Error("Expected NullText to embed *Text")
 		}
-		// Check that it implements INullable
-		var _ INullable = nullText
+		// Check that it implements Nullable
+		var _ Nullable = nullText
 	})
 }
 
@@ -677,7 +677,7 @@ func TestIntegration(t *testing.T) {
 		// (price * quantity) - discount
 		total := price.Mul(quantity).Sub(discount)
 
-		// Should return IMathematical type
+		// Should return Mathematical type
 		if total == nil {
 			t.Error("Expected non-nil result")
 		}
@@ -708,7 +708,7 @@ func TestIntegration(t *testing.T) {
 
 		remainder := number.Mod(divisor)
 
-		// Should return IMathematical type
+		// Should return Mathematical type
 		if remainder == nil {
 			t.Error("Expected non-nil result")
 		}

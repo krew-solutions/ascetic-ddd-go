@@ -6,151 +6,151 @@ import (
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 )
 
-// Delegating wraps a Visitable node and implements IDelegating.
-type Delegating struct {
+// DelegatingImp wraps a Visitable node and implements Delegating.
+type DelegatingImp struct {
 	delegate s.Visitable
 }
 
-// NewDelegating creates a new Delegating instance.
-func NewDelegating(delegate s.Visitable) *Delegating {
-	return &Delegating{delegate: delegate}
+// NewDelegating creates a new DelegatingImp instance.
+func NewDelegating(delegate s.Visitable) *DelegatingImp {
+	return &DelegatingImp{delegate: delegate}
 }
 
 // Delegate returns the wrapped Visitable node.
-func (d *Delegating) Delegate() s.Visitable {
+func (d *DelegatingImp) Delegate() s.Visitable {
 	return d.delegate
 }
 
 // Note: Factory pattern from Python is implemented via MakeXxxField/MakeXxxValue functions
 // in datatypes.go since Go doesn't support Python-style class methods on generic types
 
-// Logical implements ILogical interface.
-type Logical struct {
-	*Delegating
+// LogicalImp implements Logical interface.
+type LogicalImp struct {
+	*DelegatingImp
 }
 
-// NewLogical creates a new Logical instance.
-func NewLogical(delegate s.Visitable) *Logical {
-	return &Logical{Delegating: NewDelegating(delegate)}
+// NewLogical creates a new LogicalImp instance.
+func NewLogical(delegate s.Visitable) *LogicalImp {
+	return &LogicalImp{DelegatingImp: NewDelegating(delegate)}
 }
 
 // And creates an AND operation.
-func (l *Logical) And(other ILogical) ILogical {
+func (l *LogicalImp) And(other Logical) Logical {
 	return NewLogical(s.And(l.Delegate(), other.Delegate()))
 }
 
 // Or creates an OR operation.
-func (l *Logical) Or(other ILogical) ILogical {
+func (l *LogicalImp) Or(other Logical) Logical {
 	return NewLogical(s.Or(l.Delegate(), other.Delegate()))
 }
 
 // Is creates an IS operation.
-func (l *Logical) Is(other ILogical) ILogical {
+func (l *LogicalImp) Is(other Logical) Logical {
 	return NewLogical(s.Is(l.Delegate(), other.Delegate()))
 }
 
-// Nullable implements INullable interface.
-type Nullable struct {
-	*Delegating
+// NullableImp implements Nullable interface.
+type NullableImp struct {
+	*DelegatingImp
 }
 
-// NewNullable creates a new Nullable instance.
-func NewNullable(delegate s.Visitable) *Nullable {
-	return &Nullable{Delegating: NewDelegating(delegate)}
+// NewNullable creates a new NullableImp instance.
+func NewNullable(delegate s.Visitable) *NullableImp {
+	return &NullableImp{DelegatingImp: NewDelegating(delegate)}
 }
 
 // IsNull creates an IS NULL check.
-func (n *Nullable) IsNull() ILogical {
+func (n *NullableImp) IsNull() Logical {
 	return NewLogical(s.IsNull(n.Delegate()))
 }
 
 // IsNotNull creates an IS NOT NULL check.
-func (n *Nullable) IsNotNull() ILogical {
+func (n *NullableImp) IsNotNull() Logical {
 	return NewLogical(s.IsNotNull(n.Delegate()))
 }
 
-// Comparison implements IComparison interface.
-type Comparison struct {
-	*Delegating
+// ComparisonImp implements Comparison interface.
+type ComparisonImp struct {
+	*DelegatingImp
 }
 
-// NewComparison creates a new Comparison instance.
-func NewComparison(delegate s.Visitable) *Comparison {
-	return &Comparison{Delegating: NewDelegating(delegate)}
+// NewComparison creates a new ComparisonImp instance.
+func NewComparison(delegate s.Visitable) *ComparisonImp {
+	return &ComparisonImp{DelegatingImp: NewDelegating(delegate)}
 }
 
 // Eq creates an equality comparison.
-func (c *Comparison) Eq(other IComparison) ILogical {
+func (c *ComparisonImp) Eq(other Comparison) Logical {
 	return NewLogical(s.Equal(c.Delegate(), other.Delegate()))
 }
 
 // Ne creates an inequality comparison.
-func (c *Comparison) Ne(other IComparison) ILogical {
+func (c *ComparisonImp) Ne(other Comparison) Logical {
 	return NewLogical(s.NotEqual(c.Delegate(), other.Delegate()))
 }
 
 // Gt creates a greater-than comparison.
-func (c *Comparison) Gt(other IComparison) ILogical {
+func (c *ComparisonImp) Gt(other Comparison) Logical {
 	return NewLogical(s.GreaterThan(c.Delegate(), other.Delegate()))
 }
 
 // Lt creates a less-than comparison.
-func (c *Comparison) Lt(other IComparison) ILogical {
+func (c *ComparisonImp) Lt(other Comparison) Logical {
 	return NewLogical(s.LessThan(c.Delegate(), other.Delegate()))
 }
 
 // Gte creates a greater-than-or-equal comparison.
-func (c *Comparison) Gte(other IComparison) ILogical {
+func (c *ComparisonImp) Gte(other Comparison) Logical {
 	return NewLogical(s.GreaterThanEqual(c.Delegate(), other.Delegate()))
 }
 
 // Lte creates a less-than-or-equal comparison.
-func (c *Comparison) Lte(other IComparison) ILogical {
+func (c *ComparisonImp) Lte(other Comparison) Logical {
 	return NewLogical(s.LessThanEqual(c.Delegate(), other.Delegate()))
 }
 
 // Lshift creates a left-shift operation.
-func (c *Comparison) Lshift(other IComparison) ILogical {
+func (c *ComparisonImp) Lshift(other Comparison) Logical {
 	return NewLogical(s.LeftShift(c.Delegate(), other.Delegate()))
 }
 
 // Rshift creates a right-shift operation.
-func (c *Comparison) Rshift(other IComparison) ILogical {
+func (c *ComparisonImp) Rshift(other Comparison) Logical {
 	return NewLogical(s.RightShift(c.Delegate(), other.Delegate()))
 }
 
-// Mathematical implements IMathematical interface.
-type Mathematical struct {
-	*Delegating
+// MathematicalImp implements Mathematical interface.
+type MathematicalImp struct {
+	*DelegatingImp
 }
 
-// NewMathematical creates a new Mathematical instance.
-func NewMathematical(delegate s.Visitable) *Mathematical {
-	return &Mathematical{Delegating: NewDelegating(delegate)}
+// NewMathematical creates a new MathematicalImp instance.
+func NewMathematical(delegate s.Visitable) *MathematicalImp {
+	return &MathematicalImp{DelegatingImp: NewDelegating(delegate)}
 }
 
 // Add creates an addition operation.
-func (m *Mathematical) Add(other IMathematical) IMathematical {
+func (m *MathematicalImp) Add(other Mathematical) Mathematical {
 	return NewMathematical(s.Add(m.Delegate(), other.Delegate()))
 }
 
 // Sub creates a subtraction operation.
-func (m *Mathematical) Sub(other IMathematical) IMathematical {
+func (m *MathematicalImp) Sub(other Mathematical) Mathematical {
 	return NewMathematical(s.Sub(m.Delegate(), other.Delegate()))
 }
 
 // Mul creates a multiplication operation.
-func (m *Mathematical) Mul(other IMathematical) IMathematical {
+func (m *MathematicalImp) Mul(other Mathematical) Mathematical {
 	return NewMathematical(s.Mul(m.Delegate(), other.Delegate()))
 }
 
 // Div creates a division operation.
-func (m *Mathematical) Div(other IMathematical) IMathematical {
+func (m *MathematicalImp) Div(other Mathematical) Mathematical {
 	return NewMathematical(s.Div(m.Delegate(), other.Delegate()))
 }
 
 // Mod creates a modulo operation.
-func (m *Mathematical) Mod(other IMathematical) IMathematical {
+func (m *MathematicalImp) Mod(other Mathematical) Mathematical {
 	return NewMathematical(s.Mod(m.Delegate(), other.Delegate()))
 }
 
