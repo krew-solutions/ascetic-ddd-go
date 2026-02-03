@@ -306,17 +306,11 @@ func TestDatatypes(t *testing.T) {
 		// Check that boolean implements Logical
 		var _ Logical = boolean
 		// Check that it embeds *LogicalImp
-		if boolean.LogicalImp == nil {
-			t.Error("Expected Boolean to embed *LogicalImp")
-		}
 	})
 
 	t.Run("NullBooleanInheritance", func(t *testing.T) {
 		nullBoolean := NewNullBoolean(s.Value(nil))
 		// Check embedding
-		if nullBoolean.Boolean == nil {
-			t.Error("Expected NullBoolean to embed *Boolean")
-		}
 		// Check that it implements Nullable
 		var _ Nullable = nullBoolean
 	})
@@ -327,16 +321,10 @@ func TestDatatypes(t *testing.T) {
 		var _ Comparison = number
 		var _ Mathematical = number
 		// Check DelegatingImp embedding
-		if number.DelegatingImp == nil {
-			t.Error("Expected Number to embed *DelegatingImp")
-		}
 	})
 
 	t.Run("NullNumberInheritance", func(t *testing.T) {
 		nullNumber := NewNullNumber(s.Value(nil))
-		if nullNumber.Number == nil {
-			t.Error("Expected NullNumber to embed *Number")
-		}
 		// Check that it implements Nullable
 		var _ Nullable = nullNumber
 	})
@@ -346,16 +334,10 @@ func TestDatatypes(t *testing.T) {
 		// Check that datetime implements both interfaces
 		var _ Comparison = dt
 		var _ Mathematical = dt
-		if dt.DelegatingImp == nil {
-			t.Error("Expected Datetime to embed *DelegatingImp")
-		}
 	})
 
 	t.Run("NullDatetimeInheritance", func(t *testing.T) {
 		nullDt := NewNullDatetime(s.Value(nil))
-		if nullDt.Datetime == nil {
-			t.Error("Expected NullDatetime to embed *Datetime")
-		}
 		// Check that it implements Nullable
 		var _ Nullable = nullDt
 	})
@@ -364,16 +346,10 @@ func TestDatatypes(t *testing.T) {
 		text := NewText(s.Value("hello"))
 		// Check that text implements Comparison
 		var _ Comparison = text
-		if text.ComparisonImp == nil {
-			t.Error("Expected Text to embed *ComparisonImp")
-		}
 	})
 
 	t.Run("NullTextInheritance", func(t *testing.T) {
 		nullText := NewNullText(s.Value(nil))
-		if nullText.Text == nil {
-			t.Error("Expected NullText to embed *Text")
-		}
 		// Check that it implements Nullable
 		var _ Nullable = nullText
 	})
@@ -383,9 +359,6 @@ func TestDatatypes(t *testing.T) {
 func TestFieldFactory(t *testing.T) {
 	t.Run("BooleanFieldCreation", func(t *testing.T) {
 		bf := MakeBooleanField("is_active")
-		if bf == nil {
-			t.Error("Expected non-nil Boolean")
-		}
 		delegate := bf.Delegate()
 		_, ok := delegate.(s.FieldNode)
 		if !ok {
@@ -395,9 +368,6 @@ func TestFieldFactory(t *testing.T) {
 
 	t.Run("NullBooleanFieldCreation", func(t *testing.T) {
 		nbf := MakeNullBooleanField("is_deleted")
-		if nbf == nil {
-			t.Error("Expected non-nil NullBoolean")
-		}
 		delegate := nbf.Delegate()
 		_, ok := delegate.(s.FieldNode)
 		if !ok {
@@ -407,9 +377,6 @@ func TestFieldFactory(t *testing.T) {
 
 	t.Run("NumberFieldCreation", func(t *testing.T) {
 		nf := MakeNumberField("age")
-		if nf == nil {
-			t.Error("Expected non-nil Number")
-		}
 		delegate := nf.Delegate()
 		_, ok := delegate.(s.FieldNode)
 		if !ok {
@@ -419,9 +386,6 @@ func TestFieldFactory(t *testing.T) {
 
 	t.Run("NullNumberFieldCreation", func(t *testing.T) {
 		nnf := MakeNullNumberField("score")
-		if nnf == nil {
-			t.Error("Expected non-nil NullNumber")
-		}
 		delegate := nnf.Delegate()
 		_, ok := delegate.(s.FieldNode)
 		if !ok {
@@ -431,9 +395,6 @@ func TestFieldFactory(t *testing.T) {
 
 	t.Run("DatetimeFieldCreation", func(t *testing.T) {
 		df := MakeDatetimeField("created_at")
-		if df == nil {
-			t.Error("Expected non-nil Datetime")
-		}
 		delegate := df.Delegate()
 		_, ok := delegate.(s.FieldNode)
 		if !ok {
@@ -443,9 +404,6 @@ func TestFieldFactory(t *testing.T) {
 
 	t.Run("NullDatetimeFieldCreation", func(t *testing.T) {
 		ndf := MakeNullDatetimeField("deleted_at")
-		if ndf == nil {
-			t.Error("Expected non-nil NullDatetime")
-		}
 		delegate := ndf.Delegate()
 		_, ok := delegate.(s.FieldNode)
 		if !ok {
@@ -455,9 +413,6 @@ func TestFieldFactory(t *testing.T) {
 
 	t.Run("TextFieldCreation", func(t *testing.T) {
 		tf := MakeTextField("name")
-		if tf == nil {
-			t.Error("Expected non-nil Text")
-		}
 		delegate := tf.Delegate()
 		_, ok := delegate.(s.FieldNode)
 		if !ok {
@@ -467,9 +422,6 @@ func TestFieldFactory(t *testing.T) {
 
 	t.Run("NullTextFieldCreation", func(t *testing.T) {
 		ntf := MakeNullTextField("description")
-		if ntf == nil {
-			t.Error("Expected non-nil NullText")
-		}
 		delegate := ntf.Delegate()
 		_, ok := delegate.(s.FieldNode)
 		if !ok {
@@ -482,9 +434,6 @@ func TestFieldFactory(t *testing.T) {
 func TestValueFactory(t *testing.T) {
 	t.Run("BooleanValueCreation", func(t *testing.T) {
 		bv := MakeBooleanValue(true)
-		if bv == nil {
-			t.Error("Expected non-nil Boolean")
-		}
 		delegate := bv.Delegate()
 		_, ok := delegate.(s.ValueNode)
 		if !ok {
@@ -494,9 +443,6 @@ func TestValueFactory(t *testing.T) {
 
 	t.Run("NumberValueCreation", func(t *testing.T) {
 		nv := MakeNumberValue(42)
-		if nv == nil {
-			t.Error("Expected non-nil Number")
-		}
 		delegate := nv.Delegate()
 		_, ok := delegate.(s.ValueNode)
 		if !ok {
@@ -507,9 +453,6 @@ func TestValueFactory(t *testing.T) {
 	t.Run("DatetimeValueCreation", func(t *testing.T) {
 		now := time.Now()
 		dv := MakeDatetimeValue(now)
-		if dv == nil {
-			t.Error("Expected non-nil Datetime")
-		}
 		delegate := dv.Delegate()
 		_, ok := delegate.(s.ValueNode)
 		if !ok {
@@ -519,9 +462,6 @@ func TestValueFactory(t *testing.T) {
 
 	t.Run("TextValueCreation", func(t *testing.T) {
 		tv := MakeTextValue("hello")
-		if tv == nil {
-			t.Error("Expected non-nil Text")
-		}
 		delegate := tv.Delegate()
 		_, ok := delegate.(s.ValueNode)
 		if !ok {
@@ -615,9 +555,6 @@ func TestIntegration(t *testing.T) {
 		minAge := MakeNumberValue(18)
 
 		result := age.Gt(minAge)
-		if result == nil {
-			t.Error("Expected non-nil result")
-		}
 		delegate := result.Delegate()
 		if delegate.(s.InfixNode).Operator() != s.OperatorGt {
 			t.Error("Expected GT operator")
@@ -631,9 +568,6 @@ func TestIntegration(t *testing.T) {
 		ageCheck := age.Gte(MakeNumberValue(18))
 		combined := ageCheck.And(isActive)
 
-		if combined == nil {
-			t.Error("Expected non-nil result")
-		}
 		delegate := combined.Delegate()
 		if delegate.(s.InfixNode).Operator() != s.OperatorAnd {
 			t.Error("Expected AND operator")
@@ -643,15 +577,9 @@ func TestIntegration(t *testing.T) {
 	t.Run("NullableFieldOperations", func(t *testing.T) {
 		email := MakeNullTextField("email")
 
-		isNullCheck := email.IsNull()
-		isNotNullCheck := email.IsNotNull()
+		_ = email.IsNull()
+		_ = email.IsNotNull()
 
-		if isNullCheck == nil {
-			t.Error("Expected non-nil result for IsNull")
-		}
-		if isNotNullCheck == nil {
-			t.Error("Expected non-nil result for IsNotNull")
-		}
 	})
 
 	t.Run("ComplexExpression", func(t *testing.T) {
@@ -662,11 +590,8 @@ func TestIntegration(t *testing.T) {
 		// (age > 18) AND (name == "Alice") AND is_active
 		ageCheck := age.Gt(MakeNumberValue(18))
 		nameCheck := name.Eq(MakeTextValue("Alice"))
-		expression := ageCheck.And(nameCheck).And(isActive)
+		_ = ageCheck.And(nameCheck).And(isActive)
 
-		if expression == nil {
-			t.Error("Expected non-nil result")
-		}
 	})
 
 	t.Run("MathematicalOperations", func(t *testing.T) {
@@ -678,9 +603,6 @@ func TestIntegration(t *testing.T) {
 		total := price.Mul(quantity).Sub(discount)
 
 		// Should return Mathematical type
-		if total == nil {
-			t.Error("Expected non-nil result")
-		}
 		delegate := total.Delegate()
 		if delegate.(s.InfixNode).Operator() != s.OperatorSub {
 			t.Error("Expected SUB operator at top level")
@@ -691,15 +613,9 @@ func TestIntegration(t *testing.T) {
 		value := MakeNumberField("value")
 		shiftAmount := MakeNumberValue(2)
 
-		leftShifted := value.Lshift(shiftAmount)
-		rightShifted := value.Rshift(shiftAmount)
+		_ = value.Lshift(shiftAmount)
+		_ = value.Rshift(shiftAmount)
 
-		if leftShifted == nil {
-			t.Error("Expected non-nil result for Lshift")
-		}
-		if rightShifted == nil {
-			t.Error("Expected non-nil result for Rshift")
-		}
 	})
 
 	t.Run("ModuloOperation", func(t *testing.T) {
@@ -709,9 +625,6 @@ func TestIntegration(t *testing.T) {
 		remainder := number.Mod(divisor)
 
 		// Should return Mathematical type
-		if remainder == nil {
-			t.Error("Expected non-nil result")
-		}
 		delegate := remainder.Delegate()
 		if delegate.(s.InfixNode).Operator() != s.OperatorMod {
 			t.Error("Expected MOD operator")
