@@ -46,3 +46,8 @@ func (a *ReserveCarActivity) CompensationQueueAddress() string {
 func (a *ReserveCarActivity) ActivityType() saga.ActivityType {
 	return NewReserveCarActivity
 }
+
+// TypeName returns the type name for serialization.
+func (a *ReserveCarActivity) TypeName() string {
+	return "ReserveCarActivity"
+}

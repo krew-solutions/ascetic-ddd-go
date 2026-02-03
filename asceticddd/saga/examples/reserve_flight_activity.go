@@ -48,6 +48,11 @@ func (a *ReserveFlightActivity) ActivityType() saga.ActivityType {
 	return NewReserveFlightActivity
 }
 
+// TypeName returns the type name for serialization.
+func (a *ReserveFlightActivity) TypeName() string {
+	return "ReserveFlightActivity"
+}
+
 // FailingReserveFlightActivity is a flight activity that always fails.
 type FailingReserveFlightActivity struct {
 	ReserveFlightActivity
@@ -69,6 +74,11 @@ func (a *FailingReserveFlightActivity) ActivityType() saga.ActivityType {
 	return NewFailingReserveFlightActivity
 }
 
+// TypeName returns the type name for serialization.
+func (a *FailingReserveFlightActivity) TypeName() string {
+	return "FailingReserveFlightActivity"
+}
+
 // SafeFailingReserveFlightActivity is a flight activity that fails without panic.
 type SafeFailingReserveFlightActivity struct {
 	ReserveFlightActivity
@@ -87,4 +97,9 @@ func (a *SafeFailingReserveFlightActivity) DoWork(ctx context.Context, workItem 
 // ActivityType returns the activity type function.
 func (a *SafeFailingReserveFlightActivity) ActivityType() saga.ActivityType {
 	return NewSafeFailingReserveFlightActivity
+}
+
+// TypeName returns the type name for serialization.
+func (a *SafeFailingReserveFlightActivity) TypeName() string {
+	return "SafeFailingReserveFlightActivity"
 }

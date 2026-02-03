@@ -46,3 +46,8 @@ func (a *ReserveHotelActivity) CompensationQueueAddress() string {
 func (a *ReserveHotelActivity) ActivityType() saga.ActivityType {
 	return NewReserveHotelActivity
 }
+
+// TypeName returns the type name for serialization.
+func (a *ReserveHotelActivity) TypeName() string {
+	return "ReserveHotelActivity"
+}
