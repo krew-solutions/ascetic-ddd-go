@@ -249,7 +249,80 @@ spec.Not(
 )
 ```
 
-### 6. **Nested Wildcards (Collections of Collections)**
+### 6. **Value Object Comparison Methods**
+
+Since Go doesn't support operator overloading, Value Objects typically use methods for comparison. Specgen recognizes these method patterns:
+
+```go
+type Email struct {
+    value string
+}
+
+func (e Email) Equal(other Email) bool {
+    return e.value == other.value
+}
+
+type User struct {
+    Email  Email
+    Status Status
+}
+
+//spec:sql
+func UserByEmailSpec(u User) bool {
+    return u.Email.Equal(targetEmail)
+}
+```
+
+**Generates:**
+```go
+spec.Equal(
+    spec.Field(spec.GlobalScope(), "Email"),
+    spec.Field(spec.GlobalScope(), "targetEmail"),
+)
+```
+
+#### Supported Method Names
+
+| Category | Methods | Generated Spec |
+|----------|---------|----------------|
+| Equality | `Equal`, `Equals`, `Eq` | `spec.Equal` |
+| Inequality | `NotEqual`, `NotEquals`, `Ne`, `Neq` | `spec.NotEqual` |
+| Less than | `LessThan`, `Lt` | `spec.LessThan` |
+| Less or equal | `LessThanOrEqual`, `LessThanEqual`, `Lte`, `Le` | `spec.LessThanEqual` |
+| Greater than | `GreaterThan`, `Gt` | `spec.GreaterThan` |
+| Greater or equal | `GreaterThanOrEqual`, `GreaterThanEqual`, `Gte`, `Ge` | `spec.GreaterThanEqual` |
+
+#### Examples
+
+```go
+// Equality with literal
+//spec:sql
+func ActiveUserSpec(u User) bool {
+    return u.Status.Equal("active")
+}
+
+// Comparison with nested field
+//spec:sql
+func UserWithHighAgeSpec(u User) bool {
+    return u.Profile.Age.GreaterThan(minAge)
+}
+
+// Combined with logical operators
+//spec:sql
+func PremiumUserSpec(u User) bool {
+    return u.Email.Equal(email) && u.Status.NotEqual("banned")
+}
+
+// Inside wildcards
+//spec:sql
+func HasExpensiveItemSpec(s Store) bool {
+    return spec.Any(s.Items, func(item Item) bool {
+        return item.Price.Gt(minPrice) && item.Status.Equal("available")
+    })
+}
+```
+
+### 7. **Nested Wildcards (Collections of Collections)**
 
 The most powerful feature! Nest wildcards to filter multi-level collection hierarchies.
 
@@ -468,6 +541,7 @@ db.Query("SELECT * FROM stores WHERE " + sql, params...)
 | Wildcards (`Any`, `All`) | ✅ Full | `spec.Any(s.Items, ...)` |
 | Nested wildcards | ✅ Full | `spec.Any(region.Categories, ...)` |
 | Nested fields | ✅ Full | `u.Profile.Age` |
+| Value Object methods | ✅ Full | `u.Email.Equal(email)` |
 | Complex expressions | ✅ Full | Unlimited nesting |
 | In-memory checks | ✅ Fast | 0.13 ns, 0 allocs |
 | SQL generation | ✅ Works | Pre-built AST |
@@ -477,8 +551,7 @@ db.Query("SELECT * FROM stores WHERE " + sql, params...)
 1. **Single return statement**: Function body must have exactly one `return` statement
 2. **No control flow**: Cannot use `if/else`, `for`, `switch`
 3. **No closures**: Cannot access variables from outer scope
-4. **No method calls**: Cannot call methods on fields (only field access)
-5. **Bitwise AND/OR/XOR**: Not yet implemented in Specification nodes
+4. **Bitwise AND/OR/XOR**: Not yet implemented in Specification nodes
 
 These limitations are intentional - specifications should be pure boolean expressions.
 
@@ -494,7 +567,8 @@ These limitations are intentional - specifications should be pure boolean expres
 ### TODO for Specgen
 
 - [ ] Add support for `&`, `|`, `^` bitwise operators
-- [ ] Add support for method calls (`.IsNull()`, `.IsNotNull()`)
+- [x] ~~Add support for method calls (`.IsNull()`, `.IsNotNull()`)~~ ✅ Done
+- [x] ~~Add support for Value Object comparison methods (`.Equal()`, `.GreaterThan()`, etc.)~~ ✅ Done
 - [x] ~~Add support for nested wildcards (collections of collections)~~ ✅ Done
 - [ ] Better error messages for unsupported expressions
 

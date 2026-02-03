@@ -534,3 +534,188 @@ func TestSpec(s Store) bool { return true }
 		})
 	}
 }
+
+func TestConvertMethodComparison_Equal(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		expected string
+	}{
+		{
+			name:     "Equal method",
+			expr:     "u.Email.Equal(email)",
+			expected: `spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+		},
+		{
+			name:     "Equals method",
+			expr:     "u.Email.Equals(email)",
+			expected: `spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+		},
+		{
+			name:     "Eq method",
+			expr:     "u.Email.Eq(email)",
+			expected: `spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+		},
+		{
+			name:     "Equal with literal",
+			expr:     `u.Status.Equal("active")`,
+			expected: `spec.Equal(spec.Field(spec.GlobalScope(), "Status"), spec.Value("active"))`,
+		},
+		{
+			name:     "NotEqual method",
+			expr:     "u.Email.NotEqual(email)",
+			expected: `spec.NotEqual(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+		},
+		{
+			name:     "Ne method",
+			expr:     "u.Email.Ne(email)",
+			expected: `spec.NotEqual(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+		},
+		{
+			name:     "Neq method",
+			expr:     "u.Email.Neq(email)",
+			expected: `spec.NotEqual(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr := parseExpr(t, tt.expr).(*ast.CallExpr)
+			result := convertExprToAST(expr, "User", "", false)
+			if result != tt.expected {
+				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestConvertMethodComparison_Ordering(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		expected string
+	}{
+		{
+			name:     "LessThan method",
+			expr:     "u.Age.LessThan(maxAge)",
+			expected: `spec.LessThan(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+		},
+		{
+			name:     "Lt method",
+			expr:     "u.Age.Lt(maxAge)",
+			expected: `spec.LessThan(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+		},
+		{
+			name:     "LessThanOrEqual method",
+			expr:     "u.Age.LessThanOrEqual(maxAge)",
+			expected: `spec.LessThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+		},
+		{
+			name:     "Lte method",
+			expr:     "u.Age.Lte(maxAge)",
+			expected: `spec.LessThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+		},
+		{
+			name:     "Le method",
+			expr:     "u.Age.Le(maxAge)",
+			expected: `spec.LessThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+		},
+		{
+			name:     "GreaterThan method",
+			expr:     "u.Age.GreaterThan(minAge)",
+			expected: `spec.GreaterThan(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+		},
+		{
+			name:     "Gt method",
+			expr:     "u.Age.Gt(minAge)",
+			expected: `spec.GreaterThan(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+		},
+		{
+			name:     "GreaterThanOrEqual method",
+			expr:     "u.Age.GreaterThanOrEqual(minAge)",
+			expected: `spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+		},
+		{
+			name:     "Gte method",
+			expr:     "u.Age.Gte(minAge)",
+			expected: `spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+		},
+		{
+			name:     "Ge method",
+			expr:     "u.Age.Ge(minAge)",
+			expected: `spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr := parseExpr(t, tt.expr).(*ast.CallExpr)
+			result := convertExprToAST(expr, "User", "", false)
+			if result != tt.expected {
+				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestConvertMethodComparison_NestedField(t *testing.T) {
+	// Test nested field access: u.Profile.Email.Equal(email)
+	expr := parseExpr(t, "u.Profile.Email.Equal(email)").(*ast.CallExpr)
+	result := convertExprToAST(expr, "User", "", false)
+	expected := `spec.Equal(spec.Field(spec.Object(spec.GlobalScope(), "Profile"), "Email"), spec.Field(spec.GlobalScope(), "email"))`
+
+	if result != expected {
+		t.Errorf("\nExpected: %s\nGot:      %s", expected, result)
+	}
+}
+
+func TestConvertMethodComparison_InWildcard(t *testing.T) {
+	// Test inside wildcard context: item.Status.Equal("active")
+	expr := parseExpr(t, `item.Status.Equal("active")`).(*ast.CallExpr)
+	result := convertExprToAST(expr, "Store", "item", true)
+	expected := `spec.Equal(spec.Field(spec.Item(), "Status"), spec.Value("active"))`
+
+	if result != expected {
+		t.Errorf("\nExpected: %s\nGot:      %s", expected, result)
+	}
+}
+
+func TestConvertMethodComparison_WithLiteral(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		expected string
+	}{
+		{
+			name:     "With string literal",
+			expr:     `u.Email.Equal("test@example.com")`,
+			expected: `spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Value("test@example.com"))`,
+		},
+		{
+			name:     "With int literal",
+			expr:     "u.Age.GreaterThan(18)",
+			expected: `spec.GreaterThan(spec.Field(spec.GlobalScope(), "Age"), spec.Value(18))`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr := parseExpr(t, tt.expr).(*ast.CallExpr)
+			result := convertExprToAST(expr, "User", "", false)
+			if result != tt.expected {
+				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestConvertMethodComparison_CombinedWithLogical(t *testing.T) {
+	// Test: u.Email.Equal(email) && u.Active
+	expr := parseExpr(t, "u.Email.Equal(email) && u.Active")
+	result := convertExprToAST(expr, "User", "", false)
+	expected := `spec.And(spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email")), spec.Field(spec.GlobalScope(), "Active"))`
+
+	if result != expected {
+		t.Errorf("\nExpected: %s\nGot:      %s", expected, result)
+	}
+}

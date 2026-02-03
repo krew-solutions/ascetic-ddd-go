@@ -304,10 +304,39 @@ func convertCallExpr(expr *ast.CallExpr, typeName string, itemName string, inWil
 			return convertIsNull(expr, typeName, itemName, inWildcard)
 		case "IsNotNull":
 			return convertIsNotNull(expr, typeName, itemName, inWildcard)
+
+		// Value Object comparison methods
+		case "Equal", "Equals", "Eq":
+			return convertMethodComparison(expr, fun, "spec.Equal", typeName, itemName, inWildcard)
+		case "NotEqual", "NotEquals", "Ne", "Neq":
+			return convertMethodComparison(expr, fun, "spec.NotEqual", typeName, itemName, inWildcard)
+		case "LessThan", "Lt":
+			return convertMethodComparison(expr, fun, "spec.LessThan", typeName, itemName, inWildcard)
+		case "LessThanOrEqual", "LessThanEqual", "Lte", "Le":
+			return convertMethodComparison(expr, fun, "spec.LessThanEqual", typeName, itemName, inWildcard)
+		case "GreaterThan", "Gt":
+			return convertMethodComparison(expr, fun, "spec.GreaterThan", typeName, itemName, inWildcard)
+		case "GreaterThanOrEqual", "GreaterThanEqual", "Gte", "Ge":
+			return convertMethodComparison(expr, fun, "spec.GreaterThanEqual", typeName, itemName, inWildcard)
 		}
 	}
 
 	return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported call %T */", expr.Fun)
+}
+
+// convertMethodComparison converts Value Object method calls like receiver.Equal(arg)
+// to spec comparison functions like spec.Equal(receiver, arg)
+func convertMethodComparison(expr *ast.CallExpr, sel *ast.SelectorExpr, specFunc string, typeName string, itemName string, inWildcard bool) string {
+	if len(expr.Args) != 1 {
+		return fmt.Sprintf("spec.Value(nil) /* %s requires exactly 1 argument */", sel.Sel.Name)
+	}
+
+	// receiver becomes left operand
+	left := convertExprToAST(sel.X, typeName, itemName, inWildcard)
+	// method argument becomes right operand
+	right := convertExprToAST(expr.Args[0], typeName, itemName, inWildcard)
+
+	return fmt.Sprintf("%s(%s, %s)", specFunc, left, right)
 }
 
 func convertAnyAll(expr *ast.CallExpr, typeName string, funcName string, itemName string, inWildcard bool) string {
