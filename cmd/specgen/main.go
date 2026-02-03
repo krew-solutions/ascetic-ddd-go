@@ -15,7 +15,8 @@ import (
 // specgen generates AST code from specification predicate functions.
 //
 // Usage:
-//   //go:generate go run github.com/krew-solutions/ascetic-ddd-go/cmd/specgen -type=User
+//
+//	//go:generate go run github.com/krew-solutions/ascetic-ddd-go/cmd/specgen -type=User
 //
 // This will scan all functions with //spec:sql comment and generate
 // corresponding AST builder functions in *_spec_gen.go files.
@@ -185,10 +186,12 @@ func generateCode(outputPath, pkgName, typeName string, specs []SpecFunc) error 
 
 	// Generate AST builder for each spec
 	for _, s := range specs {
+		visitor := NewSpecGenVisitor(typeName)
+
 		// Generate AST function
 		fmt.Fprintf(f, "// %sAST returns AST for %s\n", s.Name, s.Name)
 		fmt.Fprintf(f, "func %sAST() spec.Visitable {\n", s.Name)
-		fmt.Fprintf(f, "\treturn %s\n", convertExprToAST(s.Body, typeName, "", false))
+		fmt.Fprintf(f, "\treturn %s\n", visitor.Visit(s.Body))
 		fmt.Fprintf(f, "}\n\n")
 
 		// Generate SQL helper
@@ -202,233 +205,61 @@ func generateCode(outputPath, pkgName, typeName string, specs []SpecFunc) error 
 	return nil
 }
 
-// convertExprToAST converts Go expression to Specification AST builder code
-// paramName is the main parameter name (e.g., "u" in func(u User))
-// itemName is the current item name in wildcard context (e.g., "item" in Any(items, func(item Item)))
-// inWildcard indicates if we're inside a wildcard predicate
-func convertExprToAST(expr ast.Expr, typeName string, itemName string, inWildcard bool) string {
+// SpecGenVisitor converts Go AST expressions to Specification AST builder code.
+// Implements the Visitor pattern for go/ast nodes.
+type SpecGenVisitor struct {
+	// typeName is the main type being processed (e.g., "User", "Order")
+	typeName string
+	// itemName is the current item variable name in wildcard context (e.g., "item")
+	itemName string
+	// inWildcard indicates if we're inside a wildcard predicate
+	inWildcard bool
+}
+
+// NewSpecGenVisitor creates a new visitor for the given type.
+func NewSpecGenVisitor(typeName string) *SpecGenVisitor {
+	return &SpecGenVisitor{
+		typeName:   typeName,
+		itemName:   "",
+		inWildcard: false,
+	}
+}
+
+// withWildcardContext returns a new visitor configured for wildcard context.
+func (v *SpecGenVisitor) withWildcardContext(itemName string) *SpecGenVisitor {
+	return &SpecGenVisitor{
+		typeName:   v.typeName,
+		itemName:   itemName,
+		inWildcard: true,
+	}
+}
+
+// Visit dispatches to the appropriate visit method based on node type.
+func (v *SpecGenVisitor) Visit(expr ast.Expr) string {
 	switch e := expr.(type) {
 	case *ast.BinaryExpr:
-		return convertBinaryExpr(e, typeName, itemName, inWildcard)
-
+		return v.VisitBinaryExpr(e)
 	case *ast.UnaryExpr:
-		return convertUnaryExpr(e, typeName, itemName, inWildcard)
-
+		return v.VisitUnaryExpr(e)
 	case *ast.SelectorExpr:
-		// e.g., u.Age or item.Price
-		return convertSelectorExpr(e, typeName, itemName, inWildcard)
-
+		return v.VisitSelectorExpr(e)
 	case *ast.CallExpr:
-		// Function calls (Any, All, IsNull, IsNotNull, etc.)
-		return convertCallExpr(e, typeName, itemName, inWildcard)
-
+		return v.VisitCallExpr(e)
 	case *ast.BasicLit:
-		// Constant literal
-		return fmt.Sprintf("spec.Value(%s)", e.Value)
-
+		return v.VisitBasicLit(e)
 	case *ast.Ident:
-		// Boolean constants or field access
-		if e.Name == "true" || e.Name == "false" || e.Name == "nil" {
-			return fmt.Sprintf("spec.Value(%s)", e.Name)
-		}
-		// Direct field access (rare, but possible)
-		return fmt.Sprintf("spec.Field(spec.GlobalScope(), %q)", e.Name)
-
+		return v.VisitIdent(e)
 	case *ast.ParenExpr:
-		// Unwrap parentheses
-		return convertExprToAST(e.X, typeName, itemName, inWildcard)
-
+		return v.VisitParenExpr(e)
 	default:
 		return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported expr %T */", expr)
 	}
 }
 
-func convertSelectorExpr(expr *ast.SelectorExpr, typeName string, itemName string, inWildcard bool) string {
-	// Build the chain of field accesses
-	var path []string
-	var baseIdent *ast.Ident
-
-	// Walk up the chain to collect all field names
-	current := expr
-	for {
-		path = append([]string{current.Sel.Name}, path...) // prepend
-
-		switch x := current.X.(type) {
-		case *ast.SelectorExpr:
-			// Nested selector (e.g., u.Profile.Age)
-			current = x
-			continue
-		case *ast.Ident:
-			// Base identifier (u, item, etc.)
-			baseIdent = x
-		default:
-			// Unknown base
-			return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported selector base %T */", current.X)
-		}
-		break
-	}
-
-	// Determine the scope based on context
-	var scope string
-	if inWildcard && baseIdent.Name == itemName {
-		// Inside wildcard, referring to item
-		scope = "spec.Item()"
-	} else {
-		// Normal context, referring to root object
-		scope = "spec.GlobalScope()"
-	}
-
-	// Build nested Object chain for all but the last field
-	for i := 0; i < len(path)-1; i++ {
-		scope = fmt.Sprintf("spec.Object(%s, %q)", scope, path[i])
-	}
-
-	// Last element is the field
-	return fmt.Sprintf("spec.Field(%s, %q)", scope, path[len(path)-1])
-}
-
-func convertCallExpr(expr *ast.CallExpr, typeName string, itemName string, inWildcard bool) string {
-	// Check if it's a function we recognize
-	switch fun := expr.Fun.(type) {
-	case *ast.Ident:
-		switch fun.Name {
-		case "Any", "All":
-			return convertAnyAll(expr, typeName, fun.Name, itemName, inWildcard)
-		}
-	case *ast.SelectorExpr:
-		// Check for spec.Any, spec.All, or method calls
-		switch fun.Sel.Name {
-		case "Any", "All":
-			return convertAnyAll(expr, typeName, fun.Sel.Name, itemName, inWildcard)
-		case "IsNull":
-			return convertIsNull(expr, typeName, itemName, inWildcard)
-		case "IsNotNull":
-			return convertIsNotNull(expr, typeName, itemName, inWildcard)
-
-		// Value Object comparison methods
-		case "Equal", "Equals", "Eq":
-			return convertMethodComparison(expr, fun, "spec.Equal", typeName, itemName, inWildcard)
-		case "NotEqual", "NotEquals", "Ne", "Neq":
-			return convertMethodComparison(expr, fun, "spec.NotEqual", typeName, itemName, inWildcard)
-		case "LessThan", "Lt":
-			return convertMethodComparison(expr, fun, "spec.LessThan", typeName, itemName, inWildcard)
-		case "LessThanOrEqual", "LessThanEqual", "Lte", "Le":
-			return convertMethodComparison(expr, fun, "spec.LessThanEqual", typeName, itemName, inWildcard)
-		case "GreaterThan", "Gt":
-			return convertMethodComparison(expr, fun, "spec.GreaterThan", typeName, itemName, inWildcard)
-		case "GreaterThanOrEqual", "GreaterThanEqual", "Gte", "Ge":
-			return convertMethodComparison(expr, fun, "spec.GreaterThanEqual", typeName, itemName, inWildcard)
-		}
-	}
-
-	return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported call %T */", expr.Fun)
-}
-
-// convertMethodComparison converts Value Object method calls like receiver.Equal(arg)
-// to spec comparison functions like spec.Equal(receiver, arg)
-func convertMethodComparison(expr *ast.CallExpr, sel *ast.SelectorExpr, specFunc string, typeName string, itemName string, inWildcard bool) string {
-	if len(expr.Args) != 1 {
-		return fmt.Sprintf("spec.Value(nil) /* %s requires exactly 1 argument */", sel.Sel.Name)
-	}
-
-	// receiver becomes left operand
-	left := convertExprToAST(sel.X, typeName, itemName, inWildcard)
-	// method argument becomes right operand
-	right := convertExprToAST(expr.Args[0], typeName, itemName, inWildcard)
-
-	return fmt.Sprintf("%s(%s, %s)", specFunc, left, right)
-}
-
-func convertAnyAll(expr *ast.CallExpr, typeName string, funcName string, itemName string, inWildcard bool) string {
-	// Any/All(collection, func(item Type) bool { return predicate })
-	if len(expr.Args) != 2 {
-		return fmt.Sprintf("spec.Value(nil) /* %s requires 2 arguments */", funcName)
-	}
-
-	// First arg is the collection selector (e.g., store.Items or region.Categories)
-	collectionExpr := expr.Args[0]
-	collectionSelector, ok := collectionExpr.(*ast.SelectorExpr)
-	if !ok {
-		return fmt.Sprintf("spec.Value(nil) /* %s first arg must be selector */", funcName)
-	}
-
-	collectionField := collectionSelector.Sel.Name
-
-	// Build parent scope for collection
-	var parentScope string
-	switch x := collectionSelector.X.(type) {
-	case *ast.Ident:
-		// Check if this is item.Collection (nested wildcard) or root.Collection
-		if inWildcard && x.Name == itemName {
-			// Nested wildcard: region.Categories, category.Items, etc.
-			parentScope = "spec.Item()"
-		} else {
-			// Root level: store.Items, o.Regions, etc.
-			parentScope = "spec.GlobalScope()"
-		}
-	case *ast.SelectorExpr:
-		// Nested case: store.Nested.Items
-		parentScope = convertSelectorExpr(x, typeName, itemName, inWildcard)
-		// Convert Field to Object
-		parentScope = fmt.Sprintf("spec.Object(%s.Object(), %s.Name())", parentScope, parentScope)
-	default:
-		return fmt.Sprintf("spec.Value(nil) /* unsupported collection parent %T */", collectionSelector.X)
-	}
-
-	// Second arg is the lambda function
-	lambdaExpr := expr.Args[1]
-	funcLit, ok := lambdaExpr.(*ast.FuncLit)
-	if !ok {
-		return fmt.Sprintf("spec.Value(nil) /* %s second arg must be func literal */", funcName)
-	}
-
-	// Extract lambda parameter name
-	if len(funcLit.Type.Params.List) != 1 || len(funcLit.Type.Params.List[0].Names) != 1 {
-		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have exactly one param */", funcName)
-	}
-	lambdaItemName := funcLit.Type.Params.List[0].Names[0].Name
-
-	// Extract lambda body (should be a return statement)
-	if len(funcLit.Body.List) != 1 {
-		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have exactly one statement */", funcName)
-	}
-	retStmt, ok := funcLit.Body.List[0].(*ast.ReturnStmt)
-	if !ok || len(retStmt.Results) != 1 {
-		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have return statement */", funcName)
-	}
-
-	// Convert predicate in wildcard context
-	predicate := convertExprToAST(retStmt.Results[0], typeName, lambdaItemName, true)
-
-	// Generate Wildcard node
-	return fmt.Sprintf("spec.Wildcard(spec.Object(%s, %q), %s)", parentScope, collectionField, predicate)
-}
-
-func convertIsNull(expr *ast.CallExpr, typeName string, itemName string, inWildcard bool) string {
-	// value.IsNull() -> IsNull(value)
-	sel, ok := expr.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return "spec.Value(nil) /* IsNull: invalid selector */"
-	}
-
-	operand := convertExprToAST(sel.X, typeName, itemName, inWildcard)
-	return fmt.Sprintf("spec.IsNull(%s)", operand)
-}
-
-func convertIsNotNull(expr *ast.CallExpr, typeName string, itemName string, inWildcard bool) string {
-	// value.IsNotNull() -> IsNotNull(value)
-	sel, ok := expr.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return "spec.Value(nil) /* IsNotNull: invalid selector */"
-	}
-
-	operand := convertExprToAST(sel.X, typeName, itemName, inWildcard)
-	return fmt.Sprintf("spec.IsNotNull(%s)", operand)
-}
-
-func convertBinaryExpr(expr *ast.BinaryExpr, typeName string, itemName string, inWildcard bool) string {
-	left := convertExprToAST(expr.X, typeName, itemName, inWildcard)
-	right := convertExprToAST(expr.Y, typeName, itemName, inWildcard)
+// VisitBinaryExpr handles binary expressions (comparisons, logical, arithmetic).
+func (v *SpecGenVisitor) VisitBinaryExpr(expr *ast.BinaryExpr) string {
+	left := v.Visit(expr.X)
+	right := v.Visit(expr.Y)
 
 	switch expr.Op {
 	// Comparison
@@ -465,8 +296,6 @@ func convertBinaryExpr(expr *ast.BinaryExpr, typeName string, itemName string, i
 
 	// Bitwise
 	case token.AND: // & (bitwise AND)
-		// Note: In Go, & is used for both bitwise AND and address-of
-		// In expression context, it's bitwise AND
 		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise AND not yet implemented in spec: %s & %s */", left, right)
 	case token.OR: // | (bitwise OR)
 		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise OR not yet implemented in spec: %s | %s */", left, right)
@@ -482,13 +311,222 @@ func convertBinaryExpr(expr *ast.BinaryExpr, typeName string, itemName string, i
 	}
 }
 
-func convertUnaryExpr(expr *ast.UnaryExpr, typeName string, itemName string, inWildcard bool) string {
-	operand := convertExprToAST(expr.X, typeName, itemName, inWildcard)
+// VisitUnaryExpr handles unary expressions (!, -, +).
+func (v *SpecGenVisitor) VisitUnaryExpr(expr *ast.UnaryExpr) string {
+	operand := v.Visit(expr.X)
 
 	switch expr.Op {
 	case token.NOT: // !
 		return fmt.Sprintf("spec.Not(%s)", operand)
+	case token.SUB: // - (negation)
+		return fmt.Sprintf("spec.Neg(%s)", operand)
+	case token.ADD: // + (positive, no-op)
+		return operand
 	default:
 		return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported unary op %v */", expr.Op)
 	}
+}
+
+// VisitSelectorExpr handles field access (e.g., u.Age, item.Price, u.Profile.Age).
+func (v *SpecGenVisitor) VisitSelectorExpr(expr *ast.SelectorExpr) string {
+	// Build the chain of field accesses
+	var path []string
+	var baseIdent *ast.Ident
+
+	// Walk up the chain to collect all field names
+	current := expr
+	for {
+		path = append([]string{current.Sel.Name}, path...) // prepend
+
+		switch x := current.X.(type) {
+		case *ast.SelectorExpr:
+			// Nested selector (e.g., u.Profile.Age)
+			current = x
+			continue
+		case *ast.Ident:
+			// Base identifier (u, item, etc.)
+			baseIdent = x
+		default:
+			// Unknown base
+			return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported selector base %T */", current.X)
+		}
+		break
+	}
+
+	// Determine the scope based on context
+	var scope string
+	if v.inWildcard && baseIdent.Name == v.itemName {
+		// Inside wildcard, referring to item
+		scope = "spec.Item()"
+	} else {
+		// Normal context, referring to root object
+		scope = "spec.GlobalScope()"
+	}
+
+	// Build nested Object chain for all but the last field
+	for i := 0; i < len(path)-1; i++ {
+		scope = fmt.Sprintf("spec.Object(%s, %q)", scope, path[i])
+	}
+
+	// Last element is the field
+	return fmt.Sprintf("spec.Field(%s, %q)", scope, path[len(path)-1])
+}
+
+// VisitCallExpr handles function calls (Any, All, IsNull, method calls).
+func (v *SpecGenVisitor) VisitCallExpr(expr *ast.CallExpr) string {
+	switch fun := expr.Fun.(type) {
+	case *ast.Ident:
+		switch fun.Name {
+		case "Any", "All":
+			return v.visitAnyAll(expr, fun.Name)
+		}
+	case *ast.SelectorExpr:
+		switch fun.Sel.Name {
+		case "Any", "All":
+			return v.visitAnyAll(expr, fun.Sel.Name)
+		case "IsNull":
+			return v.visitIsNull(expr)
+		case "IsNotNull":
+			return v.visitIsNotNull(expr)
+
+		// Value Object comparison methods
+		case "Equal", "Equals", "Eq":
+			return v.visitMethodComparison(expr, fun, "spec.Equal")
+		case "NotEqual", "NotEquals", "Ne", "Neq":
+			return v.visitMethodComparison(expr, fun, "spec.NotEqual")
+		case "LessThan", "Lt":
+			return v.visitMethodComparison(expr, fun, "spec.LessThan")
+		case "LessThanOrEqual", "LessThanEqual", "Lte", "Le":
+			return v.visitMethodComparison(expr, fun, "spec.LessThanEqual")
+		case "GreaterThan", "Gt":
+			return v.visitMethodComparison(expr, fun, "spec.GreaterThan")
+		case "GreaterThanOrEqual", "GreaterThanEqual", "Gte", "Ge":
+			return v.visitMethodComparison(expr, fun, "spec.GreaterThanEqual")
+		}
+	}
+
+	return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported call %T */", expr.Fun)
+}
+
+// VisitBasicLit handles literal values (numbers, strings).
+func (v *SpecGenVisitor) VisitBasicLit(expr *ast.BasicLit) string {
+	return fmt.Sprintf("spec.Value(%s)", expr.Value)
+}
+
+// VisitIdent handles identifiers (true, false, nil, field names).
+func (v *SpecGenVisitor) VisitIdent(expr *ast.Ident) string {
+	// Boolean constants or nil
+	if expr.Name == "true" || expr.Name == "false" || expr.Name == "nil" {
+		return fmt.Sprintf("spec.Value(%s)", expr.Name)
+	}
+	// Direct field access (rare, but possible)
+	return fmt.Sprintf("spec.Field(spec.GlobalScope(), %q)", expr.Name)
+}
+
+// VisitParenExpr handles parenthesized expressions.
+func (v *SpecGenVisitor) VisitParenExpr(expr *ast.ParenExpr) string {
+	return v.Visit(expr.X)
+}
+
+// visitAnyAll handles Any/All collection predicates.
+func (v *SpecGenVisitor) visitAnyAll(expr *ast.CallExpr, funcName string) string {
+	// Any/All(collection, func(item Type) bool { return predicate })
+	if len(expr.Args) != 2 {
+		return fmt.Sprintf("spec.Value(nil) /* %s requires 2 arguments */", funcName)
+	}
+
+	// First arg is the collection selector (e.g., store.Items or region.Categories)
+	collectionExpr := expr.Args[0]
+	collectionSelector, ok := collectionExpr.(*ast.SelectorExpr)
+	if !ok {
+		return fmt.Sprintf("spec.Value(nil) /* %s first arg must be selector */", funcName)
+	}
+
+	collectionField := collectionSelector.Sel.Name
+
+	// Build parent scope for collection
+	var parentScope string
+	switch x := collectionSelector.X.(type) {
+	case *ast.Ident:
+		// Check if this is item.Collection (nested wildcard) or root.Collection
+		if v.inWildcard && x.Name == v.itemName {
+			// Nested wildcard: region.Categories, category.Items, etc.
+			parentScope = "spec.Item()"
+		} else {
+			// Root level: store.Items, o.Regions, etc.
+			parentScope = "spec.GlobalScope()"
+		}
+	case *ast.SelectorExpr:
+		// Nested case: store.Nested.Items
+		parentScope = v.VisitSelectorExpr(x)
+		// Convert Field to Object
+		parentScope = fmt.Sprintf("spec.Object(%s.Object(), %s.Name())", parentScope, parentScope)
+	default:
+		return fmt.Sprintf("spec.Value(nil) /* unsupported collection parent %T */", collectionSelector.X)
+	}
+
+	// Second arg is the lambda function
+	lambdaExpr := expr.Args[1]
+	funcLit, ok := lambdaExpr.(*ast.FuncLit)
+	if !ok {
+		return fmt.Sprintf("spec.Value(nil) /* %s second arg must be func literal */", funcName)
+	}
+
+	// Extract lambda parameter name
+	if len(funcLit.Type.Params.List) != 1 || len(funcLit.Type.Params.List[0].Names) != 1 {
+		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have exactly one param */", funcName)
+	}
+	lambdaItemName := funcLit.Type.Params.List[0].Names[0].Name
+
+	// Extract lambda body (should be a return statement)
+	if len(funcLit.Body.List) != 1 {
+		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have exactly one statement */", funcName)
+	}
+	retStmt, ok := funcLit.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(retStmt.Results) != 1 {
+		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have return statement */", funcName)
+	}
+
+	// Convert predicate in wildcard context using a new visitor
+	wildcardVisitor := v.withWildcardContext(lambdaItemName)
+	predicate := wildcardVisitor.Visit(retStmt.Results[0])
+
+	// Generate Wildcard node
+	return fmt.Sprintf("spec.Wildcard(spec.Object(%s, %q), %s)", parentScope, collectionField, predicate)
+}
+
+// visitIsNull handles value.IsNull() calls.
+func (v *SpecGenVisitor) visitIsNull(expr *ast.CallExpr) string {
+	sel, ok := expr.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "spec.Value(nil) /* IsNull: invalid selector */"
+	}
+
+	operand := v.Visit(sel.X)
+	return fmt.Sprintf("spec.IsNull(%s)", operand)
+}
+
+// visitIsNotNull handles value.IsNotNull() calls.
+func (v *SpecGenVisitor) visitIsNotNull(expr *ast.CallExpr) string {
+	sel, ok := expr.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "spec.Value(nil) /* IsNotNull: invalid selector */"
+	}
+
+	operand := v.Visit(sel.X)
+	return fmt.Sprintf("spec.IsNotNull(%s)", operand)
+}
+
+// visitMethodComparison handles Value Object method calls like receiver.Equal(arg).
+func (v *SpecGenVisitor) visitMethodComparison(expr *ast.CallExpr, sel *ast.SelectorExpr, specFunc string) string {
+	if len(expr.Args) != 1 {
+		return fmt.Sprintf("spec.Value(nil) /* %s requires exactly 1 argument */", sel.Sel.Name)
+	}
+
+	// receiver becomes left operand
+	left := v.Visit(sel.X)
+	// method argument becomes right operand
+	right := v.Visit(expr.Args[0])
+
+	return fmt.Sprintf("%s(%s, %s)", specFunc, left, right)
 }

@@ -18,7 +18,7 @@ func parseExpr(t *testing.T, expr string) ast.Expr {
 	return e
 }
 
-func TestConvertBinaryExpr_Comparison(t *testing.T) {
+func TestVisitBinaryExpr_Comparison(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
@@ -59,7 +59,8 @@ func TestConvertBinaryExpr_Comparison(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.BinaryExpr)
-			result := convertBinaryExpr(expr, "User", "", false)
+			visitor := NewSpecGenVisitor("User")
+			result := visitor.VisitBinaryExpr(expr)
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -67,7 +68,7 @@ func TestConvertBinaryExpr_Comparison(t *testing.T) {
 	}
 }
 
-func TestConvertBinaryExpr_Logical(t *testing.T) {
+func TestVisitBinaryExpr_Logical(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
@@ -88,7 +89,8 @@ func TestConvertBinaryExpr_Logical(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.BinaryExpr)
-			result := convertBinaryExpr(expr, "User", "", false)
+			visitor := NewSpecGenVisitor("User")
+			result := visitor.VisitBinaryExpr(expr)
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -96,7 +98,7 @@ func TestConvertBinaryExpr_Logical(t *testing.T) {
 	}
 }
 
-func TestConvertBinaryExpr_Arithmetic(t *testing.T) {
+func TestVisitBinaryExpr_Arithmetic(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
@@ -132,7 +134,8 @@ func TestConvertBinaryExpr_Arithmetic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.BinaryExpr)
-			result := convertBinaryExpr(expr, "Product", "", false)
+			visitor := NewSpecGenVisitor("Product")
+			result := visitor.VisitBinaryExpr(expr)
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -140,7 +143,7 @@ func TestConvertBinaryExpr_Arithmetic(t *testing.T) {
 	}
 }
 
-func TestConvertBinaryExpr_Bitwise(t *testing.T) {
+func TestVisitBinaryExpr_Bitwise(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
@@ -161,7 +164,8 @@ func TestConvertBinaryExpr_Bitwise(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.BinaryExpr)
-			result := convertBinaryExpr(expr, "Item", "", false)
+			visitor := NewSpecGenVisitor("Item")
+			result := visitor.VisitBinaryExpr(expr)
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -169,9 +173,10 @@ func TestConvertBinaryExpr_Bitwise(t *testing.T) {
 	}
 }
 
-func TestConvertSelectorExpr_SimpleField(t *testing.T) {
+func TestVisitSelectorExpr_SimpleField(t *testing.T) {
 	expr := parseExpr(t, "u.Age").(*ast.SelectorExpr)
-	result := convertSelectorExpr(expr, "User", "", false)
+	visitor := NewSpecGenVisitor("User")
+	result := visitor.VisitSelectorExpr(expr)
 	expected := `spec.Field(spec.GlobalScope(), "Age")`
 
 	if result != expected {
@@ -179,9 +184,10 @@ func TestConvertSelectorExpr_SimpleField(t *testing.T) {
 	}
 }
 
-func TestConvertSelectorExpr_NestedField(t *testing.T) {
+func TestVisitSelectorExpr_NestedField(t *testing.T) {
 	expr := parseExpr(t, "u.Profile.Age").(*ast.SelectorExpr)
-	result := convertSelectorExpr(expr, "User", "", false)
+	visitor := NewSpecGenVisitor("User")
+	result := visitor.VisitSelectorExpr(expr)
 	expected := `spec.Field(spec.Object(spec.GlobalScope(), "Profile"), "Age")`
 
 	if result != expected {
@@ -189,10 +195,11 @@ func TestConvertSelectorExpr_NestedField(t *testing.T) {
 	}
 }
 
-func TestConvertSelectorExpr_ItemField(t *testing.T) {
+func TestVisitSelectorExpr_ItemField(t *testing.T) {
 	// Inside wildcard context: item.Price
 	expr := parseExpr(t, "item.Price").(*ast.SelectorExpr)
-	result := convertSelectorExpr(expr, "Store", "item", true)
+	visitor := NewSpecGenVisitor("Store").withWildcardContext("item")
+	result := visitor.VisitSelectorExpr(expr)
 	expected := `spec.Field(spec.Item(), "Price")`
 
 	if result != expected {
@@ -200,10 +207,11 @@ func TestConvertSelectorExpr_ItemField(t *testing.T) {
 	}
 }
 
-func TestConvertSelectorExpr_ItemNestedField(t *testing.T) {
+func TestVisitSelectorExpr_ItemNestedField(t *testing.T) {
 	// Inside wildcard context: item.Details.Stock
 	expr := parseExpr(t, "item.Details.Stock").(*ast.SelectorExpr)
-	result := convertSelectorExpr(expr, "Store", "item", true)
+	visitor := NewSpecGenVisitor("Store").withWildcardContext("item")
+	result := visitor.VisitSelectorExpr(expr)
 	expected := `spec.Field(spec.Object(spec.Item(), "Details"), "Stock")`
 
 	if result != expected {
@@ -211,9 +219,10 @@ func TestConvertSelectorExpr_ItemNestedField(t *testing.T) {
 	}
 }
 
-func TestConvertUnaryExpr_Not(t *testing.T) {
+func TestVisitUnaryExpr_Not(t *testing.T) {
 	expr := parseExpr(t, "!u.Active").(*ast.UnaryExpr)
-	result := convertExprToAST(expr, "User", "", false)
+	visitor := NewSpecGenVisitor("User")
+	result := visitor.Visit(expr)
 	expected := `spec.Not(spec.Field(spec.GlobalScope(), "Active"))`
 
 	if result != expected {
@@ -221,7 +230,7 @@ func TestConvertUnaryExpr_Not(t *testing.T) {
 	}
 }
 
-func TestConvertExprToAST_BasicLit(t *testing.T) {
+func TestVisit_BasicLit(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
@@ -237,7 +246,8 @@ func TestConvertExprToAST_BasicLit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr)
-			result := convertExprToAST(expr, "User", "", false)
+			visitor := NewSpecGenVisitor("User")
+			result := visitor.Visit(expr)
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -245,9 +255,10 @@ func TestConvertExprToAST_BasicLit(t *testing.T) {
 	}
 }
 
-func TestConvertExprToAST_Parentheses(t *testing.T) {
+func TestVisit_Parentheses(t *testing.T) {
 	expr := parseExpr(t, "(u.Age > 18)")
-	result := convertExprToAST(expr, "User", "", false)
+	visitor := NewSpecGenVisitor("User")
+	result := visitor.Visit(expr)
 	expected := `spec.GreaterThan(spec.Field(spec.GlobalScope(), "Age"), spec.Value(18))`
 
 	if result != expected {
@@ -255,10 +266,11 @@ func TestConvertExprToAST_Parentheses(t *testing.T) {
 	}
 }
 
-func TestConvertExprToAST_ComplexExpression(t *testing.T) {
+func TestVisit_ComplexExpression(t *testing.T) {
 	// u.Active && u.Age >= 18 && u.Name != ""
 	expr := parseExpr(t, `u.Active && u.Age >= 18 && u.Name != ""`)
-	result := convertExprToAST(expr, "User", "", false)
+	visitor := NewSpecGenVisitor("User")
+	result := visitor.Visit(expr)
 	expected := `spec.And(spec.And(spec.Field(spec.GlobalScope(), "Active"), spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Value(18))), spec.NotEqual(spec.Field(spec.GlobalScope(), "Name"), spec.Value("")))`
 
 	if result != expected {
@@ -324,7 +336,7 @@ func OtherFunc(u User) bool {
 	}
 }
 
-func TestConvertSpecToAST_SimpleSpec(t *testing.T) {
+func TestVisit_SimpleSpec(t *testing.T) {
 	source := `package main
 
 type User struct {
@@ -351,7 +363,8 @@ func AdultUserSpec(u User) bool {
 	spec := specs[0]
 
 	// Test that body was correctly extracted and can be converted
-	result := convertExprToAST(spec.Body, "User", "", false)
+	visitor := NewSpecGenVisitor("User")
+	result := visitor.Visit(spec.Body)
 
 	expectedParts := []string{
 		"spec.GreaterThanEqual",
@@ -366,7 +379,7 @@ func AdultUserSpec(u User) bool {
 	}
 }
 
-func TestConvertSpecToAST_ComplexSpec(t *testing.T) {
+func TestVisit_ComplexSpec(t *testing.T) {
 	source := `package main
 
 type User struct {
@@ -393,7 +406,8 @@ func PremiumUserSpec(u User) bool {
 	}
 
 	spec := specs[0]
-	result := convertExprToAST(spec.Body, "User", "", false)
+	visitor := NewSpecGenVisitor("User")
+	result := visitor.Visit(spec.Body)
 
 	expectedParts := []string{
 		"spec.And",
@@ -412,7 +426,7 @@ func PremiumUserSpec(u User) bool {
 }
 
 // Test for wildcard conversion - need to create a mock CallExpr
-func TestConvertAnyAll_RootWildcard(t *testing.T) {
+func TestVisitAnyAll_RootWildcard(t *testing.T) {
 	// This would test: spec.Any(s.Items, func(item Item) bool { return item.Price > 1000 })
 	// For now, we'll parse a simplified version
 	source := `package main
@@ -431,7 +445,8 @@ func test(s Store) bool {
 	retStmt := fn.Body.List[0].(*ast.ReturnStmt)
 	callExpr := retStmt.Results[0].(*ast.CallExpr)
 
-	result := convertAnyAll(callExpr, "Store", "Any", "", false)
+	visitor := NewSpecGenVisitor("Store")
+	result := visitor.visitAnyAll(callExpr, "Any")
 
 	// Check that it generates correct AST
 	expectedParts := []string{
@@ -449,7 +464,7 @@ func test(s Store) bool {
 	}
 }
 
-func TestConvertAnyAll_NestedWildcard(t *testing.T) {
+func TestVisitAnyAll_NestedWildcard(t *testing.T) {
 	// Test: spec.Any(region.Categories, func(category Category) bool { return category.Active })
 	// Inside a wildcard context (region is the item)
 	source := `package main
@@ -469,7 +484,8 @@ func test(region Region) bool {
 	callExpr := retStmt.Results[0].(*ast.CallExpr)
 
 	// Simulate being inside a wildcard context where "region" is the item
-	result := convertAnyAll(callExpr, "Organization", "Any", "region", true)
+	visitor := NewSpecGenVisitor("Organization").withWildcardContext("region")
+	result := visitor.visitAnyAll(callExpr, "Any")
 
 	// Check that it generates spec.Item() for nested wildcard
 	expectedParts := []string{
@@ -535,7 +551,7 @@ func TestSpec(s Store) bool { return true }
 	}
 }
 
-func TestConvertMethodComparison_Equal(t *testing.T) {
+func TestVisitMethodComparison_Equal(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
@@ -581,7 +597,8 @@ func TestConvertMethodComparison_Equal(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.CallExpr)
-			result := convertExprToAST(expr, "User", "", false)
+			visitor := NewSpecGenVisitor("User")
+			result := visitor.Visit(expr)
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -589,7 +606,7 @@ func TestConvertMethodComparison_Equal(t *testing.T) {
 	}
 }
 
-func TestConvertMethodComparison_Ordering(t *testing.T) {
+func TestVisitMethodComparison_Ordering(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
@@ -650,7 +667,8 @@ func TestConvertMethodComparison_Ordering(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.CallExpr)
-			result := convertExprToAST(expr, "User", "", false)
+			visitor := NewSpecGenVisitor("User")
+			result := visitor.Visit(expr)
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -658,10 +676,11 @@ func TestConvertMethodComparison_Ordering(t *testing.T) {
 	}
 }
 
-func TestConvertMethodComparison_NestedField(t *testing.T) {
+func TestVisitMethodComparison_NestedField(t *testing.T) {
 	// Test nested field access: u.Profile.Email.Equal(email)
 	expr := parseExpr(t, "u.Profile.Email.Equal(email)").(*ast.CallExpr)
-	result := convertExprToAST(expr, "User", "", false)
+	visitor := NewSpecGenVisitor("User")
+	result := visitor.Visit(expr)
 	expected := `spec.Equal(spec.Field(spec.Object(spec.GlobalScope(), "Profile"), "Email"), spec.Field(spec.GlobalScope(), "email"))`
 
 	if result != expected {
@@ -669,10 +688,11 @@ func TestConvertMethodComparison_NestedField(t *testing.T) {
 	}
 }
 
-func TestConvertMethodComparison_InWildcard(t *testing.T) {
+func TestVisitMethodComparison_InWildcard(t *testing.T) {
 	// Test inside wildcard context: item.Status.Equal("active")
 	expr := parseExpr(t, `item.Status.Equal("active")`).(*ast.CallExpr)
-	result := convertExprToAST(expr, "Store", "item", true)
+	visitor := NewSpecGenVisitor("Store").withWildcardContext("item")
+	result := visitor.Visit(expr)
 	expected := `spec.Equal(spec.Field(spec.Item(), "Status"), spec.Value("active"))`
 
 	if result != expected {
@@ -680,7 +700,7 @@ func TestConvertMethodComparison_InWildcard(t *testing.T) {
 	}
 }
 
-func TestConvertMethodComparison_WithLiteral(t *testing.T) {
+func TestVisitMethodComparison_WithLiteral(t *testing.T) {
 	tests := []struct {
 		name     string
 		expr     string
@@ -701,7 +721,8 @@ func TestConvertMethodComparison_WithLiteral(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.CallExpr)
-			result := convertExprToAST(expr, "User", "", false)
+			visitor := NewSpecGenVisitor("User")
+			result := visitor.Visit(expr)
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -709,10 +730,11 @@ func TestConvertMethodComparison_WithLiteral(t *testing.T) {
 	}
 }
 
-func TestConvertMethodComparison_CombinedWithLogical(t *testing.T) {
+func TestVisitMethodComparison_CombinedWithLogical(t *testing.T) {
 	// Test: u.Email.Equal(email) && u.Active
 	expr := parseExpr(t, "u.Email.Equal(email) && u.Active")
-	result := convertExprToAST(expr, "User", "", false)
+	visitor := NewSpecGenVisitor("User")
+	result := visitor.Visit(expr)
 	expected := `spec.And(spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email")), spec.Field(spec.GlobalScope(), "Active"))`
 
 	if result != expected {
