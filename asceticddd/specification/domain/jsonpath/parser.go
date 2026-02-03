@@ -12,7 +12,6 @@
 package jsonpath
 
 import (
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -20,6 +19,59 @@ import (
 
 	spec "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 )
+
+// JSONPathError is the base error type for JSONPath parsing and evaluation errors.
+type JSONPathError struct {
+	Message string
+}
+
+func (e *JSONPathError) Error() string {
+	return e.Message
+}
+
+// JSONPathSyntaxError is raised when JSONPath expression has invalid syntax.
+type JSONPathSyntaxError struct {
+	Message    string
+	Position   int
+	Expression string
+	Context    string
+}
+
+func (e *JSONPathSyntaxError) Error() string {
+	parts := []string{e.Message}
+
+	if e.Position >= 0 {
+		parts = append(parts, fmt.Sprintf(" at position %d", e.Position))
+	}
+
+	if e.Context != "" {
+		parts = append(parts, fmt.Sprintf(" (%s)", e.Context))
+	}
+
+	if e.Expression != "" && e.Position >= 0 {
+		parts = append(parts, fmt.Sprintf("\n  %s", e.Expression))
+		if e.Position < len(e.Expression) {
+			parts = append(parts, fmt.Sprintf("\n  %s^", strings.Repeat(" ", e.Position)))
+		}
+	}
+
+	return strings.Join(parts, "")
+}
+
+// JSONPathTypeError is raised when data doesn't conform to expected type/protocol.
+type JSONPathTypeError struct {
+	Message  string
+	Expected string
+	Got      string
+}
+
+func (e *JSONPathTypeError) Error() string {
+	parts := []string{e.Message}
+	if e.Expected != "" && e.Got != "" {
+		parts = append(parts, fmt.Sprintf(": expected %s, got %s", e.Expected, e.Got))
+	}
+	return strings.Join(parts, "")
+}
 
 // TokenType represents the type of a token.
 type TokenType string
@@ -67,12 +119,38 @@ type tokenPattern struct {
 	Pattern *regexp.Regexp
 }
 
+// Pre-compiled token patterns for performance.
+var tokenPatterns = []tokenPattern{
+	{TokenLBracket, regexp.MustCompile(`^\[`)},
+	{TokenRBracket, regexp.MustCompile(`^\]`)},
+	{TokenLParen, regexp.MustCompile(`^\(`)},
+	{TokenRParen, regexp.MustCompile(`^\)`)},
+	{TokenDot, regexp.MustCompile(`^\.`)},
+	{TokenDollar, regexp.MustCompile(`^\$`)},
+	{TokenAt, regexp.MustCompile(`^@`)},
+	{TokenQuestion, regexp.MustCompile(`^\?`)},
+	{TokenWildcard, regexp.MustCompile(`^\*`)},
+	{TokenAnd, regexp.MustCompile(`^&&`)},
+	{TokenOr, regexp.MustCompile(`^\|\|`)},
+	{TokenEq, regexp.MustCompile(`^==`)},
+	{TokenNe, regexp.MustCompile(`^!=`)},
+	{TokenGte, regexp.MustCompile(`^>=`)},
+	{TokenLte, regexp.MustCompile(`^<=`)},
+	{TokenGt, regexp.MustCompile(`^>`)},
+	{TokenLt, regexp.MustCompile(`^<`)},
+	{TokenNot, regexp.MustCompile(`^!`)},
+	{TokenNumber, regexp.MustCompile(`^-?\d+\.?\d*`)},
+	{TokenString, regexp.MustCompile(`^'[^']*'|^"[^"]*"`)},
+	{TokenPlaceholder, regexp.MustCompile(`^%\(\w+\)[sdf]|^%[sdf]`)},
+	{TokenIdentifier, regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*`)},
+	{TokenWhitespace, regexp.MustCompile(`^\s+`)},
+}
+
 // Lexer tokenizes JSONPath expressions.
 type Lexer struct {
 	text     string
 	position int
 	tokens   []Token
-	patterns []tokenPattern
 }
 
 // NewLexer creates a new Lexer for the given text.
@@ -81,31 +159,6 @@ func NewLexer(text string) *Lexer {
 		text:     text,
 		position: 0,
 		tokens:   nil,
-		patterns: []tokenPattern{
-			{TokenLBracket, regexp.MustCompile(`^\[`)},
-			{TokenRBracket, regexp.MustCompile(`^\]`)},
-			{TokenLParen, regexp.MustCompile(`^\(`)},
-			{TokenRParen, regexp.MustCompile(`^\)`)},
-			{TokenDot, regexp.MustCompile(`^\.`)},
-			{TokenDollar, regexp.MustCompile(`^\$`)},
-			{TokenAt, regexp.MustCompile(`^@`)},
-			{TokenQuestion, regexp.MustCompile(`^\?`)},
-			{TokenWildcard, regexp.MustCompile(`^\*`)},
-			{TokenAnd, regexp.MustCompile(`^&&`)},                       // RFC 9535: double ampersand
-			{TokenOr, regexp.MustCompile(`^\|\|`)},                      // RFC 9535: double pipe
-			{TokenEq, regexp.MustCompile(`^==`)},                        // RFC 9535: double equals (must be before single =)
-			{TokenNe, regexp.MustCompile(`^!=`)},                        // Must be before NOT to match != as one token
-			{TokenGte, regexp.MustCompile(`^>=`)},                       // Must be before GT
-			{TokenLte, regexp.MustCompile(`^<=`)},                       // Must be before LT
-			{TokenGt, regexp.MustCompile(`^>`)},                         // After GTE
-			{TokenLt, regexp.MustCompile(`^<`)},                         // After LTE
-			{TokenNot, regexp.MustCompile(`^!`)},                        // RFC 9535: exclamation mark (after !=)
-			{TokenNumber, regexp.MustCompile(`^-?\d+\.?\d*`)},           // Numbers (int and float)
-			{TokenString, regexp.MustCompile(`^'[^']*'|^"[^"]*"`)},      // Strings
-			{TokenPlaceholder, regexp.MustCompile(`^%\(\w+\)[sdf]|^%[sdf]`)}, // Placeholders
-			{TokenIdentifier, regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*`)}, // Identifiers
-			{TokenWhitespace, regexp.MustCompile(`^\s+`)},               // Whitespace
-		},
 	}
 }
 
@@ -115,11 +168,11 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 		matched := false
 		remaining := l.text[l.position:]
 
-		for _, pattern := range l.patterns {
+		for _, pattern := range tokenPatterns {
 			loc := pattern.Pattern.FindStringIndex(remaining)
 			if loc != nil && loc[0] == 0 {
 				value := remaining[loc[0]:loc[1]]
-				if pattern.Type != TokenWhitespace { // Skip whitespace
+				if pattern.Type != TokenWhitespace {
 					l.tokens = append(l.tokens, Token{
 						Type:     pattern.Type,
 						Value:    value,
@@ -133,11 +186,24 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 		}
 
 		if !matched {
-			return nil, fmt.Errorf("unexpected character at position %d: %c", l.position, l.text[l.position])
+			return nil, &JSONPathSyntaxError{
+				Message:    fmt.Sprintf("Unexpected character '%c'", l.text[l.position]),
+				Position:   l.position,
+				Expression: l.text,
+				Context:    "expected valid token",
+			}
 		}
 	}
 
 	return l.tokens, nil
+}
+
+// parseContext is mutable parsing context passed through parser methods.
+// Using a context object instead of instance variables makes the parser
+// thread-safe and enables concurrent parsing of different templates.
+type parseContext struct {
+	placeholderBindIndex int
+	isWildcardContext    bool
 }
 
 // placeholderInfo stores information about a placeholder.
@@ -147,46 +213,66 @@ type placeholderInfo struct {
 	Positional bool
 }
 
+// placeholderMarker is a special marker for placeholders.
+type placeholderMarker struct {
+	Index int
+}
+
 // NativeParametrizedSpecification is a native JSONPath specification parser
 // without external dependencies.
 //
 // Parses template once, binds different values at execution time.
+// Thread-safe: AST is cached at initialization and never modified.
 type NativeParametrizedSpecification struct {
-	template             string
-	placeholderInfo      []placeholderInfo
-	placeholderBindIndex int
-	isWildcardContext    bool // Track if we're in wildcard context
+	template        string
+	placeholderInfo []placeholderInfo
+	ast             spec.Visitable // Cached AST, parsed once at initialization
+	isWildcard      bool
 }
 
 // Parse parses RFC 9535 compliant JSONPath expression with C-style placeholders
 // (native implementation).
 //
-// Args:
-//
-//	template: JSONPath with %s, %d, %f or %(name)s placeholders
-//
-// Returns:
-//
-//	NativeParametrizedSpecification that can be executed with different parameter values
-//
-// Examples:
-//
-//	spec := Parse("$[?@.age > %d]")
-//	user := NewDictContext(map[string]any{"age": 30})
-//	result, _ := spec.Match(user, 25)  // true
-//
-//	spec := Parse("$[?@.name == %(name)s]")
-//	user := NewDictContext(map[string]any{"name": "Alice"})
-//	result, _ := spec.MatchNamed(user, map[string]any{"name": "Alice"})  // true
-func Parse(template string) *NativeParametrizedSpecification {
+// The AST is parsed once and cached for all subsequent Match() calls.
+// This makes the specification thread-safe and efficient for repeated use.
+func Parse(template string) (*NativeParametrizedSpecification, error) {
 	p := &NativeParametrizedSpecification{
-		template:             template,
-		placeholderInfo:      nil,
-		placeholderBindIndex: 0,
-		isWildcardContext:    false,
+		template:        template,
+		placeholderInfo: nil,
 	}
 	p.extractPlaceholders()
+
+	// Parse AST once at initialization (cached for all match() calls)
+	lexer := NewLexer(template)
+	tokens, err := lexer.Tokenize()
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := &parseContext{}
+	ast, isWildcard, err := p.parsePath(tokens, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	p.ast = ast
+	p.isWildcard = isWildcard
+
+	return p, nil
+}
+
+// MustParse is like Parse but panics on error.
+func MustParse(template string) *NativeParametrizedSpecification {
+	p, err := Parse(template)
+	if err != nil {
+		panic(err)
+	}
 	return p
+}
+
+// AST returns the cached AST. Useful for testing.
+func (p *NativeParametrizedSpecification) AST() spec.Visitable {
+	return p.ast
 }
 
 // extractPlaceholders extracts placeholder information from template.
@@ -202,7 +288,6 @@ func (p *NativeParametrizedSpecification) extractPlaceholders() {
 	}
 
 	// Find positional placeholders: %s, %d, %f
-	// Create a temp string without named placeholders
 	temp := namedPattern.ReplaceAllString(p.template, "")
 	positionalPattern := regexp.MustCompile(`%([sdf])`)
 	position := 0
@@ -216,8 +301,10 @@ func (p *NativeParametrizedSpecification) extractPlaceholders() {
 	}
 }
 
-// parseExpression parses a filter expression from tokens.
-func (p *NativeParametrizedSpecification) parseExpression(tokens []Token, start int) (spec.Visitable, int, error) {
+// parsePrimary parses a primary expression (comparison, NOT, or parenthesized expression).
+// Does NOT handle AND/OR operators - those are handled by parseExpression
+// to ensure left-associativity.
+func (p *NativeParametrizedSpecification) parsePrimary(tokens []Token, ctx *parseContext, start int) (spec.Visitable, int, error) {
 	i := start
 
 	// Skip opening bracket if present
@@ -243,8 +330,8 @@ func (p *NativeParametrizedSpecification) parseExpression(tokens []Token, start 
 	// Skip opening parenthesis if present
 	if i < len(tokens) && tokens[i].Type == TokenLParen {
 		i++
-		// Recursively parse expression inside parentheses
-		node, i, err = p.parseExpression(tokens, i)
+		// Recursively parse FULL expression inside parentheses (can have && and ||)
+		node, i, err = p.parseExpression(tokens, ctx, i)
 		if err != nil {
 			return nil, i, err
 		}
@@ -255,14 +342,13 @@ func (p *NativeParametrizedSpecification) parseExpression(tokens []Token, start 
 	} else {
 		// Parse left side (field access or nested wildcard)
 		var leftNode spec.Visitable
-		leftNode, i, err = p.parseFieldAccess(tokens, i)
+		leftNode, i, err = p.parseFieldAccess(tokens, ctx, i)
 		if err != nil {
 			return nil, i, err
 		}
 
 		// Check if leftNode is a CollectionNode (nested wildcard case)
 		if _, ok := leftNode.(spec.CollectionNode); ok {
-			// This is a nested wildcard - return it directly
 			node = leftNode
 		} else {
 			// Parse operator
@@ -278,7 +364,7 @@ func (p *NativeParametrizedSpecification) parseExpression(tokens []Token, start 
 
 			// Parse right side (value)
 			var rightNode spec.Visitable
-			rightNode, i, err = p.parseValue(tokens, i)
+			rightNode, i, err = p.parseValue(tokens, ctx, i)
 			if err != nil {
 				return nil, i, err
 			}
@@ -298,7 +384,12 @@ func (p *NativeParametrizedSpecification) parseExpression(tokens []Token, start 
 			case TokenLte:
 				node = spec.LessThanEqual(leftNode, rightNode)
 			default:
-				return nil, i, fmt.Errorf("unexpected operator: %s", opToken.Type)
+				return nil, i, &JSONPathSyntaxError{
+					Message:    fmt.Sprintf("Unexpected operator '%s'", opToken.Value),
+					Position:   opToken.Position,
+					Expression: p.template,
+					Context:    "expected comparison operator (==, !=, <, >, <=, >=)",
+				}
 			}
 		}
 
@@ -313,23 +404,105 @@ func (p *NativeParametrizedSpecification) parseExpression(tokens []Token, start 
 		node = spec.Not(node)
 	}
 
-	// Check for AND/OR (RFC 9535: && and ||)
-	if i < len(tokens) && (tokens[i].Type == TokenAnd || tokens[i].Type == TokenOr) {
-		op := tokens[i].Type
+	return node, i, nil
+}
+
+// parseAndExpression parses AND expressions with left-associativity.
+// AND (&&) has higher precedence than OR (||), so it binds tighter.
+// `a && b && c` becomes `And(And(a, b), c)`.
+func (p *NativeParametrizedSpecification) parseAndExpression(tokens []Token, ctx *parseContext, start int) (spec.Visitable, int, error) {
+	// Parse first primary expression
+	node, i, err := p.parsePrimary(tokens, ctx, start)
+	if err != nil {
+		return nil, i, err
+	}
+
+	// Handle && with left associativity
+	for i < len(tokens) && tokens[i].Type == TokenAnd {
 		i++
-		var rightExpr spec.Visitable
-		rightExpr, i, err = p.parseExpression(tokens, i)
+		var rightNode spec.Visitable
+		rightNode, i, err = p.parsePrimary(tokens, ctx, i)
 		if err != nil {
 			return nil, i, err
 		}
-		if op == TokenAnd {
-			node = spec.And(node, rightExpr)
-		} else {
-			node = spec.Or(node, rightExpr)
-		}
+		node = spec.And(node, rightNode)
 	}
 
 	return node, i, nil
+}
+
+// parseExpression parses OR expressions with left-associativity (lowest precedence).
+//
+// Operator precedence (highest to lowest):
+// 1. Comparisons (==, !=, <, >, <=, >=)
+// 2. NOT (!)
+// 3. AND (&&)
+// 4. OR (||)
+//
+// This ensures `a || b && c` is parsed as `Or(a, And(b, c))`.
+func (p *NativeParametrizedSpecification) parseExpression(tokens []Token, ctx *parseContext, start int) (spec.Visitable, int, error) {
+	// Parse first AND expression (higher precedence)
+	node, i, err := p.parseAndExpression(tokens, ctx, start)
+	if err != nil {
+		return nil, i, err
+	}
+
+	// Handle || with left associativity
+	for i < len(tokens) && tokens[i].Type == TokenOr {
+		i++
+		var rightNode spec.Visitable
+		rightNode, i, err = p.parseAndExpression(tokens, ctx, i)
+		if err != nil {
+			return nil, i, err
+		}
+		node = spec.Or(node, rightNode)
+	}
+
+	return node, i, nil
+}
+
+// parseIdentifierChain parses a chain of dot-separated identifiers.
+// Examples: "a", "a.b", "a.b.c"
+func (p *NativeParametrizedSpecification) parseIdentifierChain(tokens []Token, start int) ([]string, int) {
+	i := start
+	var chain []string
+
+	for i < len(tokens) && tokens[i].Type == TokenIdentifier {
+		chain = append(chain, tokens[i].Value)
+		i++
+
+		// Check for dot followed by identifier
+		if i < len(tokens) &&
+			tokens[i].Type == TokenDot &&
+			i+1 < len(tokens) &&
+			tokens[i+1].Type == TokenIdentifier {
+			i++ // Skip dot, continue to next identifier
+		} else {
+			break
+		}
+	}
+
+	return chain, i
+}
+
+// buildObjectChain builds a chain of Object nodes from a list of field names.
+// Example: ["a", "b", "c"] with GlobalScope() parent becomes:
+//
+//	Object(Object(Object(GlobalScope(), "a"), "b"), "c")
+func (p *NativeParametrizedSpecification) buildObjectChain(parent spec.EmptiableObject, names []string) spec.EmptiableObject {
+	result := parent
+	for _, name := range names {
+		result = spec.Object(result, name)
+	}
+	return result
+}
+
+// isWildcardPattern checks if tokens at position form a wildcard pattern [*].
+func (p *NativeParametrizedSpecification) isWildcardPattern(tokens []Token, start int) bool {
+	return start+2 < len(tokens) &&
+		tokens[start].Type == TokenLBracket &&
+		tokens[start+1].Type == TokenWildcard &&
+		tokens[start+2].Type == TokenRBracket
 }
 
 // parseFieldAccess parses field access expression (including nested paths and wildcards).
@@ -338,15 +511,14 @@ func (p *NativeParametrizedSpecification) parseExpression(tokens []Token, start 
 //   - Simple: @.field
 //   - Nested: @.a.b.c
 //   - Nested wildcard: @.items[*][?@.price > 100]
-func (p *NativeParametrizedSpecification) parseFieldAccess(tokens []Token, start int) (spec.Visitable, int, error) {
+func (p *NativeParametrizedSpecification) parseFieldAccess(tokens []Token, ctx *parseContext, start int) (spec.Visitable, int, error) {
 	i := start
 
 	// Check for @ (current item)
 	var parent spec.EmptiableObject
 	if i < len(tokens) && tokens[i].Type == TokenAt {
 		i++
-		// Use Item() only in wildcard context, otherwise GlobalScope()
-		if p.isWildcardContext {
+		if ctx.isWildcardContext {
 			parent = spec.Item()
 		} else {
 			parent = spec.GlobalScope()
@@ -361,123 +533,112 @@ func (p *NativeParametrizedSpecification) parseFieldAccess(tokens []Token, start
 	}
 
 	// Parse field path chain (e.g., a.b.c)
-	var fieldChain []string
-	for i < len(tokens) && tokens[i].Type == TokenIdentifier {
-		fieldChain = append(fieldChain, tokens[i].Value)
-		i++
-
-		// Check for dot (continues path)
-		if i < len(tokens) && tokens[i].Type == TokenDot {
-			// Check if next token is also an identifier
-			if i+1 < len(tokens) && tokens[i+1].Type == TokenIdentifier {
-				i++ // Skip dot
-				continue
-			}
-			// Dot but no identifier after - break
-			break
-		}
-		// No dot, break
-		break
-	}
+	fieldChain, i := p.parseIdentifierChain(tokens, i)
 
 	if len(fieldChain) == 0 {
-		return nil, i, fmt.Errorf("expected field name at position %d", i)
+		pos := len(p.template)
+		if i < len(tokens) {
+			pos = tokens[i].Position
+		}
+		return nil, i, &JSONPathSyntaxError{
+			Message:    "Expected field name",
+			Position:   pos,
+			Expression: p.template,
+			Context:    "after '@.' or '.'",
+		}
 	}
 
 	// Check for nested wildcard on last field: field[*][?...]
-	if len(fieldChain) > 0 && p.checkNestedWildcard(tokens, i) {
+	if p.checkNestedWildcard(tokens, i) {
 		// Build parent chain for all fields except the last
-		for _, field := range fieldChain[:len(fieldChain)-1] {
-			parent = spec.Object(parent, field)
-		}
-
-		// Last field is the collection for the wildcard
+		parent = p.buildObjectChain(parent, fieldChain[:len(fieldChain)-1])
 		collectionName := fieldChain[len(fieldChain)-1]
-		return p.parseNestedWildcard(tokens, i, parent, collectionName)
+		return p.parseNestedWildcard(tokens, ctx, i, parent, collectionName)
 	}
 
-	// Build nested Field structure
-	// e.g., ["a", "b", "c"] -> Field(Object(Object(parent, "a"), "b"), "c")
-	for _, field := range fieldChain[:len(fieldChain)-1] {
-		parent = spec.Object(parent, field)
-	}
-
-	// Last field
-	fieldName := fieldChain[len(fieldChain)-1]
-	return spec.Field(parent, fieldName), i, nil
+	// Build nested Field structure: a.b.c -> Field(Object(Object(parent, "a"), "b"), "c")
+	parent = p.buildObjectChain(parent, fieldChain[:len(fieldChain)-1])
+	return spec.Field(parent, fieldChain[len(fieldChain)-1]), i, nil
 }
 
 // checkNestedWildcard checks if tokens starting at position indicate a nested wildcard pattern.
-//
 // Pattern: [*][?...]
 func (p *NativeParametrizedSpecification) checkNestedWildcard(tokens []Token, start int) bool {
-	i := start
-
-	// Check for [*]
-	if i+2 < len(tokens) &&
-		tokens[i].Type == TokenLBracket &&
-		tokens[i+1].Type == TokenWildcard &&
-		tokens[i+2].Type == TokenRBracket {
-		// Check if followed by [?...]
-		if i+3 < len(tokens) && tokens[i+3].Type == TokenLBracket {
-			return true
-		}
-	}
-
-	return false
+	return p.isWildcardPattern(tokens, start) &&
+		start+3 < len(tokens) &&
+		tokens[start+3].Type == TokenLBracket
 }
 
 // parseNestedWildcard parses nested wildcard pattern: collection[*][?predicate]
-func (p *NativeParametrizedSpecification) parseNestedWildcard(tokens []Token, start int, parent spec.EmptiableObject, collectionName string) (spec.Visitable, int, error) {
+func (p *NativeParametrizedSpecification) parseNestedWildcard(tokens []Token, ctx *parseContext, start int, parent spec.EmptiableObject, collectionName string) (spec.Visitable, int, error) {
 	i := start
 
 	// Skip [*]
-	if i+2 < len(tokens) &&
-		tokens[i].Type == TokenLBracket &&
-		tokens[i+1].Type == TokenWildcard &&
-		tokens[i+2].Type == TokenRBracket {
+	if p.isWildcardPattern(tokens, i) {
 		i += 3
 	} else {
-		return nil, i, fmt.Errorf("expected [*] at position %d", i)
+		pos := len(p.template)
+		if i < len(tokens) {
+			pos = tokens[i].Position
+		}
+		return nil, i, &JSONPathSyntaxError{
+			Message:    "Expected wildcard '[*]'",
+			Position:   pos,
+			Expression: p.template,
+			Context:    "in nested wildcard pattern",
+		}
 	}
 
 	// Parse filter expression [?...]
 	if i < len(tokens) && tokens[i].Type == TokenLBracket {
 		// Save current wildcard context
-		oldContext := p.isWildcardContext
+		oldContext := ctx.isWildcardContext
 
 		// Set wildcard context to True for nested predicate
-		p.isWildcardContext = true
-		predicate, newI, err := p.parseExpression(tokens, i)
+		ctx.isWildcardContext = true
+		predicate, newI, err := p.parseExpression(tokens, ctx, i)
 		if err != nil {
 			return nil, newI, err
 		}
 		i = newI
 
 		// Restore previous context
-		p.isWildcardContext = oldContext
+		ctx.isWildcardContext = oldContext
 
 		// Create Wildcard node
 		collectionObj := spec.Object(parent, collectionName)
 		return spec.Wildcard(collectionObj, predicate), i, nil
 	}
 
-	return nil, i, fmt.Errorf("expected filter expression at position %d", i)
+	pos := len(p.template)
+	if i < len(tokens) {
+		pos = tokens[i].Position
+	}
+	return nil, i, &JSONPathSyntaxError{
+		Message:    "Expected filter expression '[?...]'",
+		Position:   pos,
+		Expression: p.template,
+		Context:    "after wildcard '[*]'",
+	}
 }
 
 // parseValue parses a value (literal or placeholder).
-func (p *NativeParametrizedSpecification) parseValue(tokens []Token, start int) (spec.Visitable, int, error) {
+func (p *NativeParametrizedSpecification) parseValue(tokens []Token, ctx *parseContext, start int) (spec.Visitable, int, error) {
 	i := start
 
 	if i >= len(tokens) {
-		return nil, i, errors.New("expected value but reached end of tokens")
+		return nil, i, &JSONPathSyntaxError{
+			Message:    "Unexpected end of expression",
+			Position:   len(p.template),
+			Expression: p.template,
+			Context:    "expected value (number, string, boolean, or placeholder)",
+		}
 	}
 
 	token := tokens[i]
 
 	switch token.Type {
 	case TokenNumber:
-		// Parse number
 		var value any
 		if strings.Contains(token.Value, ".") {
 			value, _ = strconv.ParseFloat(token.Value, 64)
@@ -487,17 +648,14 @@ func (p *NativeParametrizedSpecification) parseValue(tokens []Token, start int) 
 		return spec.Value(value), i + 1, nil
 
 	case TokenString:
-		// Parse string (remove quotes)
 		value := token.Value[1 : len(token.Value)-1]
 		return spec.Value(value), i + 1, nil
 
 	case TokenPlaceholder:
-		// This is a placeholder - will be bound later
-		valueNode := p.createPlaceholderValue(token.Value)
+		valueNode := p.createPlaceholderValue(ctx)
 		return valueNode, i + 1, nil
 
 	case TokenIdentifier:
-		// Could be a boolean literal
 		switch strings.ToLower(token.Value) {
 		case "true":
 			return spec.Value(true), i + 1, nil
@@ -508,29 +666,23 @@ func (p *NativeParametrizedSpecification) parseValue(tokens []Token, start int) 
 		}
 	}
 
-	return nil, i, fmt.Errorf("unexpected token in value position: %s", token)
-}
-
-// placeholderMarker is a special marker for placeholders.
-type placeholderMarker struct {
-	Index int
+	return nil, i, &JSONPathSyntaxError{
+		Message:    fmt.Sprintf("Unexpected token '%s'", token.Value),
+		Position:   token.Position,
+		Expression: p.template,
+		Context:    "expected value (number, string, boolean, or placeholder)",
+	}
 }
 
 // createPlaceholderValue creates a placeholder value that will be bound later.
-func (p *NativeParametrizedSpecification) createPlaceholderValue(placeholderStr string) spec.ValueNode {
-	// We'll store a special marker that we'll replace during Match()
-	value := spec.Value(placeholderMarker{Index: p.placeholderBindIndex})
-	p.placeholderBindIndex++
+func (p *NativeParametrizedSpecification) createPlaceholderValue(ctx *parseContext) spec.ValueNode {
+	value := spec.Value(placeholderMarker{Index: ctx.placeholderBindIndex})
+	ctx.placeholderBindIndex++
 	return value
 }
 
 // parsePath parses the full JSONPath expression (supports nested paths).
-//
-// Supports:
-//   - Simple: $.items[?@.price > 100]
-//   - Nested: $.store.items[?@.price > 100]
-//   - Deep nested: $.a.b.c.items[?@.x > 1]
-func (p *NativeParametrizedSpecification) parsePath(tokens []Token) (spec.Visitable, bool, error) {
+func (p *NativeParametrizedSpecification) parsePath(tokens []Token, ctx *parseContext) (spec.Visitable, bool, error) {
 	i := 0
 
 	// Skip $
@@ -544,81 +696,72 @@ func (p *NativeParametrizedSpecification) parsePath(tokens []Token) (spec.Visita
 	}
 
 	// Parse path chain (e.g., a.b.c)
-	var pathChain []string
-	for i < len(tokens) && tokens[i].Type == TokenIdentifier {
-		pathChain = append(pathChain, tokens[i].Value)
-		i++
-
-		// Check for dot (continues path)
-		if i < len(tokens) && tokens[i].Type == TokenDot {
-			i++
-			// Continue to next identifier
-		} else {
-			// No more dots, break
-			break
-		}
-	}
+	pathChain, i := p.parseIdentifierChain(tokens, i)
 
 	if len(pathChain) == 0 {
 		// No path found, check if it's just a filter without path
-		// e.g., $[?@.age > 25]
 		if i < len(tokens) && tokens[i].Type == TokenLBracket {
-			// Simple filter without path
-			p.isWildcardContext = false
-			predicate, _, err := p.parseExpression(tokens, i)
+			ctx.isWildcardContext = false
+			predicate, _, err := p.parseExpression(tokens, ctx, i)
 			if err != nil {
 				return nil, false, err
 			}
 			return predicate, false, nil
 		}
-		return nil, false, errors.New("expected path or filter expression")
+		pos := len(p.template)
+		if i < len(tokens) {
+			pos = tokens[i].Position
+		}
+		return nil, false, &JSONPathSyntaxError{
+			Message:    "Expected path or filter expression",
+			Position:   pos,
+			Expression: p.template,
+			Context:    "after '$'",
+		}
 	}
 
-	// Build nested Object structure from path chain
-	// e.g., ["a", "b", "c"] -> Object(Object(Object(GlobalScope(), "a"), "b"), "c")
+	// Build parent chain and get collection name
 	var parent spec.EmptiableObject = spec.GlobalScope()
-	for _, pathElement := range pathChain[:len(pathChain)-1] {
-		parent = spec.Object(parent, pathElement)
-	}
-
-	// Last element in path is the collection name
+	parent = p.buildObjectChain(parent, pathChain[:len(pathChain)-1])
 	collectionName := pathChain[len(pathChain)-1]
 
 	// Check for wildcard [*]
-	isWildcard := false
-	if i+2 < len(tokens) &&
-		tokens[i].Type == TokenLBracket &&
-		tokens[i+1].Type == TokenWildcard &&
-		tokens[i+2].Type == TokenRBracket {
-		isWildcard = true
+	isWildcard := p.isWildcardPattern(tokens, i)
+	if isWildcard {
 		i += 3
 	}
 
 	// Parse filter expression
 	if i < len(tokens) && tokens[i].Type == TokenLBracket {
 		if isWildcard {
-			// Wildcard with filter
-			p.isWildcardContext = true
-			predicate, _, err := p.parseExpression(tokens, i)
+			ctx.isWildcardContext = true
+			predicate, _, err := p.parseExpression(tokens, ctx, i)
 			if err != nil {
 				return nil, false, err
 			}
-			p.isWildcardContext = false
+			ctx.isWildcardContext = false
 
-			// Create Wildcard node
 			collectionObj := spec.Object(parent, collectionName)
 			return spec.Wildcard(collectionObj, predicate), true, nil
 		}
-		// Simple filter without wildcard
-		p.isWildcardContext = false
-		predicate, _, err := p.parseExpression(tokens, i)
+		ctx.isWildcardContext = false
+		predicate, _, err := p.parseExpression(tokens, ctx, i)
 		if err != nil {
 			return nil, false, err
 		}
 		return predicate, false, nil
 	}
 
-	return nil, false, errors.New("expected filter expression")
+	pos := len(p.template)
+	if i < len(tokens) {
+		pos = tokens[i].Position
+	}
+	return nil, false, &JSONPathSyntaxError{
+		Message:    "Expected filter expression '[?...]'",
+		Position:   pos,
+		Expression: p.template,
+		Context:    "after path",
+	}
 }
 
 // bindPlaceholder binds a placeholder to its actual value.
@@ -631,7 +774,6 @@ func (p *NativeParametrizedSpecification) bindPlaceholder(value any, params []an
 	if marker.Index < len(p.placeholderInfo) {
 		phInfo := p.placeholderInfo[marker.Index]
 
-		// Get actual value from params
 		if phInfo.Positional {
 			paramIdx, _ := strconv.Atoi(phInfo.Name)
 			if paramIdx < len(params) {
@@ -644,7 +786,6 @@ func (p *NativeParametrizedSpecification) bindPlaceholder(value any, params []an
 		}
 	}
 
-	// If not found, return marker as-is
 	return value
 }
 
@@ -652,12 +793,10 @@ func (p *NativeParametrizedSpecification) bindPlaceholder(value any, params []an
 func (p *NativeParametrizedSpecification) bindValuesInAST(node spec.Visitable, params []any, namedParams map[string]any) spec.Visitable {
 	switch n := node.(type) {
 	case spec.ValueNode:
-		// Bind the value if it's a placeholder
 		boundValue := p.bindPlaceholder(n.Value(), params, namedParams)
 		return spec.Value(boundValue)
 
 	case spec.InfixNode:
-		// Recursively bind left and right
 		left := p.bindValuesInAST(n.Left(), params, namedParams)
 		right := p.bindValuesInAST(n.Right(), params, namedParams)
 		return spec.NewInfixNode(left, n.Operator(), right, n.Associativity())
@@ -667,80 +806,32 @@ func (p *NativeParametrizedSpecification) bindValuesInAST(node spec.Visitable, p
 		return spec.NewPrefixNode(n.Operator(), operand, n.Associativity())
 
 	case spec.CollectionNode:
-		// Recursively bind predicate
 		predicate := p.bindValuesInAST(n.Predicate(), params, namedParams)
 		return spec.Wildcard(n.Parent(), predicate)
 
 	default:
-		// For other nodes (Field, Item, GlobalScope, Object), return as-is
 		return node
 	}
 }
 
 // Match checks if data matches the specification with given positional parameters.
-//
-// Args:
-//
-//	data: The data object to check (must implement Context interface)
-//	params: Parameter values (positional)
-//
-// Returns:
-//
-//	True if data matches the specification, False otherwise
-//
-// Examples:
-//
-//	spec := Parse("$[?(@.age > %d)]")
-//	user := NewDictContext(map[string]any{"age": 30})
-//	result, _ := spec.Match(user, 25)  // true
 func (p *NativeParametrizedSpecification) Match(data spec.Context, params ...any) (bool, error) {
 	return p.matchInternal(data, params, nil)
 }
 
 // MatchNamed checks if data matches the specification with named parameters.
-//
-// Args:
-//
-//	data: The data object to check (must implement Context interface)
-//	params: Parameter values (named)
-//
-// Returns:
-//
-//	True if data matches the specification, False otherwise
-//
-// Examples:
-//
-//	spec := Parse("$[?(@.age > %(min_age)d)]")
-//	user := NewDictContext(map[string]any{"age": 30})
-//	result, _ := spec.MatchNamed(user, map[string]any{"min_age": 25})  // true
 func (p *NativeParametrizedSpecification) MatchNamed(data spec.Context, namedParams map[string]any) (bool, error) {
 	return p.matchInternal(data, nil, namedParams)
 }
 
 // matchInternal is the internal implementation of Match and MatchNamed.
 func (p *NativeParametrizedSpecification) matchInternal(data spec.Context, params []any, namedParams map[string]any) (bool, error) {
-	// Reset placeholder binding index
-	p.placeholderBindIndex = 0
-
-	// Tokenize
-	lexer := NewLexer(p.template)
-	tokens, err := lexer.Tokenize()
-	if err != nil {
-		return false, err
-	}
-
-	// Parse to AST
-	specAST, _, err := p.parsePath(tokens)
-	if err != nil {
-		return false, err
-	}
-
-	// Bind placeholder values
-	boundAST := p.bindValuesInAST(specAST, params, namedParams)
+	// Bind placeholder values to cached AST
+	boundAST := p.bindValuesInAST(p.ast, params, namedParams)
 
 	// Evaluate using EvaluateVisitor
 	visitor := spec.NewEvaluateVisitor(data)
-	err = boundAST.Accept(visitor)
+	err := boundAST.Accept(visitor)
 	if err != nil {
 		return false, err
 	}
@@ -784,7 +875,6 @@ func (c *NestedDictContext) Get(key string) (any, error) {
 		return nil, fmt.Errorf("key '%s' not found", key)
 	}
 
-	// If value is a map, wrap it in NestedDictContext
 	if m, ok := value.(map[string]any); ok {
 		return NewNestedDictContext(m), nil
 	}

@@ -1,13 +1,14 @@
 package jsonpath
 
 import (
+	"sync"
 	"testing"
 
 	spec "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 )
 
 func TestNativeParser_SimpleComparisonGreaterThan(t *testing.T) {
-	s := Parse("$[?(@.age > %d)]")
+	s := MustParse("$[?(@.age > %d)]")
 	user := NewDictContext(map[string]any{"age": 30})
 
 	result, err := s.Match(user, 25)
@@ -28,7 +29,7 @@ func TestNativeParser_SimpleComparisonGreaterThan(t *testing.T) {
 }
 
 func TestNativeParser_SimpleComparisonLessThan(t *testing.T) {
-	s := Parse("$[?(@.age < %d)]")
+	s := MustParse("$[?(@.age < %d)]")
 	user := NewDictContext(map[string]any{"age": 25})
 
 	result, err := s.Match(user, 30)
@@ -49,7 +50,7 @@ func TestNativeParser_SimpleComparisonLessThan(t *testing.T) {
 }
 
 func TestNativeParser_SimpleComparisonEqual(t *testing.T) {
-	s := Parse("$[?@.name == %s]")
+	s := MustParse("$[?@.name == %s]")
 	user := NewDictContext(map[string]any{"name": "Alice"})
 
 	result, err := s.Match(user, "Alice")
@@ -70,7 +71,7 @@ func TestNativeParser_SimpleComparisonEqual(t *testing.T) {
 }
 
 func TestNativeParser_SimpleComparisonNotEqual(t *testing.T) {
-	s := Parse("$[?@.status != %s]")
+	s := MustParse("$[?@.status != %s]")
 	user := NewDictContext(map[string]any{"status": "active"})
 
 	result, err := s.Match(user, "inactive")
@@ -91,7 +92,7 @@ func TestNativeParser_SimpleComparisonNotEqual(t *testing.T) {
 }
 
 func TestNativeParser_GreaterThanOrEqual(t *testing.T) {
-	s := Parse("$[?(@.age >= %d)]")
+	s := MustParse("$[?(@.age >= %d)]")
 	user := NewDictContext(map[string]any{"age": 30})
 
 	// Equal
@@ -123,7 +124,7 @@ func TestNativeParser_GreaterThanOrEqual(t *testing.T) {
 }
 
 func TestNativeParser_LessThanOrEqual(t *testing.T) {
-	s := Parse("$[?(@.age <= %d)]")
+	s := MustParse("$[?(@.age <= %d)]")
 	user := NewDictContext(map[string]any{"age": 30})
 
 	// Equal
@@ -155,7 +156,7 @@ func TestNativeParser_LessThanOrEqual(t *testing.T) {
 }
 
 func TestNativeParser_NamedPlaceholder(t *testing.T) {
-	s := Parse("$[?(@.age > %(min_age)d)]")
+	s := MustParse("$[?(@.age > %(min_age)d)]")
 	user := NewDictContext(map[string]any{"age": 30})
 
 	result, err := s.MatchNamed(user, map[string]any{"min_age": 25})
@@ -176,7 +177,7 @@ func TestNativeParser_NamedPlaceholder(t *testing.T) {
 }
 
 func TestNativeParser_StringPlaceholder(t *testing.T) {
-	s := Parse("$[?@.name == %(name)s]")
+	s := MustParse("$[?@.name == %(name)s]")
 	user := NewDictContext(map[string]any{"name": "Alice"})
 
 	result, err := s.MatchNamed(user, map[string]any{"name": "Alice"})
@@ -197,7 +198,7 @@ func TestNativeParser_StringPlaceholder(t *testing.T) {
 }
 
 func TestNativeParser_FloatPlaceholder(t *testing.T) {
-	s := Parse("$[?(@.price > %f)]")
+	s := MustParse("$[?(@.price > %f)]")
 	product := NewDictContext(map[string]any{"price": 99.99})
 
 	result, err := s.Match(product, 50.0)
@@ -218,7 +219,7 @@ func TestNativeParser_FloatPlaceholder(t *testing.T) {
 }
 
 func TestNativeParser_ReuseSpecification(t *testing.T) {
-	s := Parse("$[?(@.age > %d)]")
+	s := MustParse("$[?(@.age > %d)]")
 	user := NewDictContext(map[string]any{"age": 30})
 
 	// Multiple calls with different parameters
@@ -239,7 +240,7 @@ func TestNativeParser_ReuseSpecification(t *testing.T) {
 }
 
 func TestNativeParser_WildcardCollection(t *testing.T) {
-	s := Parse("$.items[*][?(@.score > %d)]")
+	s := MustParse("$.items[*][?(@.score > %d)]")
 
 	item1 := NewDictContext(map[string]any{"name": "Alice", "score": 90})
 	item2 := NewDictContext(map[string]any{"name": "Bob", "score": 75})
@@ -268,7 +269,7 @@ func TestNativeParser_WildcardCollection(t *testing.T) {
 }
 
 func TestNativeParser_WildcardWithNamedPlaceholder(t *testing.T) {
-	s := Parse("$.users[*][?(@.age >= %(min_age)d)]")
+	s := MustParse("$.users[*][?(@.age >= %(min_age)d)]")
 
 	user1 := NewDictContext(map[string]any{"name": "Alice", "age": 30})
 	user2 := NewDictContext(map[string]any{"name": "Bob", "age": 25})
@@ -294,7 +295,7 @@ func TestNativeParser_WildcardWithNamedPlaceholder(t *testing.T) {
 }
 
 func TestNativeParser_WildcardStringComparison(t *testing.T) {
-	s := Parse("$.users[*][?@.role == %s]")
+	s := MustParse("$.users[*][?@.role == %s]")
 
 	user1 := NewDictContext(map[string]any{"name": "Alice", "role": "admin"})
 	user2 := NewDictContext(map[string]any{"name": "Bob", "role": "user"})
@@ -320,7 +321,7 @@ func TestNativeParser_WildcardStringComparison(t *testing.T) {
 }
 
 func TestNativeParser_ErrorOnMissingField(t *testing.T) {
-	s := Parse("$[?(@.age > %d)]")
+	s := MustParse("$[?(@.age > %d)]")
 	user := NewDictContext(map[string]any{"name": "Alice"}) // No age field
 
 	_, err := s.Match(user, 25)
@@ -330,7 +331,7 @@ func TestNativeParser_ErrorOnMissingField(t *testing.T) {
 }
 
 func TestNativeParser_LogicalAndOperator(t *testing.T) {
-	s := Parse("$[?@.age > %d && @.active == %s]")
+	s := MustParse("$[?@.age > %d && @.active == %s]")
 	user := NewDictContext(map[string]any{"age": 30, "active": true})
 
 	result, err := s.Match(user, 25, true)
@@ -359,7 +360,7 @@ func TestNativeParser_LogicalAndOperator(t *testing.T) {
 }
 
 func TestNativeParser_LogicalOrOperator(t *testing.T) {
-	s := Parse("$[?@.age < %d || @.age > %d]")
+	s := MustParse("$[?@.age < %d || @.age > %d]")
 	userYoung := NewDictContext(map[string]any{"age": 15})
 	userOld := NewDictContext(map[string]any{"age": 70})
 	userMiddle := NewDictContext(map[string]any{"age": 40})
@@ -390,7 +391,7 @@ func TestNativeParser_LogicalOrOperator(t *testing.T) {
 }
 
 func TestNativeParser_LogicalNotOperator(t *testing.T) {
-	s := Parse("$[?!(@.active == %s)]")
+	s := MustParse("$[?!(@.active == %s)]")
 	userActive := NewDictContext(map[string]any{"active": true})
 	userInactive := NewDictContext(map[string]any{"active": false})
 
@@ -428,7 +429,7 @@ func TestNativeParser_LogicalNotOperator(t *testing.T) {
 }
 
 func TestNativeParser_ComplexLogicalExpression(t *testing.T) {
-	s := Parse("$[?(@.age >= %d && @.age <= %d) && @.status == %s]")
+	s := MustParse("$[?(@.age >= %d && @.age <= %d) && @.status == %s]")
 	user := NewDictContext(map[string]any{"age": 30, "status": "active"})
 
 	result, err := s.Match(user, 25, 35, "active")
@@ -457,7 +458,7 @@ func TestNativeParser_ComplexLogicalExpression(t *testing.T) {
 }
 
 func TestNativeParser_RFC9535EqualityOperator(t *testing.T) {
-	s := Parse("$[?@.age == %d]")
+	s := MustParse("$[?@.age == %d]")
 	user := NewDictContext(map[string]any{"age": 30})
 
 	result, err := s.Match(user, 30)
@@ -478,7 +479,7 @@ func TestNativeParser_RFC9535EqualityOperator(t *testing.T) {
 }
 
 func TestNativeParser_BooleanValues(t *testing.T) {
-	s := Parse("$[?@.active == %s]")
+	s := MustParse("$[?@.active == %s]")
 	userActive := NewDictContext(map[string]any{"active": true})
 	userInactive := NewDictContext(map[string]any{"active": false})
 
@@ -589,7 +590,7 @@ func TestLexer_TokenizeNamedPlaceholder(t *testing.T) {
 // Nested wildcards tests
 
 func TestNativeParser_NestedWildcardSimple(t *testing.T) {
-	s := Parse("$.categories[*][?@.items[*][?@.price > %f]]")
+	s := MustParse("$.categories[*][?@.items[*][?@.price > %f]]")
 
 	// Create nested data structure
 	item1 := NewDictContext(map[string]any{"name": "Laptop", "price": 999.0})
@@ -625,7 +626,7 @@ func TestNativeParser_NestedWildcardSimple(t *testing.T) {
 }
 
 func TestNativeParser_NestedWildcardWithLogicalOperators(t *testing.T) {
-	s := Parse("$.categories[*][?@.items[*][?@.price > %f && @.price < %f]]")
+	s := MustParse("$.categories[*][?@.items[*][?@.price > %f && @.price < %f]]")
 
 	// Create test data
 	item1 := NewDictContext(map[string]any{"name": "Laptop", "price": 999.0})
@@ -656,7 +657,7 @@ func TestNativeParser_NestedWildcardWithLogicalOperators(t *testing.T) {
 }
 
 func TestNativeParser_NestedWildcardEmptyCollection(t *testing.T) {
-	s := Parse("$.categories[*][?@.items[*][?@.price > %f]]")
+	s := MustParse("$.categories[*][?@.items[*][?@.price > %f]]")
 
 	// Category with no items
 	items := spec.NewCollectionContext([]spec.Context{})
@@ -676,7 +677,7 @@ func TestNativeParser_NestedWildcardEmptyCollection(t *testing.T) {
 }
 
 func TestNativeParser_NestedWildcardMultipleMatches(t *testing.T) {
-	s := Parse("$.categories[*][?@.items[*][?@.price > %f]]")
+	s := MustParse("$.categories[*][?@.items[*][?@.price > %f]]")
 
 	// Category 1 with expensive items
 	item1 := NewDictContext(map[string]any{"name": "Laptop", "price": 999.0})
@@ -702,7 +703,7 @@ func TestNativeParser_NestedWildcardMultipleMatches(t *testing.T) {
 }
 
 func TestNativeParser_NestedWildcardWithNamedPlaceholder(t *testing.T) {
-	s := Parse("$.categories[*][?@.items[*][?@.price > %(min_price)f]]")
+	s := MustParse("$.categories[*][?@.items[*][?@.price > %(min_price)f]]")
 
 	// Create test data
 	item1 := NewDictContext(map[string]any{"name": "Laptop", "price": 999.0})
@@ -733,7 +734,7 @@ func TestNativeParser_NestedWildcardWithNamedPlaceholder(t *testing.T) {
 // Nested paths tests
 
 func TestNativeParser_NestedPathSimple(t *testing.T) {
-	s := Parse("$.store.products[*][?@.price > %f]")
+	s := MustParse("$.store.products[*][?@.price > %f]")
 
 	// Create nested structure
 	product1 := NewDictContext(map[string]any{"name": "Laptop", "price": 999.0})
@@ -767,7 +768,7 @@ func TestNativeParser_NestedPathSimple(t *testing.T) {
 }
 
 func TestNativeParser_NestedPathDeep(t *testing.T) {
-	s := Parse("$.company.department.team.members[*][?@.age > %d]")
+	s := MustParse("$.company.department.team.members[*][?@.age > %d]")
 
 	member1 := NewDictContext(map[string]any{"name": "Alice", "age": 30})
 	member2 := NewDictContext(map[string]any{"name": "Bob", "age": 25})
@@ -806,7 +807,7 @@ func TestNativeParser_NestedPathDeep(t *testing.T) {
 }
 
 func TestNativeParser_NestedPathInFilter(t *testing.T) {
-	s := Parse("$[?@.user.profile.age > %d]")
+	s := MustParse("$[?@.user.profile.age > %d]")
 
 	data := NewNestedDictContext(map[string]any{
 		"user": map[string]any{
@@ -838,7 +839,7 @@ func TestNativeParser_NestedPathInFilter(t *testing.T) {
 }
 
 func TestNativeParser_NestedPathWithLogicalOperators(t *testing.T) {
-	s := Parse("$.store.products[*][?@.price > %f && @.stock > %d]")
+	s := MustParse("$.store.products[*][?@.price > %f && @.stock > %d]")
 
 	product1 := NewDictContext(map[string]any{"name": "Laptop", "price": 999.0, "stock": 5})
 	product2 := NewDictContext(map[string]any{"name": "Mouse", "price": 29.0, "stock": 100})
@@ -871,7 +872,7 @@ func TestNativeParser_NestedPathWithLogicalOperators(t *testing.T) {
 }
 
 func TestNativeParser_NestedPathWithNamedPlaceholder(t *testing.T) {
-	s := Parse("$.warehouse.items[*][?@.quantity < %(min_qty)d]")
+	s := MustParse("$.warehouse.items[*][?@.quantity < %(min_qty)d]")
 
 	item1 := NewDictContext(map[string]any{"name": "Widget", "quantity": 5})
 	item2 := NewDictContext(map[string]any{"name": "Gadget", "quantity": 50})
@@ -904,7 +905,7 @@ func TestNativeParser_NestedPathWithNamedPlaceholder(t *testing.T) {
 }
 
 func TestNativeParser_DeeplyNestedFilterField(t *testing.T) {
-	s := Parse("$[?@.company.department.manager.level > %d]")
+	s := MustParse("$[?@.company.department.manager.level > %d]")
 
 	data := NewNestedDictContext(map[string]any{
 		"company": map[string]any{
@@ -935,5 +936,681 @@ func TestNativeParser_DeeplyNestedFilterField(t *testing.T) {
 	}
 	if result {
 		t.Error("expected false, got true")
+	}
+}
+
+// Operator Associativity tests
+//
+// These tests verify that operators are left-associative:
+// - a && b && c should be And(And(a, b), c), not And(a, And(b, c))
+// - a || b || c should be Or(Or(a, b), c), not Or(a, Or(b, c))
+
+func TestOperatorAssociativity_AndLeftAssociative(t *testing.T) {
+	// Test that && is left-associative: a && b && c -> And(And(a, b), c)
+	s := MustParse("$[?@.a == 1 && @.b == 2 && @.c == 3]")
+
+	ast := s.AST()
+
+	// Top level should be And (InfixNode)
+	topAnd, ok := ast.(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode at top level, got %T", ast)
+	}
+	if topAnd.Operator() != spec.OperatorAnd {
+		t.Errorf("expected AND operator, got %s", topAnd.Operator())
+	}
+
+	// Left child should also be And (left-associative)
+	leftAnd, ok := topAnd.Left().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for left child, got %T", topAnd.Left())
+	}
+	if leftAnd.Operator() != spec.OperatorAnd {
+		t.Errorf("expected AND operator for inner, got %s", leftAnd.Operator())
+	}
+
+	// Right child of top And should be Equal (the last comparison)
+	rightEqual, ok := topAnd.Right().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for right child, got %T", topAnd.Right())
+	}
+	if rightEqual.Operator() != spec.OperatorEq {
+		t.Errorf("expected EQ operator for right, got %s", rightEqual.Operator())
+	}
+
+	// The innermost And's children should both be Equal
+	_, leftOk := leftAnd.Left().(spec.InfixNode)
+	_, rightOk := leftAnd.Right().(spec.InfixNode)
+	if !leftOk || !rightOk {
+		t.Error("innermost And children should be InfixNodes (Equal)")
+	}
+}
+
+func TestOperatorAssociativity_OrLeftAssociative(t *testing.T) {
+	// Test that || is left-associative: a || b || c -> Or(Or(a, b), c)
+	s := MustParse("$[?@.a == 1 || @.b == 2 || @.c == 3]")
+
+	ast := s.AST()
+
+	// Top level should be Or
+	topOr, ok := ast.(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode at top level, got %T", ast)
+	}
+	if topOr.Operator() != spec.OperatorOr {
+		t.Errorf("expected OR operator, got %s", topOr.Operator())
+	}
+
+	// Left child should also be Or (left-associative)
+	leftOr, ok := topOr.Left().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
+	}
+	if leftOr.Operator() != spec.OperatorOr {
+		t.Errorf("expected OR operator for inner, got %s", leftOr.Operator())
+	}
+
+	// Right child should be Equal
+	rightEqual, ok := topOr.Right().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
+	}
+	if rightEqual.Operator() != spec.OperatorEq {
+		t.Errorf("expected EQ operator for right, got %s", rightEqual.Operator())
+	}
+}
+
+func TestOperatorAssociativity_MixedOperators(t *testing.T) {
+	// a && b || c && d should be Or(And(a, b), And(c, d))
+	s := MustParse("$[?@.a == 1 && @.b == 2 || @.c == 3 && @.d == 4]")
+
+	ast := s.AST()
+
+	// Top level should be Or (lowest precedence)
+	topOr, ok := ast.(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode at top level, got %T", ast)
+	}
+	if topOr.Operator() != spec.OperatorOr {
+		t.Errorf("expected OR operator, got %s", topOr.Operator())
+	}
+
+	// Both children should be And
+	leftAnd, ok := topOr.Left().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
+	}
+	if leftAnd.Operator() != spec.OperatorAnd {
+		t.Errorf("expected AND operator for left, got %s", leftAnd.Operator())
+	}
+
+	rightAnd, ok := topOr.Right().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
+	}
+	if rightAnd.Operator() != spec.OperatorAnd {
+		t.Errorf("expected AND operator for right, got %s", rightAnd.Operator())
+	}
+}
+
+// Operator Precedence tests
+//
+// These tests verify that && has higher precedence than ||:
+// - a || b && c should be Or(a, And(b, c)), not And(Or(a, b), c)
+
+func TestOperatorPrecedence_AndHigherThanOr(t *testing.T) {
+	// Test that && binds tighter than ||: a || b && c -> Or(a, And(b, c))
+	s := MustParse("$[?@.a == 1 || @.b == 2 && @.c == 3]")
+
+	ast := s.AST()
+
+	// Top level should be Or
+	topOr, ok := ast.(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode at top level, got %T", ast)
+	}
+	if topOr.Operator() != spec.OperatorOr {
+		t.Errorf("expected OR operator, got %s", topOr.Operator())
+	}
+
+	// Left should be simple Equal
+	leftEqual, ok := topOr.Left().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
+	}
+	if leftEqual.Operator() != spec.OperatorEq {
+		t.Errorf("expected EQ operator for left, got %s", leftEqual.Operator())
+	}
+
+	// Right should be And (higher precedence bound first)
+	rightAnd, ok := topOr.Right().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
+	}
+	if rightAnd.Operator() != spec.OperatorAnd {
+		t.Errorf("expected AND operator for right, got %s", rightAnd.Operator())
+	}
+}
+
+func TestOperatorPrecedence_AndHigherThanOrReverse(t *testing.T) {
+	// Test precedence: a && b || c -> Or(And(a, b), c)
+	s := MustParse("$[?@.a == 1 && @.b == 2 || @.c == 3]")
+
+	ast := s.AST()
+
+	// Top level should be Or
+	topOr, ok := ast.(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode at top level, got %T", ast)
+	}
+	if topOr.Operator() != spec.OperatorOr {
+		t.Errorf("expected OR operator, got %s", topOr.Operator())
+	}
+
+	// Left should be And
+	leftAnd, ok := topOr.Left().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
+	}
+	if leftAnd.Operator() != spec.OperatorAnd {
+		t.Errorf("expected AND operator for left, got %s", leftAnd.Operator())
+	}
+
+	// Right should be Equal
+	rightEqual, ok := topOr.Right().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
+	}
+	if rightEqual.Operator() != spec.OperatorEq {
+		t.Errorf("expected EQ operator for right, got %s", rightEqual.Operator())
+	}
+}
+
+func TestOperatorPrecedence_ParenthesesOverride(t *testing.T) {
+	// Test that parentheses override default precedence.
+	// (a || b) && c - parentheses force Or to bind first
+	s := MustParse("$[?((@.a == 1 || @.b == 2)) && @.c == 3]")
+
+	ast := s.AST()
+
+	// Top level should be And (due to parentheses)
+	topAnd, ok := ast.(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode at top level, got %T", ast)
+	}
+	if topAnd.Operator() != spec.OperatorAnd {
+		t.Errorf("expected AND operator, got %s", topAnd.Operator())
+	}
+
+	// Left should be Or (grouped by parentheses)
+	leftOr, ok := topAnd.Left().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for left child, got %T", topAnd.Left())
+	}
+	if leftOr.Operator() != spec.OperatorOr {
+		t.Errorf("expected OR operator for left, got %s", leftOr.Operator())
+	}
+
+	// Right should be Equal
+	rightEqual, ok := topAnd.Right().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for right child, got %T", topAnd.Right())
+	}
+	if rightEqual.Operator() != spec.OperatorEq {
+		t.Errorf("expected EQ operator for right, got %s", rightEqual.Operator())
+	}
+}
+
+func TestOperatorPrecedence_Complex(t *testing.T) {
+	// Test complex expression: a || b && c || d && e
+	// Should be: Or(Or(a, And(b, c)), And(d, e))
+	s := MustParse("$[?@.a == 1 || @.b == 2 && @.c == 3 || @.d == 4 && @.e == 5]")
+
+	ast := s.AST()
+
+	// Top level Or
+	topOr, ok := ast.(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode at top level, got %T", ast)
+	}
+	if topOr.Operator() != spec.OperatorOr {
+		t.Errorf("expected OR operator, got %s", topOr.Operator())
+	}
+
+	// Left is Or
+	leftOr, ok := topOr.Left().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
+	}
+	if leftOr.Operator() != spec.OperatorOr {
+		t.Errorf("expected OR operator for left, got %s", leftOr.Operator())
+	}
+
+	// Right is And
+	rightAnd, ok := topOr.Right().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
+	}
+	if rightAnd.Operator() != spec.OperatorAnd {
+		t.Errorf("expected AND operator for right, got %s", rightAnd.Operator())
+	}
+
+	// Left Or's right is And
+	leftOrRight, ok := leftOr.Right().(spec.InfixNode)
+	if !ok {
+		t.Fatalf("expected InfixNode for leftOr.Right, got %T", leftOr.Right())
+	}
+	if leftOrRight.Operator() != spec.OperatorAnd {
+		t.Errorf("expected AND operator for leftOr.Right, got %s", leftOrRight.Operator())
+	}
+}
+
+// Error Messages tests
+//
+// These tests verify that:
+// 1. Correct exception types are raised
+// 2. Error messages contain useful information
+// 3. Position information is accurate
+
+func TestErrorMessages_SyntaxErrorType(t *testing.T) {
+	// Test that syntax errors raise JSONPathSyntaxError
+	_, err := Parse("$[?@.age ~ 25]") // Invalid operator
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	_, ok := err.(*JSONPathSyntaxError)
+	if !ok {
+		t.Errorf("expected JSONPathSyntaxError, got %T", err)
+	}
+}
+
+func TestErrorMessages_SyntaxErrorHasPosition(t *testing.T) {
+	// Test that syntax error includes position information
+	_, err := Parse("$[?@.age ~ 25]")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	syntaxErr, ok := err.(*JSONPathSyntaxError)
+	if !ok {
+		t.Fatalf("expected JSONPathSyntaxError, got %T", err)
+	}
+
+	if syntaxErr.Position < 0 {
+		t.Error("expected non-negative position")
+	}
+	// Position of '~' is 9
+	if syntaxErr.Position != 9 {
+		t.Errorf("expected position 9, got %d", syntaxErr.Position)
+	}
+}
+
+func TestErrorMessages_SyntaxErrorHasExpression(t *testing.T) {
+	// Test that syntax error includes original expression
+	expr := "$[?@.age ~ 25]"
+	_, err := Parse(expr)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	syntaxErr, ok := err.(*JSONPathSyntaxError)
+	if !ok {
+		t.Fatalf("expected JSONPathSyntaxError, got %T", err)
+	}
+
+	if syntaxErr.Expression != expr {
+		t.Errorf("expected expression %q, got %q", expr, syntaxErr.Expression)
+	}
+}
+
+func TestErrorMessages_SyntaxErrorHasContext(t *testing.T) {
+	// Test that syntax error includes context hint
+	_, err := Parse("$[?@.age ~ 25]")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	syntaxErr, ok := err.(*JSONPathSyntaxError)
+	if !ok {
+		t.Fatalf("expected JSONPathSyntaxError, got %T", err)
+	}
+
+	if syntaxErr.Context == "" {
+		t.Error("expected non-empty context")
+	}
+}
+
+func TestErrorMessages_SyntaxErrorMessageFormatting(t *testing.T) {
+	// Test that error message is well-formatted
+	_, err := Parse("$[?@.age ~ 25]")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	message := err.Error()
+
+	// Should contain position
+	if !containsSubstring(message, "9") {
+		t.Error("error message should contain position")
+	}
+
+	// Should contain the expression
+	if !containsSubstring(message, "$[?@.age ~ 25]") {
+		t.Error("error message should contain expression")
+	}
+
+	// Should contain pointer
+	if !containsSubstring(message, "^") {
+		t.Error("error message should contain pointer")
+	}
+}
+
+func TestErrorMessages_UnexpectedEndOfExpression(t *testing.T) {
+	// Test error when expression ends unexpectedly
+	_, err := Parse("$[?@.age >")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !containsSubstring(err.Error(), "end") && !containsSubstring(err.Error(), "End") {
+		t.Error("error message should mention 'end'")
+	}
+}
+
+func TestErrorMessages_MissingFieldNameError(t *testing.T) {
+	// Test error when field name is missing
+	_, err := Parse("$[?@. > 25]")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !containsSubstring(err.Error(), "field") && !containsSubstring(err.Error(), "Field") {
+		t.Error("error message should mention 'field'")
+	}
+}
+
+func containsSubstring(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && (containsSubstringHelper(s, substr)))
+}
+
+func containsSubstringHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+// Thread Safety tests
+//
+// These tests verify that a single specification instance can be
+// safely used from multiple threads concurrently.
+
+func TestThreadSafety_ConcurrentMatchCalls(t *testing.T) {
+	// Test that Match() is thread-safe
+	s := MustParse("$[?@.value > %d]")
+	var errors []string
+	var results []struct {
+		threadID int
+		i        int
+		result   bool
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for threadID := 0; threadID < 10; threadID++ {
+		wg.Add(1)
+		go func(tid int) {
+			defer wg.Done()
+			for i := 0; i < 100; i++ {
+				data := NewDictContext(map[string]any{"value": tid*10 + i})
+				result, err := s.Match(data, tid*10)
+				if err != nil {
+					mu.Lock()
+					errors = append(errors, err.Error())
+					mu.Unlock()
+					return
+				}
+				mu.Lock()
+				results = append(results, struct {
+					threadID int
+					i        int
+					result   bool
+				}{tid, i, result})
+				mu.Unlock()
+			}
+		}(threadID)
+	}
+
+	wg.Wait()
+
+	if len(errors) != 0 {
+		t.Errorf("errors occurred: %v", errors)
+	}
+	if len(results) != 1000 {
+		t.Errorf("expected 1000 results, got %d", len(results))
+	}
+}
+
+func TestThreadSafety_ConcurrentDifferentParams(t *testing.T) {
+	// Test concurrent calls with different parameters
+	s := MustParse("$[?@.x == %d && @.y == %s]")
+	var errors []string
+	var results []struct {
+		threadID int
+		result   bool
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	for threadID := 0; threadID < 10; threadID++ {
+		wg.Add(1)
+		go func(tid int) {
+			defer wg.Done()
+			for i := 0; i < 50; i++ {
+				data := NewDictContext(map[string]any{"x": tid, "y": "val_" + string(rune('0'+tid))})
+				result, err := s.Match(data, tid, "val_"+string(rune('0'+tid)))
+				if err != nil {
+					mu.Lock()
+					errors = append(errors, err.Error())
+					mu.Unlock()
+					return
+				}
+				mu.Lock()
+				results = append(results, struct {
+					threadID int
+					result   bool
+				}{tid, result})
+				// All should match since we use the same values
+				if !result {
+					errors = append(errors, "unexpected false result")
+				}
+				mu.Unlock()
+			}
+		}(threadID)
+	}
+
+	wg.Wait()
+
+	if len(errors) != 0 {
+		t.Errorf("errors occurred: %v", errors)
+	}
+
+	for _, r := range results {
+		if !r.result {
+			t.Error("expected all results to be true")
+			break
+		}
+	}
+}
+
+// AST Caching tests
+//
+// These tests verify that the AST is parsed once and cached,
+// not re-parsed on every Match() call.
+
+func TestASTCaching_ASTIsCached(t *testing.T) {
+	// Test that AST is stored after parsing
+	s := MustParse("$[?@.age > %d]")
+
+	// AST should be cached
+	if s.AST() == nil {
+		t.Error("expected AST to be cached")
+	}
+}
+
+func TestASTCaching_ASTNotReparsedOnMatch(t *testing.T) {
+	// Test that AST is not re-created on Match()
+	s := MustParse("$[?@.age > %d]")
+	originalAST := s.AST()
+
+	// Multiple match calls
+	data := NewDictContext(map[string]any{"age": 30})
+	s.Match(data, 25)
+	s.Match(data, 35)
+	s.Match(data, 20)
+
+	// AST should be the same object
+	if s.AST() != originalAST {
+		t.Error("AST should be the same object after multiple Match calls")
+	}
+}
+
+func TestASTCaching_DifferentParamsSameAST(t *testing.T) {
+	// Test that different parameters don't affect cached AST
+	s := MustParse("$[?@.value == %s]")
+	originalAST := s.AST()
+
+	data := NewDictContext(map[string]any{"value": "test"})
+
+	// Call with different param types
+	s.Match(data, "test")
+	s.Match(data, "other")
+	s.Match(data, "third")
+
+	// AST should remain unchanged
+	if s.AST() != originalAST {
+		t.Error("AST should remain unchanged after calls with different params")
+	}
+}
+
+// Helper Methods tests
+//
+// These tests verify that helper methods work correctly.
+
+func TestHelperMethods_ParseIdentifierChainSingle(t *testing.T) {
+	// Test parsing single identifier
+	s := MustParse("$[?@.field > 1]")
+	lexer := NewLexer("field")
+	tokens, _ := lexer.Tokenize()
+
+	chain, pos := s.parseIdentifierChain(tokens, 0)
+
+	if len(chain) != 1 || chain[0] != "field" {
+		t.Errorf("expected [\"field\"], got %v", chain)
+	}
+	if pos != 1 {
+		t.Errorf("expected pos 1, got %d", pos)
+	}
+}
+
+func TestHelperMethods_ParseIdentifierChainMultiple(t *testing.T) {
+	// Test parsing multiple identifiers
+	s := MustParse("$[?@.a.b.c > 1]")
+	lexer := NewLexer("a.b.c")
+	tokens, _ := lexer.Tokenize()
+
+	chain, _ := s.parseIdentifierChain(tokens, 0)
+
+	expected := []string{"a", "b", "c"}
+	if len(chain) != len(expected) {
+		t.Errorf("expected %v, got %v", expected, chain)
+		return
+	}
+	for i, v := range expected {
+		if chain[i] != v {
+			t.Errorf("expected %v, got %v", expected, chain)
+			break
+		}
+	}
+}
+
+func TestHelperMethods_IsWildcardPatternTrue(t *testing.T) {
+	// Test wildcard pattern detection - positive case
+	s := MustParse("$[?@.x > 1]")
+	lexer := NewLexer("[*]")
+	tokens, _ := lexer.Tokenize()
+
+	if !s.isWildcardPattern(tokens, 0) {
+		t.Error("expected isWildcardPattern to return true for [*]")
+	}
+}
+
+func TestHelperMethods_IsWildcardPatternFalse(t *testing.T) {
+	// Test wildcard pattern detection - negative case
+	s := MustParse("$[?@.x > 1]")
+	lexer := NewLexer("[?@.x]")
+	tokens, _ := lexer.Tokenize()
+
+	if s.isWildcardPattern(tokens, 0) {
+		t.Error("expected isWildcardPattern to return false for [?@.x]")
+	}
+}
+
+func TestHelperMethods_BuildObjectChainEmpty(t *testing.T) {
+	// Test building object chain with empty list
+	s := MustParse("$[?@.x > 1]")
+	parent := spec.GlobalScope()
+
+	result := s.buildObjectChain(parent, []string{})
+
+	if result != parent {
+		t.Error("expected result to be parent for empty chain")
+	}
+}
+
+func TestHelperMethods_BuildObjectChainSingle(t *testing.T) {
+	// Test building object chain with single name
+	s := MustParse("$[?@.x > 1]")
+	parent := spec.GlobalScope()
+
+	result := s.buildObjectChain(parent, []string{"field"})
+
+	_, ok := result.(spec.ObjectNode)
+	if !ok {
+		t.Errorf("expected ObjectNode, got %T", result)
+	}
+}
+
+func TestHelperMethods_BuildObjectChainMultiple(t *testing.T) {
+	// Test building object chain with multiple names
+	s := MustParse("$[?@.x > 1]")
+	parent := spec.GlobalScope()
+
+	result := s.buildObjectChain(parent, []string{"a", "b", "c"})
+
+	// Should be Object(Object(Object(parent, "a"), "b"), "c")
+	_, ok := result.(spec.ObjectNode)
+	if !ok {
+		t.Errorf("expected ObjectNode, got %T", result)
+		return
+	}
+
+	// Verify nesting depth by traversing
+	depth := 0
+	current := result
+	for {
+		obj, ok := current.(spec.ObjectNode)
+		if !ok {
+			break
+		}
+		depth++
+		current = obj.Parent()
+	}
+
+	if depth != 3 {
+		t.Errorf("expected depth 3, got %d", depth)
 	}
 }
