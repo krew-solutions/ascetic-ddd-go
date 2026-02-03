@@ -438,11 +438,11 @@ func convertBinaryExpr(expr *ast.BinaryExpr, typeName string, itemName string, i
 	case token.AND: // & (bitwise AND)
 		// Note: In Go, & is used for both bitwise AND and address-of
 		// In expression context, it's bitwise AND
-		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise AND not yet implemented in spec */", left, right)
+		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise AND not yet implemented in spec: %s & %s */", left, right)
 	case token.OR: // | (bitwise OR)
-		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise OR not yet implemented in spec */", left, right)
+		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise OR not yet implemented in spec: %s | %s */", left, right)
 	case token.XOR: // ^ (bitwise XOR)
-		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise XOR not yet implemented in spec */", left, right)
+		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise XOR not yet implemented in spec: %s ^ %s */", left, right)
 	case token.SHL: // <<
 		return fmt.Sprintf("spec.LeftShift(%s, %s)", left, right)
 	case token.SHR: // >>
