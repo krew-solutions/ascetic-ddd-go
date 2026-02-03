@@ -20,7 +20,7 @@ func NewReserveCarActivity() saga.Activity {
 
 // DoWork reserves a car.
 func (a *ReserveCarActivity) DoWork(ctx context.Context, workItem saga.WorkItem) (*saga.WorkLog, error) {
-	_ = workItem.Arguments()["vehicleType"]
+	_ = workItem.Arguments["vehicleType"]
 	reservationId := carRnd.Intn(100000)
 	workLog := saga.NewWorkLog(a, saga.WorkResult{"reservationId": reservationId})
 	return &workLog, nil
@@ -28,7 +28,7 @@ func (a *ReserveCarActivity) DoWork(ctx context.Context, workItem saga.WorkItem)
 
 // Compensate cancels the car reservation.
 func (a *ReserveCarActivity) Compensate(ctx context.Context, workLog saga.WorkLog, routingSlip *saga.RoutingSlip) (bool, error) {
-	_ = workLog.Result()["reservationId"]
+	_ = workLog.Result["reservationId"]
 	return true, nil
 }
 

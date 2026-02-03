@@ -22,7 +22,7 @@ func NewFallbackActivity() Activity {
 // Arguments must contain "alternatives" - slice of *RoutingSlip.
 // Returns a WorkLog with successful alternative, or nil if all failed.
 func (fa *FallbackActivity) DoWork(ctx context.Context, workItem WorkItem) (*WorkLog, error) {
-	alternatives := workItem.Arguments()["alternatives"].([]*RoutingSlip)
+	alternatives := workItem.Arguments["alternatives"].([]*RoutingSlip)
 
 	for _, alternative := range alternatives {
 		success, err := fa.executeAlternative(ctx, alternative)
@@ -65,7 +65,7 @@ func (fa *FallbackActivity) executeAlternative(ctx context.Context, alternative 
 // Compensate compensates the successful alternative.
 // Returns true to continue backward path.
 func (fa *FallbackActivity) Compensate(ctx context.Context, workLog WorkLog, routingSlip *RoutingSlip) (bool, error) {
-	succeeded := workLog.Result()["_succeeded"].(*RoutingSlip)
+	succeeded := workLog.Result["_succeeded"].(*RoutingSlip)
 
 	for succeeded.IsInProgress() {
 		_, err := succeeded.UndoLast(ctx)

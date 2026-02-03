@@ -21,7 +21,7 @@ func NewReserveFlightActivity() saga.Activity {
 
 // DoWork reserves a flight.
 func (a *ReserveFlightActivity) DoWork(ctx context.Context, workItem saga.WorkItem) (*saga.WorkLog, error) {
-	_ = workItem.Arguments()["destination"]
+	_ = workItem.Arguments["destination"]
 	reservationId := flightRnd.Intn(100000)
 	workLog := saga.NewWorkLog(a, saga.WorkResult{"reservationId": reservationId})
 	return &workLog, nil
@@ -29,7 +29,7 @@ func (a *ReserveFlightActivity) DoWork(ctx context.Context, workItem saga.WorkIt
 
 // Compensate cancels the flight reservation.
 func (a *ReserveFlightActivity) Compensate(ctx context.Context, workLog saga.WorkLog, routingSlip *saga.RoutingSlip) (bool, error) {
-	_ = workLog.Result()["reservationId"]
+	_ = workLog.Result["reservationId"]
 	return true, nil
 }
 
@@ -60,7 +60,7 @@ func NewFailingReserveFlightActivity() saga.Activity {
 
 // DoWork attempts to reserve a flight (always fails).
 func (a *FailingReserveFlightActivity) DoWork(ctx context.Context, workItem saga.WorkItem) (*saga.WorkLog, error) {
-	_ = workItem.Arguments()["fatzbatz"] // This will panic with missing key
+	_ = workItem.Arguments["fatzbatz"] // This will panic with missing key
 	return a.ReserveFlightActivity.DoWork(ctx, workItem)
 }
 

@@ -20,7 +20,7 @@ func NewReserveHotelActivity() saga.Activity {
 
 // DoWork reserves a hotel room.
 func (a *ReserveHotelActivity) DoWork(ctx context.Context, workItem saga.WorkItem) (*saga.WorkLog, error) {
-	_ = workItem.Arguments()["roomType"]
+	_ = workItem.Arguments["roomType"]
 	reservationId := hotelRnd.Intn(100000)
 	workLog := saga.NewWorkLog(a, saga.WorkResult{"reservationId": reservationId})
 	return &workLog, nil
@@ -28,7 +28,7 @@ func (a *ReserveHotelActivity) DoWork(ctx context.Context, workItem saga.WorkIte
 
 // Compensate cancels the hotel reservation.
 func (a *ReserveHotelActivity) Compensate(ctx context.Context, workLog saga.WorkLog, routingSlip *saga.RoutingSlip) (bool, error) {
-	_ = workLog.Result()["reservationId"]
+	_ = workLog.Result["reservationId"]
 	return true, nil
 }
 

@@ -1,90 +1,119 @@
 package saga
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // SendCallback is a function that sends a routing slip to a target URI.
 type SendCallback func(ctx context.Context, uri string, routingSlip *RoutingSlip) error
 
-// ActivityHost manages local execution for a specific activity type.
-// Processes forward messages to execute DoWork() and backward messages
-// to invoke Compensate().
+// ActivityHost manages local execution for multiple activity types.
+// It orchestrates the execution flow by:
+// - Routing messages to the appropriate activity based on queue address
+// - Creating activity instances from registered factories
+// - Invoking DoWork() or Compensate() methods
+// - Sending messages to the next destination
 type ActivityHost struct {
-	activityType ActivityType
-	send         SendCallback
+	activities map[string]ActivityType // queueAddress -> factory
+	send       SendCallback
 }
 
-// NewActivityHost creates a new activity host for the specified activity type.
-func NewActivityHost(activityType ActivityType, send SendCallback) *ActivityHost {
+// NewActivityHost creates a new activity host.
+func NewActivityHost(send SendCallback) *ActivityHost {
 	return &ActivityHost{
-		activityType: activityType,
-		send:         send,
+		activities: make(map[string]ActivityType),
+		send:       send,
 	}
 }
 
-// ProcessForwardMessage processes a forward (DoWork) message.
-// If work succeeds, sends to next activity's work queue.
-// If work fails, sends to compensation queue for rollback.
-func (ah *ActivityHost) ProcessForwardMessage(ctx context.Context, routingSlip *RoutingSlip) error {
-	if !routingSlip.IsCompleted() {
-		success, err := routingSlip.ProcessNext(ctx)
-		if err != nil {
-			return err
-		}
+// Register registers an activity type with this host.
+// The host will handle messages for both the work queue and compensation queue.
+func (ah *ActivityHost) Register(factory ActivityType) {
+	activity := factory()
+	ah.activities[activity.WorkItemQueueAddress()] = factory
+	ah.activities[activity.CompensationQueueAddress()] = factory
+}
 
-		if success {
-			// Success - continue forward
-			if routingSlip.ProgressUri() != "" {
-				return ah.send(ctx, routingSlip.ProgressUri(), routingSlip)
-			}
-		} else {
-			// Failure - start compensation
-			if routingSlip.CompensationUri() != "" {
-				return ah.send(ctx, routingSlip.CompensationUri(), routingSlip)
-			}
-		}
+// HandleMessage handles an incoming message from the message bus.
+// Returns error if no handler is registered for the queue address.
+func (ah *ActivityHost) HandleMessage(ctx context.Context, queueAddress string, routingSlip *RoutingSlip) error {
+	factory, ok := ah.activities[queueAddress]
+	if !ok {
+		return fmt.Errorf("no handler registered for queue: %s", queueAddress)
 	}
+
+	activity := factory()
+
+	if activity.CompensationQueueAddress() == queueAddress {
+		return ah.processBackward(ctx, activity, routingSlip)
+	}
+
+	return ah.processForward(ctx, activity, routingSlip)
+}
+
+// processForward processes a forward (DoWork) message.
+func (ah *ActivityHost) processForward(ctx context.Context, activity Activity, routingSlip *RoutingSlip) error {
+	if routingSlip.IsCompleted() {
+		return nil
+	}
+
+	workItem, err := routingSlip.NextWorkItem()
+	if err != nil {
+		return err
+	}
+
+	workLog, err := activity.DoWork(ctx, workItem)
+	if err != nil || workLog == nil {
+		if routingSlip.CompensationUri() != "" {
+			return ah.send(ctx, routingSlip.CompensationUri(), routingSlip)
+		}
+		return err
+	}
+
+	routingSlip.AddCompletedWork(*workLog)
+
+	if routingSlip.ProgressUri() != "" {
+		return ah.send(ctx, routingSlip.ProgressUri(), routingSlip)
+	}
+
 	return nil
 }
 
-// ProcessBackwardMessage processes a backward (compensate) message.
-// If compensation succeeds, continues backward to previous activity.
-// If compensation returns false (added new work), resumes forward.
-func (ah *ActivityHost) ProcessBackwardMessage(ctx context.Context, routingSlip *RoutingSlip) error {
-	if routingSlip.IsInProgress() {
-		continueBackward, err := routingSlip.UndoLast(ctx)
-		if err != nil {
-			return err
-		}
+// processBackward processes a backward (compensate) message.
+func (ah *ActivityHost) processBackward(ctx context.Context, activity Activity, routingSlip *RoutingSlip) error {
+	if !routingSlip.IsInProgress() {
+		return nil
+	}
 
-		if continueBackward {
-			// Continue backward
-			if routingSlip.CompensationUri() != "" {
-				return ah.send(ctx, routingSlip.CompensationUri(), routingSlip)
-			}
-		} else {
-			// Resume forward (compensation added new work)
-			if routingSlip.ProgressUri() != "" {
-				return ah.send(ctx, routingSlip.ProgressUri(), routingSlip)
-			}
+	workLog, err := routingSlip.LastCompletedWork()
+	if err != nil {
+		return err
+	}
+
+	continueBackward, err := activity.Compensate(ctx, workLog, routingSlip)
+	if err != nil {
+		return err
+	}
+
+	if continueBackward {
+		if routingSlip.CompensationUri() != "" {
+			return ah.send(ctx, routingSlip.CompensationUri(), routingSlip)
+		}
+	} else {
+		if routingSlip.ProgressUri() != "" {
+			return ah.send(ctx, routingSlip.ProgressUri(), routingSlip)
 		}
 	}
+
 	return nil
 }
 
-// AcceptMessage accepts and processes a message if it matches this host's queues.
-// Returns true if message was accepted and processed, false otherwise.
-func (ah *ActivityHost) AcceptMessage(ctx context.Context, uri string, routingSlip *RoutingSlip) (bool, error) {
-	activity := ah.activityType()
-
-	if activity.CompensationQueueAddress() == uri {
-		err := ah.ProcessBackwardMessage(ctx, routingSlip)
-		return true, err
+// Queues returns the list of queue addresses this host can handle.
+func (ah *ActivityHost) Queues() []string {
+	queues := make([]string, 0, len(ah.activities))
+	for addr := range ah.activities {
+		queues = append(queues, addr)
 	}
-
-	if activity.WorkItemQueueAddress() == uri {
-		err := ah.ProcessForwardMessage(ctx, routingSlip)
-		return true, err
-	}
-
-	return false, nil
+	return queues
 }

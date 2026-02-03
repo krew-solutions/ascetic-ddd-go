@@ -74,8 +74,8 @@ func TestDoWorkReceivesWorkItem(t *testing.T) {
 		t.Fatalf("DoWork failed: %v", err)
 	}
 
-	if receivedItem.Arguments()["key"] != "value" {
-		t.Errorf("Expected arguments[key]='value', got '%v'", receivedItem.Arguments()["key"])
+	if receivedItem.Arguments["key"] != "value" {
+		t.Errorf("Expected arguments[key]='value', got '%v'", receivedItem.Arguments["key"])
 	}
 }
 
@@ -121,7 +121,7 @@ func TestCompensateReceivesWorkLogAndRoutingSlip(t *testing.T) {
 		t.Fatalf("Compensate failed: %v", err)
 	}
 
-	if receivedLog.Result()["id"] != workLog.Result()["id"] {
+	if receivedLog.Result["id"] != workLog.Result["id"] {
 		t.Error("Expected to receive the same work log")
 	}
 

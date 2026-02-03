@@ -22,7 +22,7 @@ func newBranchAActivity(callCount, compensateCount *int) ActivityType {
 func (a *branchAActivity) DoWork(ctx context.Context, workItem WorkItem) (*WorkLog, error) {
 	*a.callCount++
 	value := "default"
-	if v, ok := workItem.Arguments()["value"]; ok {
+	if v, ok := workItem.Arguments["value"]; ok {
 		value = v.(string)
 	}
 	workLog := NewWorkLog(a, WorkResult{"branch": "A", "value": value})
@@ -63,7 +63,7 @@ func newBranchBActivity(callCount, compensateCount *int) ActivityType {
 func (a *branchBActivity) DoWork(ctx context.Context, workItem WorkItem) (*WorkLog, error) {
 	*a.callCount++
 	value := "default"
-	if v, ok := workItem.Arguments()["value"]; ok {
+	if v, ok := workItem.Arguments["value"]; ok {
 		value = v.(string)
 	}
 	workLog := NewWorkLog(a, WorkResult{"branch": "B", "value": value})
@@ -327,7 +327,7 @@ func TestParallelActivity_InRoutingSlip(t *testing.T) {
 
 	// Execute all steps
 	for !slip.IsCompleted() {
-		result, err := slip.ProcessNext(ctx)
+		result, err := ProcessNextForTest(ctx, slip, nil)
 		if err != nil {
 			t.Fatalf("ProcessNext returned error: %v", err)
 		}
@@ -378,7 +378,7 @@ func TestParallelActivity_FailureTriggersSagaCompensation(t *testing.T) {
 	ctx := context.Background()
 
 	// First step succeeds
-	result1, err := slip.ProcessNext(ctx)
+	result1, err := ProcessNextForTest(ctx, slip, nil)
 	if err != nil {
 		t.Fatalf("ProcessNext returned error: %v", err)
 	}
@@ -390,7 +390,7 @@ func TestParallelActivity_FailureTriggersSagaCompensation(t *testing.T) {
 	}
 
 	// Second step (parallel) fails
-	result2, err := slip.ProcessNext(ctx)
+	result2, err := ProcessNextForTest(ctx, slip, nil)
 	if err != nil {
 		t.Fatalf("ProcessNext returned error: %v", err)
 	}
@@ -400,7 +400,7 @@ func TestParallelActivity_FailureTriggersSagaCompensation(t *testing.T) {
 
 	// Compensate first step
 	for slip.IsInProgress() {
-		slip.UndoLast(ctx)
+		UndoLastForTest(ctx, slip, nil)
 	}
 
 	if compensateCountA != 1 {

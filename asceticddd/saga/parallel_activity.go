@@ -24,7 +24,7 @@ func NewParallelActivity() Activity {
 // Arguments must contain "branches" - slice of *RoutingSlip.
 // Returns a WorkLog with branch references, or nil if any branch failed.
 func (pa *ParallelActivity) DoWork(ctx context.Context, workItem WorkItem) (*WorkLog, error) {
-	branches := workItem.Arguments()["branches"].([]*RoutingSlip)
+	branches := workItem.Arguments["branches"].([]*RoutingSlip)
 
 	// Execute all branches in parallel
 	type result struct {
@@ -115,7 +115,7 @@ func (pa *ParallelActivity) compensateBranch(ctx context.Context, branch *Routin
 // Compensate compensates all branches in parallel.
 // Returns true to continue backward path.
 func (pa *ParallelActivity) Compensate(ctx context.Context, workLog WorkLog, routingSlip *RoutingSlip) (bool, error) {
-	branches := workLog.Result()["_branches"].([]*RoutingSlip)
+	branches := workLog.Result["_branches"].([]*RoutingSlip)
 	pa.compensateBranches(ctx, branches)
 	return true, nil
 }

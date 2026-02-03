@@ -20,10 +20,10 @@ func TestReserveCarActivity_DoWorkCreatesReservation(t *testing.T) {
 		t.Fatalf("DoWork returned error: %v", err)
 	}
 
-	if _, ok := result.Result()["reservationId"]; !ok {
+	if _, ok := result.Result["reservationId"]; !ok {
 		t.Error("Expected reservationId in result")
 	}
-	if _, ok := result.Result()["reservationId"].(int); !ok {
+	if _, ok := result.Result["reservationId"].(int); !ok {
 		t.Error("Expected reservationId to be int")
 	}
 }
@@ -73,10 +73,10 @@ func TestReserveHotelActivity_DoWorkCreatesReservation(t *testing.T) {
 		t.Fatalf("DoWork returned error: %v", err)
 	}
 
-	if _, ok := result.Result()["reservationId"]; !ok {
+	if _, ok := result.Result["reservationId"]; !ok {
 		t.Error("Expected reservationId in result")
 	}
-	if _, ok := result.Result()["reservationId"].(int); !ok {
+	if _, ok := result.Result["reservationId"].(int); !ok {
 		t.Error("Expected reservationId to be int")
 	}
 }
@@ -126,10 +126,10 @@ func TestReserveFlightActivity_DoWorkCreatesReservation(t *testing.T) {
 		t.Fatalf("DoWork returned error: %v", err)
 	}
 
-	if _, ok := result.Result()["reservationId"]; !ok {
+	if _, ok := result.Result["reservationId"]; !ok {
 		t.Error("Expected reservationId in result")
 	}
-	if _, ok := result.Result()["reservationId"].(int); !ok {
+	if _, ok := result.Result["reservationId"].(int); !ok {
 		t.Error("Expected reservationId to be int")
 	}
 }
@@ -205,7 +205,7 @@ func TestTravelBookingSaga_SuccessfulBooking(t *testing.T) {
 	ctx := context.Background()
 
 	for !slip.IsCompleted() {
-		result, err := slip.ProcessNext(ctx)
+		result, err := saga.ProcessNextForTest(ctx, slip, nil)
 		if err != nil {
 			t.Fatalf("ProcessNext returned error: %v", err)
 		}
@@ -234,7 +234,7 @@ func TestTravelBookingSaga_FailedBookingTriggersCompensation(t *testing.T) {
 	// Process until failure
 	completedBeforeFailure := 0
 	for !slip.IsCompleted() {
-		result, _ := slip.ProcessNext(ctx)
+		result, _ := saga.ProcessNextForTest(ctx, slip, nil)
 		if result {
 			completedBeforeFailure++
 		} else {
@@ -249,7 +249,7 @@ func TestTravelBookingSaga_FailedBookingTriggersCompensation(t *testing.T) {
 	// Compensate
 	compensated := 0
 	for slip.IsInProgress() {
-		slip.UndoLast(ctx)
+		saga.UndoLastForTest(ctx, slip, nil)
 		compensated++
 	}
 

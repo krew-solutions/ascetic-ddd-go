@@ -27,7 +27,7 @@ func (a *primaryActivity) DoWork(ctx context.Context, workItem WorkItem) (*WorkL
 		return nil, nil
 	}
 	value := "default"
-	if v, ok := workItem.Arguments()["value"]; ok {
+	if v, ok := workItem.Arguments["value"]; ok {
 		value = v.(string)
 	}
 	workLog := NewWorkLog(a, WorkResult{"provider": "primary", "value": value})
@@ -73,7 +73,7 @@ func (a *backupActivity) DoWork(ctx context.Context, workItem WorkItem) (*WorkLo
 		return nil, nil
 	}
 	value := "default"
-	if v, ok := workItem.Arguments()["value"]; ok {
+	if v, ok := workItem.Arguments["value"]; ok {
 		value = v.(string)
 	}
 	workLog := NewWorkLog(a, WorkResult{"provider": "backup", "value": value})
@@ -539,7 +539,7 @@ func TestFallbackActivity_InRoutingSlip(t *testing.T) {
 
 	// Execute all steps
 	for !slip.IsCompleted() {
-		result, err := slip.ProcessNext(ctx)
+		result, err := ProcessNextForTest(ctx, slip, nil)
 		if err != nil {
 			t.Fatalf("ProcessNext returned error: %v", err)
 		}
@@ -590,7 +590,7 @@ func TestFallbackActivity_AllFallbacksFailTriggersCompensation(t *testing.T) {
 	ctx := context.Background()
 
 	// First step succeeds
-	result1, err := slip.ProcessNext(ctx)
+	result1, err := ProcessNextForTest(ctx, slip, nil)
 	if err != nil {
 		t.Fatalf("ProcessNext returned error: %v", err)
 	}
@@ -599,7 +599,7 @@ func TestFallbackActivity_AllFallbacksFailTriggersCompensation(t *testing.T) {
 	}
 
 	// Second step (fallback) fails
-	result2, err := slip.ProcessNext(ctx)
+	result2, err := ProcessNextForTest(ctx, slip, nil)
 	if err != nil {
 		t.Fatalf("ProcessNext returned error: %v", err)
 	}
@@ -609,7 +609,7 @@ func TestFallbackActivity_AllFallbacksFailTriggersCompensation(t *testing.T) {
 
 	// Compensate first step
 	for slip.IsInProgress() {
-		slip.UndoLast(ctx)
+		UndoLastForTest(ctx, slip, nil)
 	}
 
 	if compensateCountThird != 1 {

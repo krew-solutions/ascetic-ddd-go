@@ -108,7 +108,7 @@ func TestRoutingSlip_ProcessNextSuccess(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	result, err := slip.ProcessNext(ctx)
+	result, err := ProcessNextForTest(ctx, slip, nil)
 	if err != nil {
 		t.Fatalf("ProcessNext returned error: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestRoutingSlip_ProcessNextFailure(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	result, err := slip.ProcessNext(ctx)
+	result, err := ProcessNextForTest(ctx, slip, nil)
 	if err != nil {
 		t.Fatalf("ProcessNext returned error: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestRoutingSlip_ProcessNextOnEmptyRaisesError(t *testing.T) {
 	slip := NewRoutingSlip(nil)
 	ctx := context.Background()
 
-	_, err := slip.ProcessNext(ctx)
+	_, err := ProcessNextForTest(ctx, slip, nil)
 	if err != ErrInvalidOperation {
 		t.Errorf("Expected ErrInvalidOperation, got %v", err)
 	}
@@ -169,7 +169,7 @@ func TestRoutingSlip_ProcessMultipleItems(t *testing.T) {
 
 	ctx := context.Background()
 
-	slip.ProcessNext(ctx)
+	ProcessNextForTest(ctx, slip, nil)
 	if slip.IsCompleted() {
 		t.Error("Expected routing slip to not be completed after first item")
 	}
@@ -177,7 +177,7 @@ func TestRoutingSlip_ProcessMultipleItems(t *testing.T) {
 		t.Errorf("Expected 1 completed work log, got %d", len(slip.CompletedWorkLogs()))
 	}
 
-	slip.ProcessNext(ctx)
+	ProcessNextForTest(ctx, slip, nil)
 	if slip.IsCompleted() {
 		t.Error("Expected routing slip to not be completed after second item")
 	}
@@ -185,7 +185,7 @@ func TestRoutingSlip_ProcessMultipleItems(t *testing.T) {
 		t.Errorf("Expected 2 completed work logs, got %d", len(slip.CompletedWorkLogs()))
 	}
 
-	slip.ProcessNext(ctx)
+	ProcessNextForTest(ctx, slip, nil)
 	if !slip.IsCompleted() {
 		t.Error("Expected routing slip to be completed after third item")
 	}
@@ -203,9 +203,9 @@ func TestRoutingSlip_UndoLastSuccess(t *testing.T) {
 		NewWorkItem(activityType, WorkItemArguments{}),
 	})
 	ctx := context.Background()
-	slip.ProcessNext(ctx)
+	ProcessNextForTest(ctx, slip, nil)
 
-	result, err := slip.UndoLast(ctx)
+	result, err := UndoLastForTest(ctx, slip, nil)
 	if err != nil {
 		t.Fatalf("UndoLast returned error: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestRoutingSlip_UndoLastOnEmptyRaisesError(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	_, err := slip.UndoLast(ctx)
+	_, err := UndoLastForTest(ctx, slip, nil)
 	if err != ErrInvalidOperation {
 		t.Errorf("Expected ErrInvalidOperation, got %v", err)
 	}
@@ -248,25 +248,25 @@ func TestRoutingSlip_UndoMultipleItems(t *testing.T) {
 		NewWorkItem(activityType, WorkItemArguments{}),
 	})
 	ctx := context.Background()
-	slip.ProcessNext(ctx)
-	slip.ProcessNext(ctx)
-	slip.ProcessNext(ctx)
+	ProcessNextForTest(ctx, slip, nil)
+	ProcessNextForTest(ctx, slip, nil)
+	ProcessNextForTest(ctx, slip, nil)
 
 	if len(slip.CompletedWorkLogs()) != 3 {
 		t.Errorf("Expected 3 completed work logs, got %d", len(slip.CompletedWorkLogs()))
 	}
 
-	slip.UndoLast(ctx)
+	UndoLastForTest(ctx, slip, nil)
 	if len(slip.CompletedWorkLogs()) != 2 {
 		t.Errorf("Expected 2 completed work logs after first undo, got %d", len(slip.CompletedWorkLogs()))
 	}
 
-	slip.UndoLast(ctx)
+	UndoLastForTest(ctx, slip, nil)
 	if len(slip.CompletedWorkLogs()) != 1 {
 		t.Errorf("Expected 1 completed work log after second undo, got %d", len(slip.CompletedWorkLogs()))
 	}
 
-	slip.UndoLast(ctx)
+	UndoLastForTest(ctx, slip, nil)
 	if len(slip.CompletedWorkLogs()) != 0 {
 		t.Errorf("Expected 0 completed work logs after third undo, got %d", len(slip.CompletedWorkLogs()))
 	}
@@ -306,7 +306,7 @@ func TestRoutingSlip_CompensationUriReturnsLastActivityQueue(t *testing.T) {
 		NewWorkItem(activityType, WorkItemArguments{}),
 	})
 	ctx := context.Background()
-	slip.ProcessNext(ctx)
+	ProcessNextForTest(ctx, slip, nil)
 
 	if slip.CompensationUri() != "sb://./successCompensation" {
 		t.Errorf("Expected compensation URI 'sb://./successCompensation', got '%s'", slip.CompensationUri())
@@ -340,7 +340,7 @@ func TestRoutingSlip_SuccessfulSaga(t *testing.T) {
 	ctx := context.Background()
 
 	for !slip.IsCompleted() {
-		slip.ProcessNext(ctx)
+		ProcessNextForTest(ctx, slip, nil)
 	}
 
 	if !slip.IsCompleted() {
@@ -368,7 +368,7 @@ func TestRoutingSlip_FailedSagaWithCompensation(t *testing.T) {
 
 	// Process until failure
 	for !slip.IsCompleted() {
-		success, _ := slip.ProcessNext(ctx)
+		success, _ := ProcessNextForTest(ctx, slip, nil)
 		if !success {
 			break
 		}
@@ -376,7 +376,7 @@ func TestRoutingSlip_FailedSagaWithCompensation(t *testing.T) {
 
 	// Compensate
 	for slip.IsInProgress() {
-		slip.UndoLast(ctx)
+		UndoLastForTest(ctx, slip, nil)
 	}
 
 	if slip.IsInProgress() {

@@ -36,8 +36,8 @@ func TestWorkItem_CreateWorkItem(t *testing.T) {
 	args := WorkItemArguments{"vehicleType": "SUV"}
 	workItem := NewWorkItem(newStubActivity, args)
 
-	if workItem.Arguments()["vehicleType"] != "SUV" {
-		t.Errorf("Expected vehicleType 'SUV', got %v", workItem.Arguments()["vehicleType"])
+	if workItem.Arguments["vehicleType"] != "SUV" {
+		t.Errorf("Expected vehicleType 'SUV', got %v", workItem.Arguments["vehicleType"])
 	}
 }
 
@@ -45,13 +45,13 @@ func TestWorkItem_ArgumentsAreAccessible(t *testing.T) {
 	args := WorkItemArguments{"a": 1, "b": 2, "c": 3}
 	workItem := NewWorkItem(newStubActivity, args)
 
-	if workItem.Arguments()["a"] != 1 {
-		t.Errorf("Expected a=1, got %v", workItem.Arguments()["a"])
+	if workItem.Arguments["a"] != 1 {
+		t.Errorf("Expected a=1, got %v", workItem.Arguments["a"])
 	}
-	if workItem.Arguments()["b"] != 2 {
-		t.Errorf("Expected b=2, got %v", workItem.Arguments()["b"])
+	if workItem.Arguments["b"] != 2 {
+		t.Errorf("Expected b=2, got %v", workItem.Arguments["b"])
 	}
-	if workItem.Arguments()["c"] != 3 {
-		t.Errorf("Expected c=3, got %v", workItem.Arguments()["c"])
+	if workItem.Arguments["c"] != 3 {
+		t.Errorf("Expected c=3, got %v", workItem.Arguments["c"])
 	}
 }

@@ -7,8 +7,8 @@ func TestWorkLog_CreateWorkLog(t *testing.T) {
 	result := WorkResult{"reservationId": 12345}
 	workLog := NewWorkLog(activity, result)
 
-	if workLog.Result()["reservationId"] != 12345 {
-		t.Errorf("Expected reservationId 12345, got %v", workLog.Result()["reservationId"])
+	if workLog.Result["reservationId"] != 12345 {
+		t.Errorf("Expected reservationId 12345, got %v", workLog.Result["reservationId"])
 	}
 }
 
@@ -17,11 +17,11 @@ func TestWorkLog_ResultIsAccessible(t *testing.T) {
 	result := WorkResult{"key": "value", "count": 42}
 	workLog := NewWorkLog(activity, result)
 
-	if workLog.Result()["key"] != "value" {
-		t.Errorf("Expected key 'value', got %v", workLog.Result()["key"])
+	if workLog.Result["key"] != "value" {
+		t.Errorf("Expected key 'value', got %v", workLog.Result["key"])
 	}
-	if workLog.Result()["count"] != 42 {
-		t.Errorf("Expected count 42, got %v", workLog.Result()["count"])
+	if workLog.Result["count"] != 42 {
+		t.Errorf("Expected count 42, got %v", workLog.Result["count"])
 	}
 }
 
