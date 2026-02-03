@@ -293,13 +293,13 @@ func convertCallExpr(expr *ast.CallExpr, typeName string, itemName string, inWil
 	case *ast.Ident:
 		switch fun.Name {
 		case "Any", "All":
-			return convertAnyAll(expr, typeName, fun.Name)
+			return convertAnyAll(expr, typeName, fun.Name, itemName, inWildcard)
 		}
 	case *ast.SelectorExpr:
 		// Check for spec.Any, spec.All, or method calls
 		switch fun.Sel.Name {
 		case "Any", "All":
-			return convertAnyAll(expr, typeName, fun.Sel.Name)
+			return convertAnyAll(expr, typeName, fun.Sel.Name, itemName, inWildcard)
 		case "IsNull":
 			return convertIsNull(expr, typeName, itemName, inWildcard)
 		case "IsNotNull":
@@ -310,13 +310,13 @@ func convertCallExpr(expr *ast.CallExpr, typeName string, itemName string, inWil
 	return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported call %T */", expr.Fun)
 }
 
-func convertAnyAll(expr *ast.CallExpr, typeName string, funcName string) string {
+func convertAnyAll(expr *ast.CallExpr, typeName string, funcName string, itemName string, inWildcard bool) string {
 	// Any/All(collection, func(item Type) bool { return predicate })
 	if len(expr.Args) != 2 {
 		return fmt.Sprintf("spec.Value(nil) /* %s requires 2 arguments */", funcName)
 	}
 
-	// First arg is the collection selector (e.g., store.Items)
+	// First arg is the collection selector (e.g., store.Items or region.Categories)
 	collectionExpr := expr.Args[0]
 	collectionSelector, ok := collectionExpr.(*ast.SelectorExpr)
 	if !ok {
@@ -329,11 +329,17 @@ func convertAnyAll(expr *ast.CallExpr, typeName string, funcName string) string 
 	var parentScope string
 	switch x := collectionSelector.X.(type) {
 	case *ast.Ident:
-		// Simple case: store.Items
-		parentScope = "spec.GlobalScope()"
+		// Check if this is item.Collection (nested wildcard) or root.Collection
+		if inWildcard && x.Name == itemName {
+			// Nested wildcard: region.Categories, category.Items, etc.
+			parentScope = "spec.Item()"
+		} else {
+			// Root level: store.Items, o.Regions, etc.
+			parentScope = "spec.GlobalScope()"
+		}
 	case *ast.SelectorExpr:
 		// Nested case: store.Nested.Items
-		parentScope = convertSelectorExpr(x, typeName, "", false)
+		parentScope = convertSelectorExpr(x, typeName, itemName, inWildcard)
 		// Convert Field to Object
 		parentScope = fmt.Sprintf("spec.Object(%s.Object(), %s.Name())", parentScope, parentScope)
 	default:
@@ -351,7 +357,7 @@ func convertAnyAll(expr *ast.CallExpr, typeName string, funcName string) string 
 	if len(funcLit.Type.Params.List) != 1 || len(funcLit.Type.Params.List[0].Names) != 1 {
 		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have exactly one param */", funcName)
 	}
-	itemName := funcLit.Type.Params.List[0].Names[0].Name
+	lambdaItemName := funcLit.Type.Params.List[0].Names[0].Name
 
 	// Extract lambda body (should be a return statement)
 	if len(funcLit.Body.List) != 1 {
@@ -363,7 +369,7 @@ func convertAnyAll(expr *ast.CallExpr, typeName string, funcName string) string 
 	}
 
 	// Convert predicate in wildcard context
-	predicate := convertExprToAST(retStmt.Results[0], typeName, itemName, true)
+	predicate := convertExprToAST(retStmt.Results[0], typeName, lambdaItemName, true)
 
 	// Generate Wildcard node
 	return fmt.Sprintf("spec.Wildcard(spec.Object(%s, %q), %s)", parentScope, collectionField, predicate)

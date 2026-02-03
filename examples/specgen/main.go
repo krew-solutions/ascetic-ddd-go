@@ -156,6 +156,9 @@ func main() {
 
 	fmt.Println("\n" + strings.Repeat("=", 70))
 	runAdvancedDemo()
+
+	fmt.Println("\n" + strings.Repeat("=", 70))
+	runNestedDemo()
 }
 
 func runBasicDemo() {

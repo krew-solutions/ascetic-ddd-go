@@ -249,6 +249,102 @@ spec.Not(
 )
 ```
 
+### 6. **Nested Wildcards (Collections of Collections)**
+
+The most powerful feature! Nest wildcards to filter multi-level collection hierarchies.
+
+#### Simple 3-Level Nesting
+
+```go
+type Organization struct {
+    Regions []Region
+}
+
+type Region struct {
+    Categories []Category
+}
+
+type Category struct {
+    Items []Item
+}
+
+//spec:sql
+func HasRegionWithExpensiveItemsSpec(o Organization) bool {
+    return spec.Any(o.Regions, func(region Region) bool {
+        return spec.Any(region.Categories, func(category Category) bool {
+            return spec.Any(category.Items, func(item Item) bool {
+                return item.Price > 5000
+            })
+        })
+    })
+}
+```
+
+**Generates:**
+```go
+spec.Wildcard(
+    spec.Object(spec.GlobalScope(), "Regions"),
+    spec.Wildcard(
+        spec.Object(spec.Item(), "Categories"),  // Note: Item() for nested
+        spec.Wildcard(
+            spec.Object(spec.Item(), "Items"),
+            spec.GreaterThan(spec.Field(spec.Item(), "Price"), spec.Value(5000)),
+        ),
+    ),
+)
+```
+
+**SQL:**
+```sql
+WHERE EXISTS (
+    SELECT 1 FROM unnest(Regions) AS region_1
+    WHERE EXISTS (
+        SELECT 1 FROM unnest(region_1.Categories) AS category_2
+        WHERE EXISTS (
+            SELECT 1 FROM unnest(category_2.Items) AS item_3
+            WHERE item_3.Price > $1
+        )
+    )
+)
+```
+
+#### Nested with Conditions at Each Level
+
+```go
+//spec:sql
+func HasActiveRegionWithPremiumItemsSpec(o Organization) bool {
+    return spec.Any(o.Regions, func(region Region) bool {
+        return region.Active && spec.Any(region.Categories, func(category Category) bool {
+            return category.Active && spec.Any(category.Items, func(item Item) bool {
+                return item.Price > 5000 && item.Active
+            })
+        })
+    })
+}
+```
+
+**SQL:**
+```sql
+WHERE EXISTS (
+    SELECT 1 FROM unnest(Regions) AS region_1
+    WHERE region_1.Active AND EXISTS (
+        SELECT 1 FROM unnest(region_1.Categories) AS category_2
+        WHERE category_2.Active AND EXISTS (
+            SELECT 1 FROM unnest(category_2.Items) AS item_3
+            WHERE item_3.Price > $1 AND item_3.Active
+        )
+    )
+)
+```
+
+#### Key Features of Nested Wildcards
+
+✅ **Unique aliases per level**: `region_1`, `category_2`, `item_3`
+✅ **Proper path resolution**: `region_1.Categories`, `category_2.Items`
+✅ **Conditions at any level**: Filter at each nesting depth
+✅ **Unlimited nesting depth**: As many levels as needed
+✅ **Optimal SQL**: Generates efficient nested EXISTS subqueries
+
 ## 📊 Performance
 
 ### Benchmark Results
@@ -370,6 +466,7 @@ db.Query("SELECT * FROM stores WHERE " + sql, params...)
 | Bitwise (`<<`, `>>`) | ✅ Full | `i.ID << 2 == 8` |
 | Bitwise (`&`, `\|`, `^`) | ⚠️ TODO | Will be added |
 | Wildcards (`Any`, `All`) | ✅ Full | `spec.Any(s.Items, ...)` |
+| Nested wildcards | ✅ Full | `spec.Any(region.Categories, ...)` |
 | Nested fields | ✅ Full | `u.Profile.Age` |
 | Complex expressions | ✅ Full | Unlimited nesting |
 | In-memory checks | ✅ Fast | 0.13 ns, 0 allocs |
@@ -389,16 +486,16 @@ These limitations are intentional - specifications should be pure boolean expres
 
 ### TODO for PostgreSQL Visitor
 
-- [ ] Implement Collection/Wildcard compilation to SQL
-- [ ] Support JSONPath for nested collections
-- [ ] Support ANY/ALL SQL operators
-- [ ] Support unnest() for array columns
+- [x] ~~Implement Collection/Wildcard compilation to SQL~~ ✅ Done
+- [x] ~~Support unnest() for array columns~~ ✅ Done
+- [ ] Support JSONPath for nested collections (if needed for JSON columns)
+- [ ] Support ANY/ALL SQL operators (alternative to EXISTS)
 
 ### TODO for Specgen
 
 - [ ] Add support for `&`, `|`, `^` bitwise operators
 - [ ] Add support for method calls (`.IsNull()`, `.IsNotNull()`)
-- [ ] Add support for nested wildcards (collections of collections)
+- [x] ~~Add support for nested wildcards (collections of collections)~~ ✅ Done
 - [ ] Better error messages for unsupported expressions
 
 ## 📚 Examples

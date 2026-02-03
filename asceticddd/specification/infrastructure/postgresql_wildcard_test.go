@@ -257,3 +257,142 @@ func TestPostgresqlVisitor_Wildcard_LessThan(t *testing.T) {
 		t.Errorf("Expected params [100], got %v", params)
 	}
 }
+
+func TestPostgresqlVisitor_Wildcard_Nested(t *testing.T) {
+	// Nested wildcard: spec.Any(store.Categories, func(cat Category) bool {
+	//     return spec.Any(cat.Items, func(item Item) bool {
+	//         return item.Price > 1000
+	//     })
+	// })
+	//
+	// This should generate:
+	// EXISTS (
+	//     SELECT 1 FROM unnest(Categories) AS category_1
+	//     WHERE EXISTS (
+	//         SELECT 1 FROM unnest(category_1.Items) AS item_2
+	//         WHERE item_2.Price > $1
+	//     )
+	// )
+
+	// Outer wildcard over Categories
+	innerWildcard := s.Wildcard(
+		s.Object(s.Item(), "Items"), // category.Items
+		s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(1000)), // item.Price > 1000
+	)
+
+	outerWildcard := s.Wildcard(
+		s.Object(s.GlobalScope(), "Categories"), // store.Categories
+		innerWildcard,                           // predicate is another wildcard
+	)
+
+	visitor := NewPostgresqlVisitor()
+	err := outerWildcard.Accept(visitor)
+	if err != nil {
+		t.Fatalf("Accept failed: %v", err)
+	}
+
+	sql, params, err := visitor.Result()
+	if err != nil {
+		t.Fatalf("Result failed: %v", err)
+	}
+
+	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Categories) AS category_1 WHERE EXISTS (SELECT 1 FROM unnest(category_1.Items) AS item_2 WHERE item_2.Price > $1))"
+	if sql != expectedSQL {
+		t.Errorf("Expected SQL:\n  %s\nGot:\n  %s", expectedSQL, sql)
+	}
+
+	if len(params) != 1 || params[0] != 1000 {
+		t.Errorf("Expected params [1000], got %v", params)
+	}
+}
+
+func TestPostgresqlVisitor_Wildcard_NestedWithCondition(t *testing.T) {
+	// Nested wildcard with additional condition:
+	// spec.Any(store.Categories, func(cat Category) bool {
+	//     return cat.Active && spec.Any(cat.Items, func(item Item) bool {
+	//         return item.Price > 1000
+	//     })
+	// })
+
+	innerWildcard := s.Wildcard(
+		s.Object(s.Item(), "Items"),
+		s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(1000)),
+	)
+
+	outerWildcard := s.Wildcard(
+		s.Object(s.GlobalScope(), "Categories"),
+		s.And(
+			s.Field(s.Item(), "Active"), // category.Active
+			innerWildcard,
+		),
+	)
+
+	visitor := NewPostgresqlVisitor()
+	err := outerWildcard.Accept(visitor)
+	if err != nil {
+		t.Fatalf("Accept failed: %v", err)
+	}
+
+	sql, params, err := visitor.Result()
+	if err != nil {
+		t.Fatalf("Result failed: %v", err)
+	}
+
+	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Categories) AS category_1 WHERE category_1.Active AND EXISTS (SELECT 1 FROM unnest(category_1.Items) AS item_2 WHERE item_2.Price > $1))"
+	if sql != expectedSQL {
+		t.Errorf("Expected SQL:\n  %s\nGot:\n  %s", expectedSQL, sql)
+	}
+
+	if len(params) != 1 || params[0] != 1000 {
+		t.Errorf("Expected params [1000], got %v", params)
+	}
+}
+
+func TestPostgresqlVisitor_Wildcard_DoubleNested(t *testing.T) {
+	// Triple nesting: store.Regions -> region.Categories -> category.Items
+	// spec.Any(store.Regions, func(region Region) bool {
+	//     return spec.Any(region.Categories, func(cat Category) bool {
+	//         return spec.Any(cat.Items, func(item Item) bool {
+	//             return item.Price > 5000
+	//         })
+	//     })
+	// })
+
+	// Innermost: item.Price > 5000
+	innermostWildcard := s.Wildcard(
+		s.Object(s.Item(), "Items"),
+		s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(5000)),
+	)
+
+	// Middle: category has expensive items
+	middleWildcard := s.Wildcard(
+		s.Object(s.Item(), "Categories"),
+		innermostWildcard,
+	)
+
+	// Outer: region has categories with expensive items
+	outerWildcard := s.Wildcard(
+		s.Object(s.GlobalScope(), "Regions"),
+		middleWildcard,
+	)
+
+	visitor := NewPostgresqlVisitor()
+	err := outerWildcard.Accept(visitor)
+	if err != nil {
+		t.Fatalf("Accept failed: %v", err)
+	}
+
+	sql, params, err := visitor.Result()
+	if err != nil {
+		t.Fatalf("Result failed: %v", err)
+	}
+
+	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Regions) AS region_1 WHERE EXISTS (SELECT 1 FROM unnest(region_1.Categories) AS category_2 WHERE EXISTS (SELECT 1 FROM unnest(category_2.Items) AS item_3 WHERE item_3.Price > $1)))"
+	if sql != expectedSQL {
+		t.Errorf("Expected SQL:\n  %s\nGot:\n  %s", expectedSQL, sql)
+	}
+
+	if len(params) != 1 || params[0] != 5000 {
+		t.Errorf("Expected params [5000], got %v", params)
+	}
+}

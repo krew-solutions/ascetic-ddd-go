@@ -131,9 +131,12 @@ func (v *PostgresqlVisitor) VisitCollection(n s.CollectionNode) error {
 	// Extract collection path (e.g., "Items" from Object(GlobalScope(), "Items"))
 	collectionPath := v.extractCollectionPath(n)
 
+	// Extract collection name for alias (e.g., "Items" -> "item", "Categories" -> "category")
+	collectionName := v.extractCollectionName(n)
+
 	// Generate unique alias for this wildcard
 	v.wildcardCounter++
-	alias := fmt.Sprintf("item_%d", v.wildcardCounter)
+	alias := fmt.Sprintf("%s_%d", strings.ToLower(collectionName), v.wildcardCounter)
 
 	// Save context
 	outerInWildcard := v.inWildcard
@@ -176,10 +179,38 @@ func (v *PostgresqlVisitor) extractCollectionPath(n s.CollectionNode) string {
 		parent = parent.Parent()
 	}
 
-	// Note: We don't add n.Name() because it's "*" (wildcard marker)
-	// The actual collection name is the last component in the parent chain
+	// If we're in a wildcard context and parent is Item(), prefix with current alias
+	// This handles nested wildcards: category.Items instead of just Items
+	if v.inWildcard && v.isItemReference(parent) {
+		if len(parts) > 0 {
+			return v.wildcardAlias + "." + strings.Join(parts, ".")
+		}
+		return v.wildcardAlias
+	}
 
 	return strings.Join(parts, ".")
+}
+
+// extractCollectionName extracts the collection name for alias generation
+// e.g., "Items" -> "item", "Categories" -> "categorie" (will be singularized by caller)
+func (v *PostgresqlVisitor) extractCollectionName(n s.CollectionNode) string {
+	// Get the immediate parent's name (the collection field name)
+	parent := n.Parent()
+	if !parent.IsRoot() {
+		name := parent.Name()
+		// Simple singularization: remove trailing 's' if present
+		if len(name) > 1 && (name[len(name)-1] == 's' || name[len(name)-1] == 'S') {
+			// Handle common cases: Items -> item, Categories -> category
+			if strings.HasSuffix(strings.ToLower(name), "ies") {
+				// Categories -> category
+				return name[:len(name)-3] + "y"
+			}
+			// Items -> item, Regions -> region
+			return name[:len(name)-1]
+		}
+		return name
+	}
+	return "item" // fallback
 }
 
 func (v *PostgresqlVisitor) VisitItem(n s.ItemNode) error {
