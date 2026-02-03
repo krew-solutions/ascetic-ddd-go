@@ -159,6 +159,19 @@ func (v *PostgresqlVisitor) VisitInfix(n s.InfixNode) error {
 	})
 }
 
+func (v *PostgresqlVisitor) VisitPostfix(node s.PostfixNode) error {
+	precedenceKey := v.getNodePrecedenceKey(node)
+	return v.visit(precedenceKey, func() error {
+		err := node.Operand().Accept(v)
+		if err != nil {
+			return err
+		}
+		operator := node.Operator()
+		v.sql += fmt.Sprintf(" %s", operator)
+		return nil
+	})
+}
+
 func (v PostgresqlVisitor) Result() (sql string, params []any, err error) {
 	return v.sql, v.parameters, nil
 }

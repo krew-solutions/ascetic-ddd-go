@@ -140,6 +140,43 @@ func (v EvaluateVisitor) evalNot(operand any) (bool, error) {
 	return !operandTyped, nil
 }
 
+func (v *EvaluateVisitor) VisitPostfix(n PostfixNode) error {
+	err := n.Operand().Accept(v)
+	if err != nil {
+		return err
+	}
+	operand := v.CurrentValue()
+	if v.yieldBooleanOperator(n.Operator()) {
+		result, err := v.evalYieldBooleanPostfix(operand, n.Operator())
+		if err != nil {
+			return err
+		}
+		v.SetCurrentValue(result)
+	} else {
+		return fmt.Errorf("operator \"%s\" is not supported for postfix", n.Operator())
+	}
+	return nil
+}
+
+func (v EvaluateVisitor) evalYieldBooleanPostfix(operand any, op Operator) (bool, error) {
+	switch op {
+	case OperatorIsNull:
+		return v.evalIsNull(operand)
+	case OperatorIsNotNull:
+		return v.evalIsNotNull(operand)
+	default:
+		return false, fmt.Errorf("operator \"%s\" is not supported for postfix", op)
+	}
+}
+
+func (v EvaluateVisitor) evalIsNull(operand any) (bool, error) {
+	return operand == nil, nil
+}
+
+func (v EvaluateVisitor) evalIsNotNull(operand any) (bool, error) {
+	return operand != nil, nil
+}
+
 func (v *EvaluateVisitor) VisitInfix(n InfixNode) error {
 	err := n.Left().Accept(v)
 	if err != nil {

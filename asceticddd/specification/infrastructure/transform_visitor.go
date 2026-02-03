@@ -85,6 +85,15 @@ func (v *TransformVisitor) VisitPrefix(n s.PrefixNode) error {
 	return nil
 }
 
+func (v *TransformVisitor) VisitPostfix(n s.PostfixNode) error {
+	err := n.Operand().Accept(v)
+	if err != nil {
+		return err
+	}
+	v.currentNode = s.NewPostfixNode(v.currentNode, n.Operator(), n.Associativity())
+	return nil
+}
+
 func (v *TransformVisitor) VisitInfix(n s.InfixNode) error {
 	err := n.Left().Accept(v)
 	if err != nil {

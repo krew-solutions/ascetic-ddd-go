@@ -19,6 +19,7 @@ const (
 	OperatorGte Operator = ">="
 	OperatorLte Operator = "<="
 	OperatorNe  Operator = "!="
+	OperatorIs  Operator = "IS"
 
 	// Logical operators
 
@@ -28,16 +29,24 @@ const (
 
 	// Mathematical
 
-	/*
-		OperatorAdd Operator = "+"
-		OperatorSub Operator = "-"
-		OperatorMul Operator = "*"
-		OperatorDiv Operator = "/"
-		OperatorMod Operator = "%"
-	*/
+	OperatorAdd Operator = "+"
+	OperatorSub Operator = "-"
+	OperatorMul Operator = "*"
+	OperatorDiv Operator = "/"
+	OperatorMod Operator = "%"
 
-	OperatorPos Operator = "+"
-	OperatorNeg Operator = "-"
+	OperatorPos Operator = "+pos"
+	OperatorNeg Operator = "-neg"
+
+	// Bitwise
+
+	OperatorLshift Operator = "<<"
+	OperatorRshift Operator = ">>"
+
+	// Postfix
+
+	OperatorIsNull    Operator = "IS NULL"
+	OperatorIsNotNull Operator = "IS NOT NULL"
 )
 
 var YieldBooleanOperators = []Operator{
@@ -47,9 +56,12 @@ var YieldBooleanOperators = []Operator{
 	OperatorGte,
 	OperatorLte,
 	OperatorNe,
+	OperatorIs,
 	OperatorAnd,
 	OperatorOr,
 	OperatorNot,
+	OperatorIsNull,
+	OperatorIsNotNull,
 }
 
 type Operable interface {
@@ -70,6 +82,7 @@ type Visitor interface {
 	VisitValue(ValueNode) error
 	VisitPrefix(PrefixNode) error
 	VisitInfix(InfixNode) error
+	VisitPostfix(PostfixNode) error
 }
 
 func Value(value any) ValueNode {
@@ -161,11 +174,111 @@ func GreaterThanEqual(left, right Visitable) InfixNode {
 	}
 }
 
+func LessThan(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorLt,
+		right:         right,
+		associativity: NonAssociative,
+	}
+}
+
+func LessThanEqual(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorLte,
+		right:         right,
+		associativity: NonAssociative,
+	}
+}
+
+func Is(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorIs,
+		right:         right,
+		associativity: NonAssociative,
+	}
+}
+
 func And(left Visitable, rights ...Visitable) InfixNode {
 	left, right := foldRights(And, left, rights...)
 	return InfixNode{
 		left:          left,
 		operator:      OperatorAnd,
+		right:         right,
+		associativity: LeftAssociative,
+	}
+}
+
+func Or(left Visitable, rights ...Visitable) InfixNode {
+	left, right := foldRights(Or, left, rights...)
+	return InfixNode{
+		left:          left,
+		operator:      OperatorOr,
+		right:         right,
+		associativity: LeftAssociative,
+	}
+}
+
+func LeftShift(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorLshift,
+		right:         right,
+		associativity: LeftAssociative,
+	}
+}
+
+func RightShift(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorRshift,
+		right:         right,
+		associativity: LeftAssociative,
+	}
+}
+
+func Add(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorAdd,
+		right:         right,
+		associativity: LeftAssociative,
+	}
+}
+
+func Sub(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorSub,
+		right:         right,
+		associativity: LeftAssociative,
+	}
+}
+
+func Mul(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorMul,
+		right:         right,
+		associativity: LeftAssociative,
+	}
+}
+
+func Div(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorDiv,
+		right:         right,
+		associativity: LeftAssociative,
+	}
+}
+
+func Mod(left, right Visitable) InfixNode {
+	return InfixNode{
+		left:          left,
+		operator:      OperatorMod,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -217,6 +330,52 @@ func (n InfixNode) Associativity() Associativity {
 
 func (n InfixNode) Accept(v Visitor) error {
 	return v.VisitInfix(n)
+}
+
+func IsNull(operand Visitable) PostfixNode {
+	return PostfixNode{
+		operand:       operand,
+		operator:      OperatorIsNull,
+		associativity: NonAssociative,
+	}
+}
+
+func IsNotNull(operand Visitable) PostfixNode {
+	return PostfixNode{
+		operand:       operand,
+		operator:      OperatorIsNotNull,
+		associativity: NonAssociative,
+	}
+}
+
+func NewPostfixNode(operand Visitable, operator Operator, associativity Associativity) PostfixNode {
+	return PostfixNode{
+		operand:       operand,
+		operator:      operator,
+		associativity: associativity,
+	}
+}
+
+type PostfixNode struct {
+	operand       Visitable
+	operator      Operator
+	associativity Associativity
+}
+
+func (n PostfixNode) Operand() Visitable {
+	return n.operand
+}
+
+func (n PostfixNode) Operator() Operator {
+	return n.operator
+}
+
+func (n PostfixNode) Associativity() Associativity {
+	return n.associativity
+}
+
+func (n PostfixNode) Accept(v Visitor) error {
+	return v.VisitPostfix(n)
 }
 
 // TODO: Rename me to Scope?
@@ -276,12 +435,17 @@ func (n ObjectNode) Accept(v Visitor) error {
 	return v.VisitObject(n)
 }
 
-func Wilcard(parent EmptiableObject, predicate Visitable) CollectionNode {
+func Wildcard(parent EmptiableObject, predicate Visitable) CollectionNode {
 	return CollectionNode{
 		parent:    parent,
 		name:      "*",
 		predicate: predicate,
 	}
+}
+
+// Deprecated: Use Wildcard instead
+func Wilcard(parent EmptiableObject, predicate Visitable) CollectionNode {
+	return Wildcard(parent, predicate)
 }
 
 // See JSONPath specification for * and @, for example jsonb_path_match() in PostgreSQL.
