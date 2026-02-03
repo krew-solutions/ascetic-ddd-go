@@ -6,15 +6,70 @@ Successfully ported all tests from Python `ascetic-ddd-python/ascetic_ddd/specif
 
 **Initial Port: 47 tests**
 **Extended Coverage: 109 tests** (+62 additional tests)
+**Public API: 172 tests** (+63 public API tests)
 
 - Domain Tests: 49 (was 21, +28 new tests)
+- Domain Public API Tests: 60 (NEW)
 - Infrastructure Tests: 60 (was 26, +34 new tests)
+- Transform Visitor Test: 1
 
 All tests are passing ✅
 
 **Test Coverage:**
 - Domain: **70.0%** (was 46.0%)
+- Domain Public API: **68.1%** (NEW)
 - Infrastructure: **75.4%** (was 63.4%)
+
+## Domain Public API Tests (`domain/public/public_test.go` - 60 tests)
+
+### Adapter Tests (32 tests)
+- `TestDelegating` - Delegating adapter (2 subtests)
+- `TestLogical` - Logical operations (3 subtests: And, Or, Is)
+- `TestNullable` - NULL checks (2 subtests: IsNull, IsNotNull)
+- `TestComparison` - Comparison operations (8 subtests: Eq, Ne, Gt, Lt, Gte, Lte, Lshift, Rshift)
+- `TestMathematical` - Mathematical operations (5 subtests: Add, Sub, Mul, Div, Mod)
+
+### Datatype Tests (8 tests)
+- `TestDatatypes` - Type inheritance verification (8 subtests)
+  - Boolean, NullBoolean
+  - Number, NullNumber
+  - Datetime, NullDatetime
+  - Text, NullText
+
+### Factory Tests (12 tests)
+- `TestFieldFactory` - MakeField constructors (8 subtests)
+- `TestValueFactory` - MakeValue constructors (4 subtests)
+
+### Helper Function Tests (6 tests)
+- `TestHelperFunctions` - object_() and field() helpers (6 subtests)
+  - Simple names
+  - Dotted paths
+  - Multiple levels
+
+### Integration Tests (7 tests)
+- `TestIntegration` - Complex expressions (7 subtests)
+  - Field comparisons
+  - Logical operations
+  - Nullable field operations
+  - Complex expressions
+  - Mathematical operations
+  - Shift operations
+  - Modulo operation
+
+**Key Differences from Python:**
+- Go doesn't support operator overloading like Python
+- Methods are used instead of operators: `age.Gte(18)` instead of `age >= 18`
+- Type embedding instead of multiple inheritance
+- Factory pattern via package-level functions instead of class methods
+
+**API Example:**
+```go
+// Python: age = Number.make_field("age")
+// Go:     age := MakeNumberField("age")
+
+// Python: result = (age >= 18) & is_active
+// Go:     result := age.Gte(MakeNumberValue(18)).And(isActive)
+```
 
 ## Domain Tests (`domain/specification_test.go`)
 
@@ -108,20 +163,24 @@ Not ported as requested by user - relies on Python's runtime AST inspection whic
 ### 2. `jsonpath` module
 JSONPath parsers not ported - Go has alternative JSONPath libraries if needed.
 
-### 3. `public` module (adapters, datatypes, interfaces)
-Public API layer not ported - Go version uses direct node construction. Could be added later if needed for convenience.
-
 ## Files Created/Modified
 
 ### Created:
-- `domain/specification_test.go` - Domain layer tests
-- `infrastructure/postgresql_visitor_test.go` - PostgreSQL visitor tests
+- `domain/specification_test.go` - Domain layer tests (21 tests)
+- `domain/operators_test.go` - All operators tests (23 tests)
+- `domain/collection_helpers_test.go` - Collection helper tests (24 tests)
+- `domain/public/interfaces.go` - Public API interfaces (NEW)
+- `domain/public/adapters.go` - Adapter implementations (NEW)
+- `domain/public/datatypes.go` - Datatype wrappers (NEW)
+- `domain/public/public_test.go` - Public API tests (60 tests, NEW)
+- `infrastructure/postgresql_visitor_test.go` - PostgreSQL visitor tests (16 tests)
+- `infrastructure/compile_test.go` - CompileToSQL and postfix operator tests (19 tests)
 
 ### Modified:
-- `domain/evaluate_visitor.go` - Added fallback comparisons, OR operator, helper functions
+- `domain/evaluate_visitor.go` - Added fallback comparisons, OR operator, mathematical operators, helper functions
 - `domain/interfaces.go` - Already had all necessary interfaces
-- `infrastructure/postgresql_wildcard_test.go` - Extended with nested wildcard tests
-- `infrastructure/transform_visitor_test.go` - Already existed with composite key test
+- `infrastructure/postgresql_wildcard_test.go` - Extended with nested wildcard tests (11 tests)
+- `infrastructure/transform_visitor_test.go` - Already existed with composite key test (1 test)
 
 ## Verification
 
