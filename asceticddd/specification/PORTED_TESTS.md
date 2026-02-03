@@ -4,11 +4,17 @@
 
 Successfully ported all tests from Python `ascetic-ddd-python/ascetic_ddd/specification` to Go `ascetic-ddd-go/asceticddd/specification`.
 
-**Total Tests Ported: 47**
-- Domain Tests: 21
-- Infrastructure Tests: 26
+**Initial Port: 47 tests**
+**Extended Coverage: 109 tests** (+62 additional tests)
+
+- Domain Tests: 49 (was 21, +28 new tests)
+- Infrastructure Tests: 60 (was 26, +34 new tests)
 
 All tests are passing ✅
+
+**Test Coverage:**
+- Domain: **70.0%** (was 46.0%)
+- Infrastructure: **75.4%** (was 63.4%)
 
 ## Domain Tests (`domain/specification_test.go`)
 

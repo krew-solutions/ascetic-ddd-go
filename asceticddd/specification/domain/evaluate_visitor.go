@@ -197,10 +197,77 @@ func (v *EvaluateVisitor) VisitInfix(n InfixNode) error {
 			return err
 		}
 		v.SetCurrentValue(result)
+	} else if v.isMathematicalOperator(n.Operator()) {
+		result, err := v.evalMathematicalInfix(left, n.Operator(), right)
+		if err != nil {
+			return err
+		}
+		v.SetCurrentValue(result)
 	} else {
-		return fmt.Errorf("mathematical operator \"%s\" is not supported", n.Operator())
+		return fmt.Errorf("operator \"%s\" is not supported", n.Operator())
 	}
 	return nil
+}
+
+func (v EvaluateVisitor) isMathematicalOperator(op Operator) bool {
+	mathOps := []Operator{OperatorAdd, OperatorSub, OperatorMul, OperatorDiv, OperatorMod}
+	for _, mathOp := range mathOps {
+		if mathOp == op {
+			return true
+		}
+	}
+	return false
+}
+
+func (v EvaluateVisitor) evalMathematicalInfix(left any, op Operator, right any) (any, error) {
+	// Try to convert to numeric types
+	leftInt, leftIsInt := left.(int)
+	rightInt, rightIsInt := right.(int)
+
+	if leftIsInt && rightIsInt {
+		switch op {
+		case OperatorAdd:
+			return leftInt + rightInt, nil
+		case OperatorSub:
+			return leftInt - rightInt, nil
+		case OperatorMul:
+			return leftInt * rightInt, nil
+		case OperatorDiv:
+			if rightInt == 0 {
+				return nil, errors.New("division by zero")
+			}
+			return leftInt / rightInt, nil
+		case OperatorMod:
+			if rightInt == 0 {
+				return nil, errors.New("modulo by zero")
+			}
+			return leftInt % rightInt, nil
+		}
+	}
+
+	// Try float64
+	leftFloat, leftIsFloat := left.(float64)
+	rightFloat, rightIsFloat := right.(float64)
+
+	if leftIsFloat && rightIsFloat {
+		switch op {
+		case OperatorAdd:
+			return leftFloat + rightFloat, nil
+		case OperatorSub:
+			return leftFloat - rightFloat, nil
+		case OperatorMul:
+			return leftFloat * rightFloat, nil
+		case OperatorDiv:
+			if rightFloat == 0 {
+				return nil, errors.New("division by zero")
+			}
+			return leftFloat / rightFloat, nil
+		case OperatorMod:
+			return nil, errors.New("modulo is not supported for float64")
+		}
+	}
+
+	return nil, fmt.Errorf("mathematical operator \"%s\" requires numeric operands", op)
 }
 
 func (v EvaluateVisitor) yieldBooleanOperator(op Operator) bool {
