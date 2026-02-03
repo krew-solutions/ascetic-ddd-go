@@ -25,6 +25,17 @@ func Compile(context Context, exp s.Visitable) (sql string, params []any, err er
 	return v.Result()
 }
 
+// CompileToSQL compiles AST directly to SQL without context transformation
+// Useful for generated code where AST is already in the right form
+func CompileToSQL(exp s.Visitable) (sql string, params []any, err error) {
+	v := NewPostgresqlVisitor()
+	err = exp.Accept(v)
+	if err != nil {
+		return "", nil, err
+	}
+	return v.Result()
+}
+
 type PostgresqlVisitorOption func(*PostgresqlVisitor)
 
 func PlaceholderIndex(index uint8) PostgresqlVisitorOption {

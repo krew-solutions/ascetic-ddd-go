@@ -521,3 +521,4 @@ func (n FieldNode) Object() EmptiableObject {
 func (n FieldNode) Accept(v Visitor) error {
 	return v.VisitField(n)
 }
+
