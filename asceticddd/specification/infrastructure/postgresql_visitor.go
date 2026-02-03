@@ -76,6 +76,10 @@ type PostgresqlVisitor struct {
 	parameters        []any
 	precedence        int
 	precedenceMapping map[string]int
+	// Wildcard context tracking
+	inWildcard      bool   // Are we inside a wildcard predicate?
+	wildcardAlias   string // Current wildcard item alias (e.g., "item")
+	wildcardCounter int    // Counter for unique aliases
 }
 
 func (v PostgresqlVisitor) getNodePrecedenceKey(n s.Operable) string {
@@ -121,17 +125,90 @@ func (v *PostgresqlVisitor) VisitObject(_ s.ObjectNode) error {
 }
 
 func (v *PostgresqlVisitor) VisitCollection(n s.CollectionNode) error {
+	// Collection node represents a wildcard: spec.Any/All over a collection
+	// Generate: EXISTS (SELECT 1 FROM unnest(collection_path) AS item WHERE predicate)
+
+	// Extract collection path (e.g., "Items" from Object(GlobalScope(), "Items"))
+	collectionPath := v.extractCollectionPath(n)
+
+	// Generate unique alias for this wildcard
+	v.wildcardCounter++
+	alias := fmt.Sprintf("item_%d", v.wildcardCounter)
+
+	// Save context
+	outerInWildcard := v.inWildcard
+	outerWildcardAlias := v.wildcardAlias
+
+	// Enter wildcard context
+	v.inWildcard = true
+	v.wildcardAlias = alias
+
+	// Generate EXISTS subquery
+	v.sql += "EXISTS (SELECT 1 FROM unnest("
+	v.sql += collectionPath
+	v.sql += ") AS "
+	v.sql += alias
+	v.sql += " WHERE "
+
+	// Visit predicate
+	err := n.Predicate().Accept(v)
+	if err != nil {
+		return err
+	}
+
+	v.sql += ")"
+
+	// Restore context
+	v.inWildcard = outerInWildcard
+	v.wildcardAlias = outerWildcardAlias
+
 	return nil
 }
 
+// extractCollectionPath extracts the SQL path to a collection from a CollectionNode
+func (v *PostgresqlVisitor) extractCollectionPath(n s.CollectionNode) string {
+	var parts []string
+
+	// Walk up the parent chain to collect path components
+	parent := n.Parent()
+	for !parent.IsRoot() {
+		parts = append([]string{parent.Name()}, parts...) // prepend
+		parent = parent.Parent()
+	}
+
+	// Note: We don't add n.Name() because it's "*" (wildcard marker)
+	// The actual collection name is the last component in the parent chain
+
+	return strings.Join(parts, ".")
+}
+
 func (v *PostgresqlVisitor) VisitItem(n s.ItemNode) error {
+	// Item() in wildcard context refers to the current item alias
+	// This is handled in VisitField when we detect Item() as parent
 	return nil
 }
 
 func (v *PostgresqlVisitor) VisitField(n s.FieldNode) error {
-	name := strings.Join(s.ExtractFieldPath(n), ".")
-	v.sql += name
+	// Check if this field references an item in a wildcard context
+	if v.inWildcard && v.isItemReference(n.Object()) {
+		// This is a field of the current item: item.Price, item.Active, etc.
+		v.sql += v.wildcardAlias
+		v.sql += "."
+		v.sql += n.Name()
+	} else {
+		// Normal field access
+		path := s.ExtractFieldPath(n)
+		name := strings.Join(path, ".")
+		v.sql += name
+	}
 	return nil
+}
+
+// isItemReference checks if the object is Item() (current item in wildcard)
+func (v *PostgresqlVisitor) isItemReference(obj s.EmptiableObject) bool {
+	// Item() has IsRoot() == true and Name() == "@"
+	_, isItem := obj.(s.ItemNode)
+	return isItem
 }
 
 func (v *PostgresqlVisitor) VisitValue(n s.ValueNode) error {
