@@ -44,6 +44,13 @@ func PlaceholderIndex(index uint8) PostgresqlVisitorOption {
 	}
 }
 
+// WithSchema sets the schema registry for relational collection support
+func WithSchema(schema *SchemaRegistry) PostgresqlVisitorOption {
+	return func(v *PostgresqlVisitor) {
+		v.schema = schema
+	}
+}
+
 func NewPostgresqlVisitor(opts ...PostgresqlVisitorOption) *PostgresqlVisitor {
 	v := &PostgresqlVisitor{
 		precedenceMapping: make(map[string]int),
@@ -80,6 +87,8 @@ type PostgresqlVisitor struct {
 	inWildcard      bool   // Are we inside a wildcard predicate?
 	wildcardAlias   string // Current wildcard item alias (e.g., "item")
 	wildcardCounter int    // Counter for unique aliases
+	// Schema registry for relational collections
+	schema *SchemaRegistry
 }
 
 func (v PostgresqlVisitor) getNodePrecedenceKey(n s.Operable) string {
@@ -126,13 +135,27 @@ func (v *PostgresqlVisitor) VisitObject(_ s.ObjectNode) error {
 
 func (v *PostgresqlVisitor) VisitCollection(n s.CollectionNode) error {
 	// Collection node represents a wildcard: spec.Any/All over a collection
-	// Generate: EXISTS (SELECT 1 FROM unnest(collection_path) AS item WHERE predicate)
+	// Two modes:
+	// 1. Embedded (JSONB/array): EXISTS (SELECT 1 FROM unnest(collection) AS item WHERE predicate)
+	// 2. Relational (separate table): EXISTS (SELECT 1 FROM table AS item WHERE fk_conditions AND predicate)
 
+	// Extract collection name for alias and schema lookup
+	collectionName := v.extractCollectionName(n)
+	fieldName := v.extractFieldName(n)
+
+	// Check if this is a relational collection
+	if v.schema != nil && v.schema.IsRelational(fieldName) {
+		return v.visitRelationalCollection(n, fieldName, collectionName)
+	}
+
+	// Default: embedded collection (JSONB/array)
+	return v.visitEmbeddedCollection(n, collectionName)
+}
+
+// visitEmbeddedCollection generates SQL for JSONB/array collections using unnest
+func (v *PostgresqlVisitor) visitEmbeddedCollection(n s.CollectionNode, collectionName string) error {
 	// Extract collection path (e.g., "Items" from Object(GlobalScope(), "Items"))
 	collectionPath := v.extractCollectionPath(n)
-
-	// Extract collection name for alias (e.g., "Items" -> "item", "Categories" -> "category")
-	collectionName := v.extractCollectionName(n)
 
 	// Generate unique alias for this wildcard
 	v.wildcardCounter++
@@ -146,7 +169,7 @@ func (v *PostgresqlVisitor) VisitCollection(n s.CollectionNode) error {
 	v.inWildcard = true
 	v.wildcardAlias = alias
 
-	// Generate EXISTS subquery
+	// Generate EXISTS subquery with unnest
 	v.sql += "EXISTS (SELECT 1 FROM unnest("
 	v.sql += collectionPath
 	v.sql += ") AS "
@@ -166,6 +189,110 @@ func (v *PostgresqlVisitor) VisitCollection(n s.CollectionNode) error {
 	v.wildcardAlias = outerWildcardAlias
 
 	return nil
+}
+
+// visitRelationalCollection generates SQL for collections in separate tables
+func (v *PostgresqlVisitor) visitRelationalCollection(n s.CollectionNode, fieldName, collectionName string) error {
+	mapping, _ := v.schema.Get(fieldName)
+
+	// Generate unique alias for this wildcard
+	v.wildcardCounter++
+	alias := mapping.Alias
+	if alias == "" {
+		alias = fmt.Sprintf("%s_%d", strings.ToLower(collectionName), v.wildcardCounter)
+	} else {
+		alias = fmt.Sprintf("%s_%d", alias, v.wildcardCounter)
+	}
+
+	// Save context BEFORE determining parent ref
+	outerInWildcard := v.inWildcard
+	outerWildcardAlias := v.wildcardAlias
+
+	// Determine parent reference BEFORE entering new context
+	// This ensures we reference the outer scope, not the new alias
+	parentRef := v.getParentRefForRelational(outerInWildcard, outerWildcardAlias)
+
+	// Enter wildcard context
+	v.inWildcard = true
+	v.wildcardAlias = alias
+
+	// Generate EXISTS subquery with JOIN conditions
+	v.sql += "EXISTS (SELECT 1 FROM "
+	v.sql += mapping.Table
+	v.sql += " AS "
+	v.sql += alias
+	v.sql += " WHERE "
+
+	// Generate FK conditions (supports composite keys)
+	for i, fk := range mapping.ForeignKeys {
+		if i > 0 {
+			v.sql += " AND "
+		}
+		v.sql += alias
+		v.sql += "."
+		v.sql += fk.ChildColumn
+		v.sql += " = "
+		v.sql += parentRef
+		v.sql += "."
+		v.sql += fk.ParentColumn
+	}
+
+	// Add predicate
+	v.sql += " AND "
+
+	// Visit predicate
+	err := n.Predicate().Accept(v)
+	if err != nil {
+		return err
+	}
+
+	v.sql += ")"
+
+	// Restore context
+	v.inWildcard = outerInWildcard
+	v.wildcardAlias = outerWildcardAlias
+
+	return nil
+}
+
+// getParentRef returns the reference to the parent table/alias for FK conditions
+func (v *PostgresqlVisitor) getParentRef(n s.CollectionNode) string {
+	// If we're in a nested wildcard, use the outer wildcard alias
+	if v.inWildcard && v.wildcardAlias != "" {
+		return v.wildcardAlias
+	}
+
+	// Otherwise, use schema's parent reference or default
+	if v.schema != nil {
+		return v.schema.GetParentRef()
+	}
+
+	return ""
+}
+
+// getParentRefForRelational returns parent reference using saved context
+// This is called BEFORE entering new wildcard context to get the correct outer reference
+func (v *PostgresqlVisitor) getParentRefForRelational(outerInWildcard bool, outerWildcardAlias string) string {
+	// If we were in a nested wildcard, use the outer wildcard alias
+	if outerInWildcard && outerWildcardAlias != "" {
+		return outerWildcardAlias
+	}
+
+	// Otherwise, use schema's parent reference
+	if v.schema != nil {
+		return v.schema.GetParentRef()
+	}
+
+	return ""
+}
+
+// extractFieldName extracts the field name from collection's parent Object
+func (v *PostgresqlVisitor) extractFieldName(n s.CollectionNode) string {
+	parent := n.Parent()
+	if !parent.IsRoot() {
+		return parent.Name()
+	}
+	return ""
 }
 
 // extractCollectionPath extracts the SQL path to a collection from a CollectionNode
