@@ -34,9 +34,9 @@ func (q EventGetQuery) sql() string {
 func (q EventGetQuery) params() []any {
 	return []any{q.StreamId.TenantId(), q.StreamId.StreamType(), q.StreamId.StreamId(), q.SincePosition}
 }
-func (q *EventGetQuery) Stream(s session.DbSession) ([]aggregate.PersistentDomainEvent, error) {
+func (q *EventGetQuery) Stream(s session.Session) ([]aggregate.PersistentDomainEvent, error) {
 	stream := []aggregate.PersistentDomainEvent{}
-	rows, err := s.Connection().Query(q.sql(), q.params()...)
+	rows, err := s.(session.DbSession).Connection().Query(q.sql(), q.params()...)
 	if err != nil {
 		return nil, err
 	}

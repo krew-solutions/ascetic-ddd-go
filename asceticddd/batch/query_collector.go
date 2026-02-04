@@ -54,7 +54,7 @@ func (c *QueryCollector) collectQuery(query string, args ...any) (deferred.Defer
 	return nil, errors.New("unknown SQL command")
 }
 
-func (c *QueryCollector) Evaluate(s session.DbSession) (session.Result, error) {
+func (c *QueryCollector) Evaluate(s session.Session) (session.Result, error) {
 	var rowsAffected int64
 	for len(c.multiQueryMap) > 0 {
 		// Resolve N+1 query problem with auto-increment primary key.

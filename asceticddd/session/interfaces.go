@@ -60,5 +60,5 @@ type DbSession interface {
 }
 
 type QueryEvaluator interface {
-	Evaluate(s DbSession) (Result, error)
+	Evaluate(s Session) (Result, error)
 }

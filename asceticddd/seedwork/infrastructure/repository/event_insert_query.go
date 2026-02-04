@@ -45,7 +45,7 @@ func (q *EventInsertQuery) SetEventVersion(val uint8) {
 	q.params[5] = val
 }
 
-func (q *EventInsertQuery) Evaluate(s session.DbSession) (session.Result, error) {
+func (q *EventInsertQuery) Evaluate(s session.Session) (session.Result, error) {
 	payload, err := json.Marshal(q.payload)
 	if err != nil {
 		return nil, err
@@ -56,5 +56,5 @@ func (q *EventInsertQuery) Evaluate(s session.DbSession) (session.Result, error)
 		return nil, err
 	}
 	q.params[7] = meta
-	return s.Connection().Exec(q.sql(), q.params[:]...)
+	return s.(session.DbSession).Connection().Exec(q.sql(), q.params[:]...)
 }

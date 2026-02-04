@@ -33,7 +33,7 @@ func (r EventStore) NewStreamId(
 }
 
 func (r *EventStore) Save(
-	s session.DbSession,
+	s session.Session,
 	agg aggregate.DomainEventAccessor[aggregate.PersistentDomainEvent],
 	eventMeta aggregate.EventMeta,
 ) error {

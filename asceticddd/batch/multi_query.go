@@ -79,9 +79,9 @@ type MultiQuery struct {
 	MultiQueryBase
 }
 
-func (q MultiQuery) Evaluate(s session.DbSession) (session.Result, error) {
+func (q MultiQuery) Evaluate(s session.Session) (session.Result, error) {
 	var errs error
-	r, err := s.Connection().Exec(q.sql(), q.flatParams()...)
+	r, err := s.(session.DbSession).Connection().Exec(q.sql(), q.flatParams()...)
 	if err != nil {
 		return nil, err
 	}
@@ -100,10 +100,10 @@ type AutoincrementMultiInsertQuery struct {
 	MultiQueryBase
 }
 
-func (q AutoincrementMultiInsertQuery) Evaluate(s session.DbSession) (session.Result, error) {
+func (q AutoincrementMultiInsertQuery) Evaluate(s session.Session) (session.Result, error) {
 	var id int64
 	var errs error
-	rows, err := s.Connection().Query(q.sql(), q.flatParams()...)
+	rows, err := s.(session.DbSession).Connection().Query(q.sql(), q.flatParams()...)
 	if err != nil {
 		return nil, err
 	}
