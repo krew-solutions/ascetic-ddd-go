@@ -1,8 +1,8 @@
-# Inbox Pattern
+# Transactional Inbox Pattern
 
 Go implementation of the Inbox pattern for reliable incoming message processing with idempotency and causal consistency.
 
-For general documentation and pattern description, see [Python README](https://github.com/krew-solutions/ascetic-ddd-python/blob/main/ascetic_ddd/inbox/README.md).
+For general documentation and pattern description, see [documentation of Python version](https://krew-solutions.github.io/ascetic-ddd-python/modules/inbox/index.html).
 
 ## What is the Inbox Pattern?
 

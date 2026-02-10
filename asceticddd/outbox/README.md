@@ -1,8 +1,8 @@
-# Outbox Pattern
+# Transactional Outbox Pattern
 
 Go implementation of the Transactional Outbox pattern for reliable message publishing.
 
-For general documentation and pattern description, see [Python README](https://github.com/krew-solutions/ascetic-ddd-python/blob/main/ascetic_ddd/outbox/README.md).
+For general documentation and pattern description, see [documentation of Python version](https://krew-solutions.github.io/ascetic-ddd-python/modules/outbox/index.html).
 
 ## Usage
 

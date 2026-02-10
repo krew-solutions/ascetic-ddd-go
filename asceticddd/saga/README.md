@@ -2,8 +2,7 @@
 
 A Go implementation of the Saga pattern using the **Routing Slip** approach.
 
-For detailed documentation, see the Python version:
-https://github.com/krew-solutions/ascetic-ddd-python/blob/main/ascetic_ddd/saga/README.md
+For detailed information, see the [documentation of Python version](https://krew-solutions.github.io/ascetic-ddd-python/modules/saga/index.html).
 
 ## Key Differences from Python Version
 
