@@ -1,5 +1,6 @@
 # ascetic-ddd-go
-Toolkit and [seedwork](https://martinfowler.com/bliki/Seedwork.html) for a Golang DDD project.
+
+A framework, toolkit and [seedwork](https://martinfowler.com/bliki/Seedwork.html) for Golang DDD projects.
 
 See also [ascetic-ddd-python](https://github.com/krew-solutions/ascetic-ddd-python).
 
