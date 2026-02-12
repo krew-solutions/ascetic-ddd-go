@@ -43,7 +43,7 @@ func (i *PgInbox) Publish(message *InboxMessage) error {
 	ctx := context.Background()
 	return i.sessionPool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
-			return i.insertMessage(txSession.(session.DbSession), message)
+			return i.insertMessage(txSession, message)
 		})
 	})
 }
@@ -54,9 +54,8 @@ func (i *PgInbox) Dispatch(subscriber Subscriber, workerID int, numWorkers int) 
 	var message *InboxMessage
 	err := i.sessionPool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
-			dbSession := txSession.(session.DbSession)
 			var err error
-			message, err = i.fetchNextProcessable(dbSession, 0, workerID, numWorkers)
+			message, err = i.fetchNextProcessable(txSession, 0, workerID, numWorkers)
 			if err != nil {
 				return err
 			}
@@ -65,11 +64,11 @@ func (i *PgInbox) Dispatch(subscriber Subscriber, workerID int, numWorkers int) 
 				return nil
 			}
 
-			if err := subscriber(dbSession, message); err != nil {
+			if err := subscriber(txSession, message); err != nil {
 				return err
 			}
 
-			return i.markProcessed(dbSession, message)
+			return i.markProcessed(txSession, message)
 		})
 	})
 
@@ -134,14 +133,12 @@ func (i *PgInbox) Messages(ctx context.Context, workerID int, numWorkers int, po
 			}
 
 			var message *InboxMessage
-			var dbSession session.DbSession
 
 			bgCtx := context.Background()
 			err := i.sessionPool.Session(bgCtx, func(s session.Session) error {
 				return s.Atomic(func(txSession session.Session) error {
-					dbSession = txSession.(session.DbSession)
 					var err error
-					message, err = i.fetchNextProcessable(dbSession, 0, workerID, numWorkers)
+					message, err = i.fetchNextProcessable(txSession, 0, workerID, numWorkers)
 					if err != nil {
 						return err
 					}
@@ -154,11 +151,11 @@ func (i *PgInbox) Messages(ctx context.Context, workerID int, numWorkers int, po
 					select {
 					case <-ctx.Done():
 						return ctx.Err()
-					case messageCh <- &SessionMessage{Session: dbSession, Message: message}:
+					case messageCh <- &SessionMessage{Session: txSession, Message: message}:
 					}
 
 					// Mark as processed after yield
-					return i.markProcessed(dbSession, message)
+					return i.markProcessed(txSession, message)
 				})
 			})
 
@@ -182,7 +179,7 @@ func (i *PgInbox) Messages(ctx context.Context, workerID int, numWorkers int, po
 	return messageCh
 }
 
-func (i *PgInbox) insertMessage(s session.DbSession, message *InboxMessage) error {
+func (i *PgInbox) insertMessage(s session.Session, message *InboxMessage) error {
 	sql := fmt.Sprintf(`
 		INSERT INTO %s (
 			tenant_id, stream_type, stream_id, stream_position,
@@ -211,7 +208,7 @@ func (i *PgInbox) insertMessage(s session.DbSession, message *InboxMessage) erro
 		}
 	}
 
-	_, err = s.Connection().Exec(
+	_, err = s.(session.DbSession).Connection().Exec(
 		sql,
 		message.TenantId,
 		message.StreamType,
@@ -225,7 +222,7 @@ func (i *PgInbox) insertMessage(s session.DbSession, message *InboxMessage) erro
 }
 
 func (i *PgInbox) fetchNextProcessable(
-	s session.DbSession,
+	s session.Session,
 	startOffset int,
 	workerID int,
 	numWorkers int,
@@ -253,7 +250,7 @@ func (i *PgInbox) fetchNextProcessable(
 }
 
 func (i *PgInbox) fetchUnprocessedMessage(
-	s session.DbSession,
+	s session.Session,
 	offset int,
 	workerID int,
 	numWorkers int,
@@ -282,7 +279,7 @@ func (i *PgInbox) fetchUnprocessedMessage(
 		FOR UPDATE SKIP LOCKED
 	`, i.table, partitionFilter)
 
-	row := s.Connection().QueryRow(sql, offset)
+	row := s.(session.DbSession).Connection().QueryRow(sql, offset)
 
 	var tenantID string
 	var streamType string
@@ -344,7 +341,7 @@ func (i *PgInbox) fetchUnprocessedMessage(
 	}, nil
 }
 
-func (i *PgInbox) areDependenciesSatisfied(s session.DbSession, message *InboxMessage) (bool, error) {
+func (i *PgInbox) areDependenciesSatisfied(s session.Session, message *InboxMessage) (bool, error) {
 	dependencies := message.CausalDependencies()
 	if len(dependencies) == 0 {
 		return true, nil
@@ -363,7 +360,7 @@ func (i *PgInbox) areDependenciesSatisfied(s session.DbSession, message *InboxMe
 	return true, nil
 }
 
-func (i *PgInbox) isDependencyProcessed(s session.DbSession, dependency map[string]any) (bool, error) {
+func (i *PgInbox) isDependencyProcessed(s session.Session, dependency map[string]any) (bool, error) {
 	sql := fmt.Sprintf(`
 		SELECT 1 FROM %s
 		WHERE tenant_id = $1
@@ -379,7 +376,7 @@ func (i *PgInbox) isDependencyProcessed(s session.DbSession, dependency map[stri
 		return false, err
 	}
 
-	row := s.Connection().QueryRow(
+	row := s.(session.DbSession).Connection().QueryRow(
 		sql,
 		dependency["tenant_id"],
 		dependency["stream_type"],
@@ -400,7 +397,7 @@ func (i *PgInbox) isDependencyProcessed(s session.DbSession, dependency map[stri
 	return true, nil
 }
 
-func (i *PgInbox) markProcessed(s session.DbSession, message *InboxMessage) error {
+func (i *PgInbox) markProcessed(s session.Session, message *InboxMessage) error {
 	sql := fmt.Sprintf(`
 		UPDATE %s
 		SET processed_position = nextval('%s')
@@ -415,7 +412,7 @@ func (i *PgInbox) markProcessed(s session.DbSession, message *InboxMessage) erro
 		return err
 	}
 
-	_, err = s.Connection().Exec(
+	_, err = s.(session.DbSession).Connection().Exec(
 		sql,
 		message.TenantId,
 		message.StreamType,
@@ -429,22 +426,21 @@ func (i *PgInbox) Setup() error {
 	ctx := context.Background()
 	return i.sessionPool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
-			dbSession := txSession.(session.DbSession)
-			if err := i.createSequence(dbSession); err != nil {
+			if err := i.createSequence(txSession); err != nil {
 				return err
 			}
-			return i.createTable(dbSession)
+			return i.createTable(txSession)
 		})
 	})
 }
 
-func (i *PgInbox) createSequence(s session.DbSession) error {
+func (i *PgInbox) createSequence(s session.Session) error {
 	sql := fmt.Sprintf("CREATE SEQUENCE IF NOT EXISTS %s", i.sequence)
-	_, err := s.Connection().Exec(sql)
+	_, err := s.(session.DbSession).Connection().Exec(sql)
 	return err
 }
 
-func (i *PgInbox) createTable(s session.DbSession) error {
+func (i *PgInbox) createTable(s session.Session) error {
 	sql := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			tenant_id varchar(128) NOT NULL,
@@ -460,7 +456,7 @@ func (i *PgInbox) createTable(s session.DbSession) error {
 		)
 	`, i.table, i.sequence, i.table)
 
-	_, err := s.Connection().Exec(sql)
+	_, err := s.(session.DbSession).Connection().Exec(sql)
 	return err
 }
 

@@ -177,7 +177,7 @@ func TestDispatchReturnsFalseWhenNoMessages(t *testing.T) {
 	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -234,7 +234,7 @@ func TestDispatchProcessesMessageWithoutDependencies(t *testing.T) {
 	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -543,7 +543,7 @@ func TestRunSingleWorkerProcessesMessages(t *testing.T) {
 	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -601,7 +601,7 @@ func TestRunMultipleWorkersSpawnsTasks(t *testing.T) {
 	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -630,7 +630,7 @@ func TestRunWorkerSleepsWhenNoMessages(t *testing.T) {
 	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}

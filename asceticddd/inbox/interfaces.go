@@ -8,7 +8,7 @@ import (
 
 // Subscriber is a callback to process an inbox message.
 // Receives a database session and the message to process.
-type Subscriber func(session.DbSession, *InboxMessage) error
+type Subscriber func(session.Session, *InboxMessage) error
 
 // Inbox defines the interface for the Inbox pattern.
 //
@@ -79,6 +79,6 @@ type Inbox interface {
 // SessionMessage pairs a database session with an inbox message.
 // Used by Messages() channel API.
 type SessionMessage struct {
-	Session session.DbSession
+	Session session.Session
 	Message *InboxMessage
 }

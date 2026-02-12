@@ -38,9 +38,9 @@ func setupInboxIntegrationTest(t *testing.T) (*PgInbox, session.SessionPool, fun
 		ctx := context.Background()
 		_ = pool.Session(ctx, func(s session.Session) error {
 			return s.Atomic(func(txSession session.Session) error {
-				dbSession := txSession.(session.DbSession)
-				_, _ = dbSession.Connection().Exec("DROP TABLE IF EXISTS inbox_test")
-				_, _ = dbSession.Connection().Exec("DROP SEQUENCE IF EXISTS inbox_test_received_position_seq")
+				conn := txSession.(session.DbSession).Connection()
+				_, _ = conn.Exec("DROP TABLE IF EXISTS inbox_test")
+				_, _ = conn.Exec("DROP SEQUENCE IF EXISTS inbox_test_received_position_seq")
 				return nil
 			})
 		})
@@ -69,7 +69,7 @@ func TestPublishAndDispatch(t *testing.T) {
 	}
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -118,7 +118,7 @@ func TestIdempotency(t *testing.T) {
 	}
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -176,7 +176,7 @@ func TestCausalDependencies(t *testing.T) {
 	}
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -248,7 +248,7 @@ func TestOrderingByReceivedPosition(t *testing.T) {
 	}
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -309,7 +309,7 @@ func TestRoutingByUri(t *testing.T) {
 		streamID map[string]any
 	}
 
-	subscriber := func(s session.DbSession, message *InboxMessage) error {
+	subscriber := func(s session.Session, message *InboxMessage) error {
 		if message.Uri == "kafka://orders" {
 			handledEvents = append(handledEvents, struct {
 				uri      string
@@ -363,7 +363,7 @@ func TestRunWithSingleWorker(t *testing.T) {
 	}
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -434,7 +434,7 @@ func TestForUpdateSkipLocked(t *testing.T) {
 	}
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}
@@ -470,7 +470,7 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 	}
 
 	var handled []*InboxMessage
-	subscriber := func(s session.DbSession, msg *InboxMessage) error {
+	subscriber := func(s session.Session, msg *InboxMessage) error {
 		handled = append(handled, msg)
 		return nil
 	}

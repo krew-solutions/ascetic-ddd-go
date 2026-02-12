@@ -33,7 +33,7 @@ err := pool.Session(ctx, func(s session.Session) error {
                 "event_id": "550e8400-e29b-41d4-a716-446655440001",
             },
         }
-        return ob.Publish(txSession.(session.DbSession), message)
+        return ob.Publish(txSession, message)
     })
 })
 ```

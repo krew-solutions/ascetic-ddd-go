@@ -70,7 +70,7 @@ for sessionMsg := range inb.Messages(ctx, 0, 1, 0.1) {
 ### Callback API (Alternative)
 
 ```go
-subscriber := func(s session.DbSession, msg *inbox.InboxMessage) error {
+subscriber := func(s session.Session, msg *inbox.InboxMessage) error {
     fmt.Printf("Processing: %s\n", msg.Uri)
     return processMessage(s, msg)
 }
@@ -172,7 +172,7 @@ func main() {
     }
 }
 
-func processOrder(s session.DbSession, msg *inbox.InboxMessage) {
+func processOrder(s session.Session, msg *inbox.InboxMessage) {
     // Your business logic here
     log.Printf("Order processed: %v", msg.Payload)
 }
@@ -353,7 +353,7 @@ for sessionMsg := range inb.Messages(ctx, 0, 1, 0.1) {
 ### Callback API
 
 ```go
-subscriber := func(s session.DbSession, msg *inbox.InboxMessage) error {
+subscriber := func(s session.Session, msg *inbox.InboxMessage) error {
     return processMessage(s, msg)
 }
 inb.Run(ctx, subscriber, 0, 1, 1, 0.1)

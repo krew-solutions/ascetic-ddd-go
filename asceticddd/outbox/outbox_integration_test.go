@@ -34,12 +34,12 @@ func setupOutbox(t *testing.T) (*PgOutbox, session.SessionPool) {
 func truncateTables(t *testing.T, pool session.SessionPool) {
 	ctx := context.Background()
 	err := pool.Session(ctx, func(s session.Session) error {
-		dbSession := s.(session.DbSession)
-		_, err := dbSession.Connection().Exec("TRUNCATE TABLE " + testOutboxTable)
+		conn := s.(session.DbSession).Connection()
+		_, err := conn.Exec("TRUNCATE TABLE " + testOutboxTable)
 		if err != nil {
 			return err
 		}
-		_, err = dbSession.Connection().Exec("TRUNCATE TABLE " + testOffsetsTable)
+		_, err = conn.Exec("TRUNCATE TABLE " + testOffsetsTable)
 		return err
 	})
 	require.NoError(t, err)
@@ -48,9 +48,9 @@ func truncateTables(t *testing.T, pool session.SessionPool) {
 func dropTables(t *testing.T, pool session.SessionPool) {
 	ctx := context.Background()
 	_ = pool.Session(ctx, func(s session.Session) error {
-		dbSession := s.(session.DbSession)
-		_, _ = dbSession.Connection().Exec("DROP TABLE IF EXISTS " + testOutboxTable)
-		_, _ = dbSession.Connection().Exec("DROP TABLE IF EXISTS " + testOffsetsTable)
+		conn := s.(session.DbSession).Connection()
+		_, _ = conn.Exec("DROP TABLE IF EXISTS " + testOutboxTable)
+		_, _ = conn.Exec("DROP TABLE IF EXISTS " + testOffsetsTable)
 		return nil
 	})
 }
@@ -74,7 +74,7 @@ func TestPublishAndDispatch(t *testing.T) {
 					"event_id": "550e8400-e29b-41d4-a716-446655440001",
 				},
 			}
-			return outbox.Publish(txSession.(session.DbSession), message)
+			return outbox.Publish(txSession, message)
 		})
 	})
 	require.NoError(t, err)
@@ -129,7 +129,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 					"event_id": "550e8400-e29b-41d4-a716-446655440003",
 				},
 			}
-			return outbox.Publish(txSession.(session.DbSession), message)
+			return outbox.Publish(txSession, message)
 		})
 	})
 	require.NoError(t, err)
@@ -161,21 +161,19 @@ func TestGetAndSetPosition(t *testing.T) {
 	ctx := context.Background()
 
 	err := pool.Session(ctx, func(s session.Session) error {
-		dbSession := s.(session.DbSession)
-
-		txID, offset, err := outbox.GetPosition(dbSession, "test-group", "")
+		txID, offset, err := outbox.GetPosition(s, "test-group", "")
 		if err != nil {
 			return err
 		}
 		assert.Equal(t, int64(0), txID)
 		assert.Equal(t, int64(0), offset)
 
-		err = outbox.SetPosition(dbSession, "test-group", "", 100, 50)
+		err = outbox.SetPosition(s, "test-group", "", 100, 50)
 		if err != nil {
 			return err
 		}
 
-		txID, offset, err = outbox.GetPosition(dbSession, "test-group", "")
+		txID, offset, err = outbox.GetPosition(s, "test-group", "")
 		if err != nil {
 			return err
 		}
@@ -194,26 +192,24 @@ func TestGetAndSetPositionWithURI(t *testing.T) {
 	ctx := context.Background()
 
 	err := pool.Session(ctx, func(s session.Session) error {
-		dbSession := s.(session.DbSession)
-
-		err := outbox.SetPosition(dbSession, "test-group", "kafka://orders", 100, 50)
+		err := outbox.SetPosition(s, "test-group", "kafka://orders", 100, 50)
 		if err != nil {
 			return err
 		}
 
-		err = outbox.SetPosition(dbSession, "test-group", "kafka://users", 200, 30)
+		err = outbox.SetPosition(s, "test-group", "kafka://users", 200, 30)
 		if err != nil {
 			return err
 		}
 
-		txIDOrders, offsetOrders, err := outbox.GetPosition(dbSession, "test-group", "kafka://orders")
+		txIDOrders, offsetOrders, err := outbox.GetPosition(s, "test-group", "kafka://orders")
 		if err != nil {
 			return err
 		}
 		assert.Equal(t, int64(100), txIDOrders)
 		assert.Equal(t, int64(50), offsetOrders)
 
-		txIDUsers, offsetUsers, err := outbox.GetPosition(dbSession, "test-group", "kafka://users")
+		txIDUsers, offsetUsers, err := outbox.GetPosition(s, "test-group", "kafka://users")
 		if err != nil {
 			return err
 		}
@@ -243,7 +239,7 @@ func TestDispatchUpdatesPosition(t *testing.T) {
 					"event_id": "550e8400-e29b-41d4-a716-446655440002",
 				},
 			}
-			return outbox.Publish(txSession.(session.DbSession), message)
+			return outbox.Publish(txSession, message)
 		})
 	})
 	require.NoError(t, err)
@@ -282,7 +278,7 @@ func TestOrderingByPosition(t *testing.T) {
 						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544000%d", i),
 					},
 				}
-				return outbox.Publish(txSession.(session.DbSession), message)
+				return outbox.Publish(txSession, message)
 			})
 		})
 		require.NoError(t, err)
@@ -327,7 +323,7 @@ func TestBatchDispatch(t *testing.T) {
 						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544010%d", i),
 					},
 				}
-				err := outbox.Publish(txSession.(session.DbSession), message)
+				err := outbox.Publish(txSession, message)
 				if err != nil {
 					return err
 				}
@@ -391,7 +387,7 @@ func TestDispatchWithURIFilter(t *testing.T) {
 				},
 			}
 			for _, msg := range messages {
-				err := outbox.Publish(txSession.(session.DbSession), msg)
+				err := outbox.Publish(txSession, msg)
 				if err != nil {
 					return err
 				}
@@ -445,7 +441,7 @@ func TestMultipleURIsIndependentPositions(t *testing.T) {
 						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544009%d", i),
 					},
 				}
-				if err := outbox.Publish(txSession.(session.DbSession), orderMsg); err != nil {
+				if err := outbox.Publish(txSession, orderMsg); err != nil {
 					return err
 				}
 
@@ -459,7 +455,7 @@ func TestMultipleURIsIndependentPositions(t *testing.T) {
 						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544019%d", i),
 					},
 				}
-				return outbox.Publish(txSession.(session.DbSession), userMsg)
+				return outbox.Publish(txSession, userMsg)
 			})
 		})
 		require.NoError(t, err)
@@ -517,8 +513,7 @@ func TestVisibilityRule(t *testing.T) {
 
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
-			dbSession := txSession.(session.DbSession)
-			_, err := dbSession.Connection().Exec(fmt.Sprintf(`
+			_, err := txSession.(session.DbSession).Connection().Exec(fmt.Sprintf(`
 				INSERT INTO %s (uri, payload, metadata, transaction_id)
 				VALUES ('kafka://orders', '{"type": "OrderCreated", "order": 1}'::jsonb,
 						'{"event_id": "550e8400-e29b-41d4-a716-446655440050"}'::jsonb,
@@ -561,7 +556,7 @@ func TestIdempotencyViaEventID(t *testing.T) {
 					"event_id": "550e8400-e29b-41d4-a716-446655440060",
 				},
 			}
-			return outbox.Publish(txSession.(session.DbSession), message)
+			return outbox.Publish(txSession, message)
 		})
 	})
 	require.NoError(t, err)
@@ -578,7 +573,7 @@ func TestIdempotencyViaEventID(t *testing.T) {
 					"event_id": "550e8400-e29b-41d4-a716-446655440060",
 				},
 			}
-			return outbox.Publish(txSession.(session.DbSession), message)
+			return outbox.Publish(txSession, message)
 		})
 	})
 	require.Error(t, err)
@@ -603,7 +598,7 @@ func TestForUpdatePreventsDuplicateProcessing(t *testing.T) {
 					"event_id": "550e8400-e29b-41d4-a716-446655440070",
 				},
 			}
-			return outbox.Publish(txSession.(session.DbSession), message)
+			return outbox.Publish(txSession, message)
 		})
 	})
 	require.NoError(t, err)
@@ -660,7 +655,7 @@ func TestRunWithSingleWorker(t *testing.T) {
 						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544030%d", i),
 					},
 				}
-				return outbox.Publish(txSession.(session.DbSession), message)
+				return outbox.Publish(txSession, message)
 			})
 		})
 		require.NoError(t, err)
@@ -702,7 +697,7 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544040%d", i),
 					},
 				}
-				return outbox.Publish(txSession.(session.DbSession), message)
+				return outbox.Publish(txSession, message)
 			})
 		})
 		require.NoError(t, err)
@@ -744,7 +739,7 @@ func TestMessagesChannelAPI(t *testing.T) {
 						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544050%d", i),
 					},
 				}
-				return outbox.Publish(txSession.(session.DbSession), message)
+				return outbox.Publish(txSession, message)
 			})
 		})
 		require.NoError(t, err)

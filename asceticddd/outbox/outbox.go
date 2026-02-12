@@ -39,7 +39,7 @@ func NewOutbox(
 	}
 }
 
-func (o *PgOutbox) Publish(s session.DbSession, message *OutboxMessage) error {
+func (o *PgOutbox) Publish(s session.Session, message *OutboxMessage) error {
 	sql := fmt.Sprintf(`
 		INSERT INTO %s (uri, payload, metadata, transaction_id)
 		VALUES ($1, $2, $3, pg_current_xact_id())
@@ -55,7 +55,7 @@ func (o *PgOutbox) Publish(s session.DbSession, message *OutboxMessage) error {
 		return err
 	}
 
-	_, err = s.Connection().Exec(sql, message.URI, payload, metadata)
+	_, err = s.(session.DbSession).Connection().Exec(sql, message.URI, payload, metadata)
 	return err
 }
 
@@ -68,7 +68,7 @@ func (o *PgOutbox) Dispatch(subscriber Subscriber, consumerGroup string, uri str
 	ctx := context.Background()
 
 	err := o.sessionPool.Session(ctx, func(s session.Session) error {
-		return o.ensureConsumerGroup(s.(session.DbSession), effectiveConsumerGroup, uri)
+		return o.ensureConsumerGroup(s, effectiveConsumerGroup, uri)
 	})
 	if err != nil {
 		return false, err
@@ -78,7 +78,7 @@ func (o *PgOutbox) Dispatch(subscriber Subscriber, consumerGroup string, uri str
 	err = o.sessionPool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			var err error
-			messages, err = o.fetchMessages(txSession.(session.DbSession), effectiveConsumerGroup, uri, workerID, numWorkers)
+			messages, err = o.fetchMessages(txSession, effectiveConsumerGroup, uri, workerID, numWorkers)
 			if err != nil {
 				return err
 			}
@@ -94,7 +94,7 @@ func (o *PgOutbox) Dispatch(subscriber Subscriber, consumerGroup string, uri str
 			}
 
 			last := messages[len(messages)-1]
-			return o.ackMessage(txSession.(session.DbSession), effectiveConsumerGroup, uri, *last.TransactionID, *last.Position)
+			return o.ackMessage(txSession, effectiveConsumerGroup, uri, *last.TransactionID, *last.Position)
 		})
 	})
 
@@ -158,7 +158,7 @@ func (o *PgOutbox) Messages(ctx context.Context, consumerGroup string, uri strin
 
 		bgCtx := context.Background()
 		err := o.sessionPool.Session(bgCtx, func(s session.Session) error {
-			return o.ensureConsumerGroup(s.(session.DbSession), effectiveConsumerGroup, uri)
+			return o.ensureConsumerGroup(s, effectiveConsumerGroup, uri)
 		})
 		if err != nil {
 			return
@@ -175,7 +175,7 @@ func (o *PgOutbox) Messages(ctx context.Context, consumerGroup string, uri strin
 			err := o.sessionPool.Session(bgCtx, func(s session.Session) error {
 				return s.Atomic(func(txSession session.Session) error {
 					var err error
-					messages, err = o.fetchMessages(txSession.(session.DbSession), effectiveConsumerGroup, uri, workerID, numWorkers)
+					messages, err = o.fetchMessages(txSession, effectiveConsumerGroup, uri, workerID, numWorkers)
 					if err != nil {
 						return err
 					}
@@ -193,7 +193,7 @@ func (o *PgOutbox) Messages(ctx context.Context, consumerGroup string, uri strin
 					}
 
 					last := messages[len(messages)-1]
-					return o.ackMessage(txSession.(session.DbSession), effectiveConsumerGroup, uri, *last.TransactionID, *last.Position)
+					return o.ackMessage(txSession, effectiveConsumerGroup, uri, *last.TransactionID, *last.Position)
 				})
 			})
 
@@ -217,14 +217,14 @@ func (o *PgOutbox) Messages(ctx context.Context, consumerGroup string, uri strin
 	return messageCh
 }
 
-func (o *PgOutbox) GetPosition(s session.DbSession, consumerGroup string, uri string) (int64, int64, error) {
+func (o *PgOutbox) GetPosition(s session.Session, consumerGroup string, uri string) (int64, int64, error) {
 	sql := fmt.Sprintf(`
 		SELECT last_processed_transaction_id, offset_acked
 		FROM %s
 		WHERE consumer_group = $1 AND uri = $2
 	`, o.offsetsTable)
 
-	row := s.Connection().QueryRow(sql, consumerGroup, uri)
+	row := s.(session.DbSession).Connection().QueryRow(sql, consumerGroup, uri)
 	var transactionID int64
 	var offset int64
 	err := row.Scan(&transactionID, &offset)
@@ -234,7 +234,7 @@ func (o *PgOutbox) GetPosition(s session.DbSession, consumerGroup string, uri st
 	return transactionID, offset, nil
 }
 
-func (o *PgOutbox) SetPosition(s session.DbSession, consumerGroup string, uri string, transactionID int64, offset int64) error {
+func (o *PgOutbox) SetPosition(s session.Session, consumerGroup string, uri string, transactionID int64, offset int64) error {
 	sql := fmt.Sprintf(`
 		INSERT INTO %s (consumer_group, uri, offset_acked, last_processed_transaction_id, updated_at)
 		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
@@ -244,7 +244,7 @@ func (o *PgOutbox) SetPosition(s session.DbSession, consumerGroup string, uri st
 			updated_at = EXCLUDED.updated_at
 	`, o.offsetsTable)
 
-	_, err := s.Connection().Exec(sql, consumerGroup, uri, offset, fmt.Sprintf("%d", transactionID))
+	_, err := s.(session.DbSession).Connection().Exec(sql, consumerGroup, uri, offset, fmt.Sprintf("%d", transactionID))
 	return err
 }
 
@@ -252,11 +252,10 @@ func (o *PgOutbox) Setup() error {
 	ctx := context.Background()
 	return o.sessionPool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
-			dbSession := txSession.(session.DbSession)
-			if err := o.createOutboxTable(dbSession); err != nil {
+			if err := o.createOutboxTable(txSession); err != nil {
 				return err
 			}
-			return o.createOffsetsTable(dbSession)
+			return o.createOffsetsTable(txSession)
 		})
 	})
 }
@@ -265,18 +264,18 @@ func (o *PgOutbox) Cleanup() error {
 	return nil
 }
 
-func (o *PgOutbox) ensureConsumerGroup(s session.DbSession, consumerGroup string, uri string) error {
+func (o *PgOutbox) ensureConsumerGroup(s session.Session, consumerGroup string, uri string) error {
 	sql := fmt.Sprintf(`
 		INSERT INTO %s (consumer_group, uri, offset_acked, last_processed_transaction_id)
 		VALUES ($1, $2, 0, '0')
 		ON CONFLICT DO NOTHING
 	`, o.offsetsTable)
 
-	_, err := s.Connection().Exec(sql, consumerGroup, uri)
+	_, err := s.(session.DbSession).Connection().Exec(sql, consumerGroup, uri)
 	return err
 }
 
-func (o *PgOutbox) fetchMessages(s session.DbSession, consumerGroup string, uri string, workerID int, numWorkers int) ([]*OutboxMessage, error) {
+func (o *PgOutbox) fetchMessages(s session.Session, consumerGroup string, uri string, workerID int, numWorkers int) ([]*OutboxMessage, error) {
 	args := []any{consumerGroup, uri}
 	paramNum := 3
 
@@ -317,7 +316,7 @@ func (o *PgOutbox) fetchMessages(s session.DbSession, consumerGroup string, uri 
 		LIMIT %d
 	`, o.offsetsTable, o.outboxTable, uriFilter, partitionFilter, o.batchSize)
 
-	rows, err := s.Connection().Query(sql, args...)
+	rows, err := s.(session.DbSession).Connection().Query(sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +360,7 @@ func (o *PgOutbox) fetchMessages(s session.DbSession, consumerGroup string, uri 
 	return messages, rows.Err()
 }
 
-func (o *PgOutbox) ackMessage(s session.DbSession, consumerGroup string, uri string, transactionID int64, position int64) error {
+func (o *PgOutbox) ackMessage(s session.Session, consumerGroup string, uri string, transactionID int64, position int64) error {
 	sql := fmt.Sprintf(`
 		INSERT INTO %s (consumer_group, uri, offset_acked, last_processed_transaction_id, updated_at)
 		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
@@ -371,11 +370,11 @@ func (o *PgOutbox) ackMessage(s session.DbSession, consumerGroup string, uri str
 			updated_at = EXCLUDED.updated_at
 	`, o.offsetsTable)
 
-	_, err := s.Connection().Exec(sql, consumerGroup, uri, position, fmt.Sprintf("%d", transactionID))
+	_, err := s.(session.DbSession).Connection().Exec(sql, consumerGroup, uri, position, fmt.Sprintf("%d", transactionID))
 	return err
 }
 
-func (o *PgOutbox) createOutboxTable(s session.DbSession) error {
+func (o *PgOutbox) createOutboxTable(s session.Session) error {
 	sql := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			"position" BIGSERIAL,
@@ -388,7 +387,8 @@ func (o *PgOutbox) createOutboxTable(s session.DbSession) error {
 		)
 	`, o.outboxTable)
 
-	if _, err := s.Connection().Exec(sql); err != nil {
+	conn := s.(session.DbSession).Connection()
+	if _, err := conn.Exec(sql); err != nil {
 		return err
 	}
 
@@ -399,7 +399,7 @@ func (o *PgOutbox) createOutboxTable(s session.DbSession) error {
 	}
 
 	for _, sql := range sqls {
-		if _, err := s.Connection().Exec(sql); err != nil {
+		if _, err := conn.Exec(sql); err != nil {
 			return err
 		}
 	}
@@ -407,7 +407,7 @@ func (o *PgOutbox) createOutboxTable(s session.DbSession) error {
 	return nil
 }
 
-func (o *PgOutbox) createOffsetsTable(s session.DbSession) error {
+func (o *PgOutbox) createOffsetsTable(s session.Session) error {
 	sql := fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			"consumer_group" VARCHAR(255) NOT NULL,
@@ -419,6 +419,6 @@ func (o *PgOutbox) createOffsetsTable(s session.DbSession) error {
 		)
 	`, o.offsetsTable)
 
-	_, err := s.Connection().Exec(sql)
+	_, err := s.(session.DbSession).Connection().Exec(sql)
 	return err
 }
