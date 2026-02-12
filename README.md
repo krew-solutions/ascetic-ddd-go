@@ -21,4 +21,6 @@ The project structure is unstable and backward compatibility is not guaranteed u
 - [CQRS framework in go](https://github.com/andrewwebber/cqrs)
 - [Event Horizon](https://github.com/looplab/eventhorizon) -- Event Horizon is a CQRS/ES toolkit for Go.
 - [Go Event Sourcing CQRS Microservice](https://github.com/AleksK1NG/Go-EventSourcing-CQRS)
+- [Go gRPC Kafka CQRS microservices with tracing](https://github.com/AleksK1NG/Go-CQRS-Kafka-gRPC-Microservices)
+- [Go Server/API boilerplate using best practices DDD CQRS ES gRPC](https://github.com/vardius/go-api-boilerplate)
 
