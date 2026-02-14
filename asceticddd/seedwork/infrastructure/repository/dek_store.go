@@ -19,7 +19,7 @@ type DekStore interface {
 	Cleanup(s session.Session) error
 }
 
-func NewPgDekStore(keyManagement kms.KeyManagementService) *PgDekStore {
+func NewDekStore(keyManagement kms.KeyManagementService) *PgDekStore {
 	return &PgDekStore{
 		kms:   keyManagement,
 		table: "stream_deks",

@@ -34,7 +34,7 @@ func setupDekStoreIntegrationTest(t *testing.T) (*PgDekStore, *kms.PgKeyManageme
 	}
 	keyManagement.SetTable("kms_keys_test")
 
-	dekStore := NewPgDekStore(keyManagement)
+	dekStore := NewDekStore(keyManagement)
 	dekStore.table = "stream_deks_test"
 
 	ctx := context.Background()
