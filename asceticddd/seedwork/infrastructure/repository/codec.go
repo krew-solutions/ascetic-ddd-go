@@ -12,7 +12,7 @@ import (
 
 type Codec interface {
 	Encode(obj any) ([]byte, error)
-	Decode(data []byte) (map[string]any, error)
+	Decode(data []byte, v any) error
 }
 
 type JsonbCodec struct{}
@@ -21,10 +21,8 @@ func (c JsonbCodec) Encode(obj any) ([]byte, error) {
 	return json.Marshal(obj)
 }
 
-func (c JsonbCodec) Decode(data []byte) (map[string]any, error) {
-	var result map[string]any
-	err := json.Unmarshal(data, &result)
-	return result, err
+func (c JsonbCodec) Decode(data []byte, v any) error {
+	return json.Unmarshal(data, v)
 }
 
 func NewZlibCompressor(delegate Codec) *ZlibCompressor {
@@ -53,17 +51,17 @@ func (c *ZlibCompressor) Encode(obj any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (c *ZlibCompressor) Decode(data []byte) (map[string]any, error) {
+func (c *ZlibCompressor) Decode(data []byte, v any) error {
 	r, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer r.Close()
 	decompressed, err := io.ReadAll(r)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return c.delegate.Decode(decompressed)
+	return c.delegate.Decode(decompressed, v)
 }
 
 const aesGcmNonceSize = 12
@@ -99,12 +97,12 @@ func (c *AesGcmEncryptor) Encode(obj any) ([]byte, error) {
 	return append(nonce, ciphertext...), nil
 }
 
-func (c *AesGcmEncryptor) Decode(data []byte) (map[string]any, error) {
+func (c *AesGcmEncryptor) Decode(data []byte, v any) error {
 	nonce := data[:aesGcmNonceSize]
 	ciphertext := data[aesGcmNonceSize:]
 	plaintext, err := c.aead.Open(nil, nonce, ciphertext, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	return c.delegate.Decode(plaintext)
+	return c.delegate.Decode(plaintext, v)
 }

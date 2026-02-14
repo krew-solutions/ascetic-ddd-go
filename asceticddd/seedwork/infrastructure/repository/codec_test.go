@@ -14,7 +14,8 @@ func TestJsonbCodec_EncodeDecode(t *testing.T) {
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	encoded, err := codec.Encode(obj)
 	require.NoError(t, err)
-	decoded, err := codec.Decode(encoded)
+	var decoded map[string]any
+	err = codec.Decode(encoded, &decoded)
 	require.NoError(t, err)
 	assert.Equal(t, obj, decoded)
 }
@@ -24,7 +25,8 @@ func TestZlibCompressor_EncodeDecode(t *testing.T) {
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	encoded, err := codec.Encode(obj)
 	require.NoError(t, err)
-	decoded, err := codec.Decode(encoded)
+	var decoded map[string]any
+	err = codec.Decode(encoded, &decoded)
 	require.NoError(t, err)
 	assert.Equal(t, obj, decoded)
 }
@@ -47,7 +49,8 @@ func TestAesGcmEncryptor_EncodeDecode(t *testing.T) {
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	encoded, err := codec.Encode(obj)
 	require.NoError(t, err)
-	decoded, err := codec.Decode(encoded)
+	var decoded map[string]any
+	err = codec.Decode(encoded, &decoded)
 	require.NoError(t, err)
 	assert.Equal(t, obj, decoded)
 }
@@ -87,7 +90,8 @@ func TestAesGcmEncryptor_WrongKeyFails(t *testing.T) {
 	wrongKey := generateAesKey(t)
 	wrongCodec, err := NewAesGcmEncryptor(wrongKey, JsonbCodec{})
 	require.NoError(t, err)
-	_, err = wrongCodec.Decode(encoded)
+	var decoded map[string]any
+	err = wrongCodec.Decode(encoded, &decoded)
 	assert.Error(t, err)
 }
 
@@ -98,7 +102,8 @@ func TestAesGcmEncryptor_WithZlib(t *testing.T) {
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	encoded, err := codec.Encode(obj)
 	require.NoError(t, err)
-	decoded, err := codec.Decode(encoded)
+	var decoded map[string]any
+	err = codec.Decode(encoded, &decoded)
 	require.NoError(t, err)
 	assert.Equal(t, obj, decoded)
 }
