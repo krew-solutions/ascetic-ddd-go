@@ -35,6 +35,10 @@ type PgKeyManagementService struct {
 	table      string
 }
 
+func (kms *PgKeyManagementService) SetTable(table string) {
+	kms.table = table
+}
+
 func (kms *PgKeyManagementService) EncryptDek(s session.Session, tenantId any, dek []byte) ([]byte, error) {
 	keyVersion, kek, err := kms.getCurrentKek(s, tenantId)
 	if errors.Is(err, ErrKekNotFound) {
