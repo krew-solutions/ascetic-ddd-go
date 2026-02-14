@@ -15,13 +15,17 @@ type Codec interface {
 	Decode(data []byte, v any) error
 }
 
-type JsonbCodec struct{}
+func NewJsonCodec() *JsonCodec {
+	return &JsonCodec{}
+}
 
-func (c JsonbCodec) Encode(obj any) ([]byte, error) {
+type JsonCodec struct{}
+
+func (c *JsonCodec) Encode(obj any) ([]byte, error) {
 	return json.Marshal(obj)
 }
 
-func (c JsonbCodec) Decode(data []byte, v any) error {
+func (c *JsonCodec) Decode(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
 

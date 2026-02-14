@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestJsonbCodec_EncodeDecode(t *testing.T) {
-	codec := JsonbCodec{}
+func TestJsonCodec_EncodeDecode(t *testing.T) {
+	codec := NewJsonCodec()
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	encoded, err := codec.Encode(obj)
 	require.NoError(t, err)
@@ -21,7 +21,7 @@ func TestJsonbCodec_EncodeDecode(t *testing.T) {
 }
 
 func TestZlibCompressor_EncodeDecode(t *testing.T) {
-	codec := NewZlibCompressor(JsonbCodec{})
+	codec := NewZlibCompressor(NewJsonCodec())
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	encoded, err := codec.Encode(obj)
 	require.NoError(t, err)
@@ -32,8 +32,8 @@ func TestZlibCompressor_EncodeDecode(t *testing.T) {
 }
 
 func TestZlibCompressor_CompressedDiffersFromPlain(t *testing.T) {
-	plainCodec := JsonbCodec{}
-	zlibCodec := NewZlibCompressor(JsonbCodec{})
+	plainCodec := NewJsonCodec()
+	zlibCodec := NewZlibCompressor(NewJsonCodec())
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	plainEncoded, err := plainCodec.Encode(obj)
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestZlibCompressor_CompressedDiffersFromPlain(t *testing.T) {
 
 func TestAesGcmEncryptor_EncodeDecode(t *testing.T) {
 	key := generateAesKey(t)
-	codec, err := NewAesGcmEncryptor(key, JsonbCodec{})
+	codec, err := NewAesGcmEncryptor(key, NewJsonCodec())
 	require.NoError(t, err)
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	encoded, err := codec.Encode(obj)
@@ -57,8 +57,8 @@ func TestAesGcmEncryptor_EncodeDecode(t *testing.T) {
 
 func TestAesGcmEncryptor_EncryptedDiffersFromPlain(t *testing.T) {
 	key := generateAesKey(t)
-	plainCodec := JsonbCodec{}
-	encCodec, err := NewAesGcmEncryptor(key, JsonbCodec{})
+	plainCodec := NewJsonCodec()
+	encCodec, err := NewAesGcmEncryptor(key, NewJsonCodec())
 	require.NoError(t, err)
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	plainEncoded, err := plainCodec.Encode(obj)
@@ -70,7 +70,7 @@ func TestAesGcmEncryptor_EncryptedDiffersFromPlain(t *testing.T) {
 
 func TestAesGcmEncryptor_DifferentNonceEachEncode(t *testing.T) {
 	key := generateAesKey(t)
-	codec, err := NewAesGcmEncryptor(key, JsonbCodec{})
+	codec, err := NewAesGcmEncryptor(key, NewJsonCodec())
 	require.NoError(t, err)
 	obj := map[string]any{"name": "test"}
 	encoded1, err := codec.Encode(obj)
@@ -82,13 +82,13 @@ func TestAesGcmEncryptor_DifferentNonceEachEncode(t *testing.T) {
 
 func TestAesGcmEncryptor_WrongKeyFails(t *testing.T) {
 	key := generateAesKey(t)
-	codec, err := NewAesGcmEncryptor(key, JsonbCodec{})
+	codec, err := NewAesGcmEncryptor(key, NewJsonCodec())
 	require.NoError(t, err)
 	obj := map[string]any{"name": "secret"}
 	encoded, err := codec.Encode(obj)
 	require.NoError(t, err)
 	wrongKey := generateAesKey(t)
-	wrongCodec, err := NewAesGcmEncryptor(wrongKey, JsonbCodec{})
+	wrongCodec, err := NewAesGcmEncryptor(wrongKey, NewJsonCodec())
 	require.NoError(t, err)
 	var decoded map[string]any
 	err = wrongCodec.Decode(encoded, &decoded)
@@ -97,7 +97,7 @@ func TestAesGcmEncryptor_WrongKeyFails(t *testing.T) {
 
 func TestAesGcmEncryptor_WithZlib(t *testing.T) {
 	key := generateAesKey(t)
-	codec, err := NewAesGcmEncryptor(key, NewZlibCompressor(JsonbCodec{}))
+	codec, err := NewAesGcmEncryptor(key, NewZlibCompressor(NewJsonCodec()))
 	require.NoError(t, err)
 	obj := map[string]any{"name": "test", "value": float64(42)}
 	encoded, err := codec.Encode(obj)
