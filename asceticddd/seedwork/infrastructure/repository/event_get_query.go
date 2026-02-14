@@ -6,6 +6,7 @@ import (
 )
 
 type EventReconstitutor func(
+	codec Codec,
 	streamId StreamId,
 	streamPosition uint,
 	eventType string,
@@ -34,7 +35,7 @@ func (q EventGetQuery) sql() string {
 func (q EventGetQuery) params() []any {
 	return []any{q.StreamId.TenantId(), q.StreamId.StreamType(), q.StreamId.StreamId(), q.SincePosition}
 }
-func (q *EventGetQuery) Stream(s session.Session) ([]aggregate.PersistentDomainEvent, error) {
+func (q *EventGetQuery) Stream(codec Codec, s session.Session) ([]aggregate.PersistentDomainEvent, error) {
 	stream := []aggregate.PersistentDomainEvent{}
 	rows, err := s.(session.DbSession).Connection().Query(q.sql(), q.params()...)
 	if err != nil {
@@ -51,7 +52,7 @@ func (q *EventGetQuery) Stream(s session.Session) ([]aggregate.PersistentDomainE
 		if err != nil {
 			return nil, err
 		}
-		event, err := q.EventReconstitutor(q.StreamId, streamPosition, eventType, eventVersion, payload, metadata)
+		event, err := q.EventReconstitutor(codec, q.StreamId, streamPosition, eventType, eventVersion, payload, metadata)
 		if err != nil {
 			return nil, err
 		}
