@@ -23,7 +23,7 @@ package inbox
 //	ReceivedPosition: Position when message was received (auto-assigned by DB).
 //	ProcessedPosition: Position when message was processed (nil if not processed).
 type InboxMessage struct {
-	TenantId          string
+	TenantId          any
 	StreamType        string
 	StreamId          map[string]any
 	StreamPosition    int
