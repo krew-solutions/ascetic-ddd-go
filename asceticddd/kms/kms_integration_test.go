@@ -26,10 +26,7 @@ func setupKmsIntegrationTest(t *testing.T) (*PgKeyManagementService, session.Ses
 		t.Fatalf("Failed to generate master key: %v", err)
 	}
 
-	kms, err := NewPgKeyManagementService(masterKey)
-	if err != nil {
-		t.Fatalf("Failed to create KMS: %v", err)
-	}
+	kms := NewPgKeyManagementService(masterKey)
 	kms.table = "kms_keys_test"
 
 	ctx := context.Background()

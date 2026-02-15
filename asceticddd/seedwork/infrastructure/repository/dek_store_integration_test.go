@@ -28,10 +28,7 @@ func setupDekStoreIntegrationTest(t *testing.T) (*PgDekStore, *kms.PgKeyManageme
 		t.Fatalf("Failed to generate master key: %v", err)
 	}
 
-	keyManagement, err := kms.NewPgKeyManagementService(masterKey)
-	if err != nil {
-		t.Fatalf("Failed to create KMS: %v", err)
-	}
+	keyManagement := kms.NewPgKeyManagementService(masterKey)
 	keyManagement.SetTable("kms_keys_test")
 
 	dekStore := NewDekStore(keyManagement)
