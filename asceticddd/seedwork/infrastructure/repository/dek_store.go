@@ -106,22 +106,28 @@ func (ds *PgDekStore) GetOrCreate(s session.Session, streamId StreamId) (kms.Cip
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	if rows.Next() {
-		var version int
-		var encryptedDek []byte
-		var algorithm string
+	var version int
+	var encryptedDek []byte
+	var algorithm string
+	found := rows.Next()
+	if found {
 		if err := rows.Scan(&version, &encryptedDek, &algorithm); err != nil {
+			rows.Close()
 			return nil, err
 		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	if found {
 		dek, err := ds.kms.DecryptDek(s, tenantId, encryptedDek)
 		if err != nil {
 			return nil, err
 		}
 		return ds.makeCipher(dek, streamId, version, algorithm)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	dek, encryptedDek, err := ds.kms.GenerateDek(s, tenantId)
 	if err != nil {
@@ -147,9 +153,10 @@ func (ds *PgDekStore) Get(s session.Session, streamId StreamId, keyVersion int) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	if !rows.Next() {
-		if err := rows.Err(); err != nil {
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
 			return nil, err
 		}
 		return nil, ErrDekNotFound
@@ -157,8 +164,11 @@ func (ds *PgDekStore) Get(s session.Session, streamId StreamId, keyVersion int) 
 	var encryptedDek []byte
 	var algorithm string
 	if err := rows.Scan(&encryptedDek, &algorithm); err != nil {
+		rows.Close()
 		return nil, err
 	}
+	rows.Close()
+
 	dek, err := ds.kms.DecryptDek(s, tenantId, encryptedDek)
 	if err != nil {
 		return nil, err
@@ -180,34 +190,44 @@ func (ds *PgDekStore) GetAll(s session.Session, streamId StreamId) (kms.Cipher, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	ciphers := make(map[int]kms.Cipher)
-	latestVersion := 0
+	type dekRow struct {
+		version      int
+		encryptedDek []byte
+		algorithm    string
+	}
+	var dekRows []dekRow
 	for rows.Next() {
-		var version int
-		var encryptedDek []byte
-		var algorithm string
-		if err := rows.Scan(&version, &encryptedDek, &algorithm); err != nil {
+		var r dekRow
+		if err := rows.Scan(&r.version, &r.encryptedDek, &r.algorithm); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		dek, err := ds.kms.DecryptDek(s, tenantId, encryptedDek)
-		if err != nil {
-			return nil, err
-		}
-		cipher, err := ds.makeRawCipher(dek, streamId, algorithm)
-		if err != nil {
-			return nil, err
-		}
-		ciphers[version] = cipher
-		if version > latestVersion {
-			latestVersion = version
-		}
+		dekRows = append(dekRows, r)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, err
 	}
-	if len(ciphers) == 0 {
+	rows.Close()
+
+	if len(dekRows) == 0 {
 		return nil, ErrDekNotFound
+	}
+	ciphers := make(map[int]kms.Cipher)
+	latestVersion := 0
+	for _, r := range dekRows {
+		dek, err := ds.kms.DecryptDek(s, tenantId, r.encryptedDek)
+		if err != nil {
+			return nil, err
+		}
+		cipher, err := ds.makeRawCipher(dek, streamId, r.algorithm)
+		if err != nil {
+			return nil, err
+		}
+		ciphers[r.version] = cipher
+		if r.version > latestVersion {
+			latestVersion = r.version
+		}
 	}
 	return &compositeVersionedCipher{latestVersion: latestVersion, ciphers: ciphers}, nil
 }
