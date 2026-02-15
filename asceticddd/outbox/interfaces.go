@@ -15,6 +15,6 @@ type Outbox interface {
 	Messages(ctx context.Context, consumerGroup string, uri string, workerID int, numWorkers int, pollInterval float64) <-chan *OutboxMessage
 	GetPosition(s session.Session, consumerGroup string, uri string) (int64, int64, error)
 	SetPosition(s session.Session, consumerGroup string, uri string, transactionID int64, offset int64) error
-	Setup() error
-	Cleanup() error
+	Setup(s session.Session) error
+	Cleanup(s session.Session) error
 }

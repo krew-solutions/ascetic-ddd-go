@@ -23,7 +23,13 @@ func setupOutbox(t *testing.T) (*PgOutbox, session.SessionPool) {
 	require.NoError(t, err)
 
 	outbox := NewOutbox(pool, testOutboxTable, testOffsetsTable, 100)
-	err = outbox.Setup()
+
+	ctx := context.Background()
+	err = pool.Session(ctx, func(s session.Session) error {
+		return s.Atomic(func(txSession session.Session) error {
+			return outbox.Setup(txSession)
+		})
+	})
 	require.NoError(t, err)
 
 	truncateTables(t, pool)

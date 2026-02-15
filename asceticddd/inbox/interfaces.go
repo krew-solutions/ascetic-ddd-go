@@ -70,10 +70,10 @@ type Inbox interface {
 	Messages(ctx context.Context, workerID int, numWorkers int, pollInterval float64) <-chan *SessionMessage
 
 	// Setup initializes the inbox (creates tables and sequences if needed).
-	Setup() error
+	Setup(s session.Session) error
 
 	// Cleanup releases resources.
-	Cleanup() error
+	Cleanup(s session.Session) error
 }
 
 // SessionMessage pairs a database session with an inbox message.

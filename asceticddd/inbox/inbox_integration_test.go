@@ -18,14 +18,13 @@ func setupInboxIntegrationTest(t *testing.T) (*PgInbox, session.SessionPool, fun
 	}
 
 	inbox := NewInbox(pool, "inbox_test", "inbox_test_received_position_seq", nil)
-	if err := inbox.Setup(); err != nil {
-		t.Fatalf("Failed to setup inbox: %v", err)
-	}
 
-	// Truncate table
 	ctx := context.Background()
 	err = pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
+			if err := inbox.Setup(txSession); err != nil {
+				return err
+			}
 			_, err := txSession.(session.DbSession).Connection().Exec("TRUNCATE TABLE inbox_test")
 			return err
 		})

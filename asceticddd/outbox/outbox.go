@@ -248,19 +248,14 @@ func (o *PgOutbox) SetPosition(s session.Session, consumerGroup string, uri stri
 	return err
 }
 
-func (o *PgOutbox) Setup() error {
-	ctx := context.Background()
-	return o.sessionPool.Session(ctx, func(s session.Session) error {
-		return s.Atomic(func(txSession session.Session) error {
-			if err := o.createOutboxTable(txSession); err != nil {
-				return err
-			}
-			return o.createOffsetsTable(txSession)
-		})
-	})
+func (o *PgOutbox) Setup(s session.Session) error {
+	if err := o.createOutboxTable(s); err != nil {
+		return err
+	}
+	return o.createOffsetsTable(s)
 }
 
-func (o *PgOutbox) Cleanup() error {
+func (o *PgOutbox) Cleanup(s session.Session) error {
 	return nil
 }
 

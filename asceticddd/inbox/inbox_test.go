@@ -357,7 +357,7 @@ func TestSetupCreatesSequenceAndTable(t *testing.T) {
 
 	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
 
-	err := inbox.Setup()
+	err := inbox.Setup(sess)
 	if err != nil {
 		t.Fatalf("Setup failed: %v", err)
 	}

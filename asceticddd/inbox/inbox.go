@@ -422,16 +422,11 @@ func (i *PgInbox) markProcessed(s session.Session, message *InboxMessage) error 
 	return err
 }
 
-func (i *PgInbox) Setup() error {
-	ctx := context.Background()
-	return i.sessionPool.Session(ctx, func(s session.Session) error {
-		return s.Atomic(func(txSession session.Session) error {
-			if err := i.createSequence(txSession); err != nil {
-				return err
-			}
-			return i.createTable(txSession)
-		})
-	})
+func (i *PgInbox) Setup(s session.Session) error {
+	if err := i.createSequence(s); err != nil {
+		return err
+	}
+	return i.createTable(s)
 }
 
 func (i *PgInbox) createSequence(s session.Session) error {
@@ -460,6 +455,6 @@ func (i *PgInbox) createTable(s session.Session) error {
 	return err
 }
 
-func (i *PgInbox) Cleanup() error {
+func (i *PgInbox) Cleanup(s session.Session) error {
 	return nil
 }
