@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,46 +12,87 @@ import (
 
 var ErrDekNotFound = errors.New("dek not found")
 
+const dekVersionSize = 4
+
 type DekStore interface {
-	GetOrCreate(s session.Session, streamId StreamId) ([]byte, error)
-	Get(s session.Session, streamId StreamId) ([]byte, error)
+	GetOrCreate(s session.Session, streamId StreamId) (kms.Cipher, error)
+	Get(s session.Session, streamId StreamId, keyVersion int) (kms.Cipher, error)
+	GetAll(s session.Session, streamId StreamId) (kms.Cipher, error)
 	Rewrap(s session.Session, tenantId any) (int, error)
 	Delete(s session.Session, streamId StreamId) error
 	Setup(s session.Session) error
 	Cleanup(s session.Session) error
 }
 
+// versionedCipher wraps a Cipher and prepends a version prefix to ciphertext.
+type versionedCipher struct {
+	version int
+	cipher  kms.Cipher
+}
+
+func (c *versionedCipher) Encrypt(plaintext []byte) ([]byte, error) {
+	versionBytes := make([]byte, dekVersionSize)
+	binary.BigEndian.PutUint32(versionBytes, uint32(c.version))
+	encrypted, err := c.cipher.Encrypt(plaintext)
+	if err != nil {
+		return nil, err
+	}
+	return append(versionBytes, encrypted...), nil
+}
+
+func (c *versionedCipher) Decrypt(ciphertext []byte) ([]byte, error) {
+	return c.cipher.Decrypt(ciphertext[dekVersionSize:])
+}
+
+func (c *versionedCipher) GenerateKey() ([]byte, error) {
+	return c.cipher.GenerateKey()
+}
+
+// compositeVersionedCipher holds multiple versioned ciphers.
+// Encrypts with the latest version, decrypts by reading the version prefix.
+type compositeVersionedCipher struct {
+	latestVersion int
+	ciphers       map[int]kms.Cipher
+}
+
+func (c *compositeVersionedCipher) Encrypt(plaintext []byte) ([]byte, error) {
+	versionBytes := make([]byte, dekVersionSize)
+	binary.BigEndian.PutUint32(versionBytes, uint32(c.latestVersion))
+	encrypted, err := c.ciphers[c.latestVersion].Encrypt(plaintext)
+	if err != nil {
+		return nil, err
+	}
+	return append(versionBytes, encrypted...), nil
+}
+
+func (c *compositeVersionedCipher) Decrypt(ciphertext []byte) ([]byte, error) {
+	version := int(binary.BigEndian.Uint32(ciphertext[:dekVersionSize]))
+	cipher, ok := c.ciphers[version]
+	if !ok {
+		return nil, ErrDekNotFound
+	}
+	return cipher.Decrypt(ciphertext[dekVersionSize:])
+}
+
+func (c *compositeVersionedCipher) GenerateKey() ([]byte, error) {
+	return c.ciphers[c.latestVersion].GenerateKey()
+}
+
 func NewDekStore(keyManagement kms.KeyManagementService) *PgDekStore {
 	return &PgDekStore{
-		kms:   keyManagement,
-		table: "stream_deks",
+		kms:       keyManagement,
+		table:     "stream_deks",
+		algorithm: kms.AlgorithmAes256Gcm,
 	}
 }
 
 type PgDekStore struct {
-	kms   kms.KeyManagementService
-	table string
+	kms       kms.KeyManagementService
+	table     string
+	algorithm kms.Algorithm
 }
 
-func (ds *PgDekStore) GetOrCreate(s session.Session, streamId StreamId) ([]byte, error) {
-	tenantId := fmt.Sprint(streamId.TenantId())
-	dek, err := ds.Get(s, streamId)
-	if errors.Is(err, ErrDekNotFound) {
-		var encryptedDek []byte
-		dek, encryptedDek, err = ds.kms.GenerateDek(s, tenantId)
-		if err != nil {
-			return nil, err
-		}
-		err = ds.insert(s, streamId, encryptedDek)
-		if err != nil {
-			return nil, err
-		}
-		return dek, nil
-	}
-	return dek, err
-}
-
-func (ds *PgDekStore) Get(s session.Session, streamId StreamId) ([]byte, error) {
+func (ds *PgDekStore) GetOrCreate(s session.Session, streamId StreamId) (kms.Cipher, error) {
 	tenantId := fmt.Sprint(streamId.TenantId())
 	encodedStreamId, err := json.Marshal(streamId.StreamId())
 	if err != nil {
@@ -58,38 +100,127 @@ func (ds *PgDekStore) Get(s session.Session, streamId StreamId) ([]byte, error) 
 	}
 	conn := s.(session.DbSession).Connection()
 	rows, err := conn.Query(
-		fmt.Sprintf("SELECT encrypted_dek FROM %s WHERE tenant_id = $1 AND stream_type = $2 AND stream_id = $3", ds.table),
+		fmt.Sprintf("SELECT version, encrypted_dek, algorithm FROM %s WHERE tenant_id = $1 AND stream_type = $2 AND stream_id = $3 ORDER BY version DESC LIMIT 1", ds.table),
 		tenantId, streamId.StreamType(), encodedStreamId,
 	)
 	if err != nil {
 		return nil, err
 	}
-	if !rows.Next() {
-		err = rows.Err()
-		rows.Close()
+	defer rows.Close()
+	if rows.Next() {
+		var version int
+		var encryptedDek []byte
+		var algorithm string
+		if err := rows.Scan(&version, &encryptedDek, &algorithm); err != nil {
+			return nil, err
+		}
+		dek, err := ds.kms.DecryptDek(s, tenantId, encryptedDek)
 		if err != nil {
+			return nil, err
+		}
+		return ds.makeCipher(dek, streamId, version, algorithm)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	dek, encryptedDek, err := ds.kms.GenerateDek(s, tenantId)
+	if err != nil {
+		return nil, err
+	}
+	if err := ds.insert(s, streamId, 1, encryptedDek); err != nil {
+		return nil, err
+	}
+	return ds.makeCipher(dek, streamId, 1, string(ds.algorithm))
+}
+
+func (ds *PgDekStore) Get(s session.Session, streamId StreamId, keyVersion int) (kms.Cipher, error) {
+	tenantId := fmt.Sprint(streamId.TenantId())
+	encodedStreamId, err := json.Marshal(streamId.StreamId())
+	if err != nil {
+		return nil, err
+	}
+	conn := s.(session.DbSession).Connection()
+	rows, err := conn.Query(
+		fmt.Sprintf("SELECT encrypted_dek, algorithm FROM %s WHERE tenant_id = $1 AND stream_type = $2 AND stream_id = $3 AND version = $4", ds.table),
+		tenantId, streamId.StreamType(), encodedStreamId, keyVersion,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
 			return nil, err
 		}
 		return nil, ErrDekNotFound
 	}
 	var encryptedDek []byte
-	err = rows.Scan(&encryptedDek)
-	rows.Close()
+	var algorithm string
+	if err := rows.Scan(&encryptedDek, &algorithm); err != nil {
+		return nil, err
+	}
+	dek, err := ds.kms.DecryptDek(s, tenantId, encryptedDek)
 	if err != nil {
 		return nil, err
 	}
-	return ds.kms.DecryptDek(s, tenantId, encryptedDek)
+	return ds.makeCipher(dek, streamId, keyVersion, algorithm)
 }
 
-func (ds *PgDekStore) insert(s session.Session, streamId StreamId, encryptedDek []byte) error {
+func (ds *PgDekStore) GetAll(s session.Session, streamId StreamId) (kms.Cipher, error) {
+	tenantId := fmt.Sprint(streamId.TenantId())
+	encodedStreamId, err := json.Marshal(streamId.StreamId())
+	if err != nil {
+		return nil, err
+	}
+	conn := s.(session.DbSession).Connection()
+	rows, err := conn.Query(
+		fmt.Sprintf("SELECT version, encrypted_dek, algorithm FROM %s WHERE tenant_id = $1 AND stream_type = $2 AND stream_id = $3 ORDER BY version", ds.table),
+		tenantId, streamId.StreamType(), encodedStreamId,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ciphers := make(map[int]kms.Cipher)
+	latestVersion := 0
+	for rows.Next() {
+		var version int
+		var encryptedDek []byte
+		var algorithm string
+		if err := rows.Scan(&version, &encryptedDek, &algorithm); err != nil {
+			return nil, err
+		}
+		dek, err := ds.kms.DecryptDek(s, tenantId, encryptedDek)
+		if err != nil {
+			return nil, err
+		}
+		cipher, err := ds.makeRawCipher(dek, streamId, algorithm)
+		if err != nil {
+			return nil, err
+		}
+		ciphers[version] = cipher
+		if version > latestVersion {
+			latestVersion = version
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(ciphers) == 0 {
+		return nil, ErrDekNotFound
+	}
+	return &compositeVersionedCipher{latestVersion: latestVersion, ciphers: ciphers}, nil
+}
+
+func (ds *PgDekStore) insert(s session.Session, streamId StreamId, version int, encryptedDek []byte) error {
 	encodedStreamId, err := json.Marshal(streamId.StreamId())
 	if err != nil {
 		return err
 	}
 	conn := s.(session.DbSession).Connection()
 	_, err = conn.Exec(
-		fmt.Sprintf("INSERT INTO %s (tenant_id, stream_type, stream_id, encrypted_dek) VALUES ($1, $2, $3, $4)", ds.table),
-		fmt.Sprint(streamId.TenantId()), streamId.StreamType(), encodedStreamId, encryptedDek,
+		fmt.Sprintf("INSERT INTO %s (tenant_id, stream_type, stream_id, version, encrypted_dek, algorithm) VALUES ($1, $2, $3, $4, $5, $6)", ds.table),
+		fmt.Sprint(streamId.TenantId()), streamId.StreamType(), encodedStreamId, version, encryptedDek, string(ds.algorithm),
 	)
 	return err
 }
@@ -97,7 +228,7 @@ func (ds *PgDekStore) insert(s session.Session, streamId StreamId, encryptedDek 
 func (ds *PgDekStore) Rewrap(s session.Session, tenantId any) (int, error) {
 	conn := s.(session.DbSession).Connection()
 	rows, err := conn.Query(
-		fmt.Sprintf("SELECT stream_type, stream_id, encrypted_dek FROM %s WHERE tenant_id = $1", ds.table),
+		fmt.Sprintf("SELECT stream_type, stream_id, version, encrypted_dek FROM %s WHERE tenant_id = $1", ds.table),
 		tenantId,
 	)
 	if err != nil {
@@ -106,12 +237,13 @@ func (ds *PgDekStore) Rewrap(s session.Session, tenantId any) (int, error) {
 	type row struct {
 		streamType   string
 		streamId     []byte
+		version      int
 		encryptedDek []byte
 	}
 	var deks []row
 	for rows.Next() {
 		var r row
-		if err := rows.Scan(&r.streamType, &r.streamId, &r.encryptedDek); err != nil {
+		if err := rows.Scan(&r.streamType, &r.streamId, &r.version, &r.encryptedDek); err != nil {
 			rows.Close()
 			return 0, err
 		}
@@ -128,8 +260,8 @@ func (ds *PgDekStore) Rewrap(s session.Session, tenantId any) (int, error) {
 			return count, err
 		}
 		_, err = conn.Exec(
-			fmt.Sprintf("UPDATE %s SET encrypted_dek = $1 WHERE tenant_id = $2 AND stream_type = $3 AND stream_id = $4", ds.table),
-			newEncryptedDek, tenantId, r.streamType, r.streamId,
+			fmt.Sprintf("UPDATE %s SET encrypted_dek = $1 WHERE tenant_id = $2 AND stream_type = $3 AND stream_id = $4 AND version = $5", ds.table),
+			newEncryptedDek, tenantId, r.streamType, r.streamId, r.version,
 		)
 		if err != nil {
 			return count, err
@@ -152,6 +284,25 @@ func (ds *PgDekStore) Delete(s session.Session, streamId StreamId) error {
 	return err
 }
 
+func (ds *PgDekStore) makeCipher(dek []byte, streamId StreamId, version int, algorithm string) (kms.Cipher, error) {
+	rawCipher, err := ds.makeRawCipher(dek, streamId, algorithm)
+	if err != nil {
+		return nil, err
+	}
+	return &versionedCipher{version: version, cipher: rawCipher}, nil
+}
+
+func (ds *PgDekStore) makeRawCipher(dek []byte, streamId StreamId, algorithm string) (kms.Cipher, error) {
+	aad := []byte(streamId.String())
+	algo := kms.Algorithm(algorithm)
+	switch algo {
+	case kms.AlgorithmAes256Gcm:
+		return kms.NewAes256GcmCipher(dek, aad)
+	default:
+		return nil, fmt.Errorf("unsupported algorithm: %s", algo)
+	}
+}
+
 func (ds *PgDekStore) Setup(s session.Session) error {
 	conn := s.(session.DbSession).Connection()
 	_, err := conn.Exec(fmt.Sprintf(`
@@ -159,9 +310,11 @@ func (ds *PgDekStore) Setup(s session.Session) error {
 			tenant_id varchar(128) NOT NULL,
 			stream_type varchar(128) NOT NULL,
 			stream_id jsonb NOT NULL,
+			version integer NOT NULL,
 			encrypted_dek bytea NOT NULL,
+			algorithm varchar(32) NOT NULL,
 			created_at timestamptz NOT NULL DEFAULT now(),
-			CONSTRAINT %s_pk PRIMARY KEY (tenant_id, stream_type, stream_id)
+			CONSTRAINT %s_pk PRIMARY KEY (tenant_id, stream_type, stream_id, version)
 		)
 	`, ds.table, ds.table))
 	return err

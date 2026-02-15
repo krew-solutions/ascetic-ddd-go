@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"testing"
 
@@ -76,7 +77,7 @@ func makeStreamId(tenantId uint, streamType string, streamId string) StreamId {
 	return sid
 }
 
-func TestDekStore_GetOrCreateCreatesDek(t *testing.T) {
+func TestDekStore_GetOrCreateCreatesCipher(t *testing.T) {
 	dekStore, _, pool, cleanup := setupDekStoreIntegrationTest(t)
 	defer cleanup()
 
@@ -84,16 +85,21 @@ func TestDekStore_GetOrCreateCreatesDek(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			streamId := makeStreamId(1, "Order", "order-1")
-			dek, err := dekStore.GetOrCreate(txSession, streamId)
+			cipher, err := dekStore.GetOrCreate(txSession, streamId)
 			require.NoError(t, err)
-			assert.Len(t, dek, 32)
+			plaintext := []byte("hello world")
+			encrypted, err := cipher.Encrypt(plaintext)
+			require.NoError(t, err)
+			assert.NotEqual(t, plaintext, encrypted)
+			version := int(binary.BigEndian.Uint32(encrypted[:dekVersionSize]))
+			assert.Equal(t, 1, version)
 			return nil
 		})
 	})
 	require.NoError(t, err)
 }
 
-func TestDekStore_GetOrCreateReturnsSameDek(t *testing.T) {
+func TestDekStore_GetOrCreateReturnsSameCipher(t *testing.T) {
 	dekStore, _, pool, cleanup := setupDekStoreIntegrationTest(t)
 	defer cleanup()
 
@@ -101,18 +107,23 @@ func TestDekStore_GetOrCreateReturnsSameDek(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			streamId := makeStreamId(1, "Order", "order-1")
-			dek1, err := dekStore.GetOrCreate(txSession, streamId)
+			cipher1, err := dekStore.GetOrCreate(txSession, streamId)
 			require.NoError(t, err)
-			dek2, err := dekStore.GetOrCreate(txSession, streamId)
+			cipher2, err := dekStore.GetOrCreate(txSession, streamId)
 			require.NoError(t, err)
-			assert.Equal(t, dek1, dek2)
+			plaintext := []byte("hello")
+			encrypted, err := cipher1.Encrypt(plaintext)
+			require.NoError(t, err)
+			decrypted, err := cipher2.Decrypt(encrypted)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, decrypted)
 			return nil
 		})
 	})
 	require.NoError(t, err)
 }
 
-func TestDekStore_GetExistingDek(t *testing.T) {
+func TestDekStore_GetExistingCipher(t *testing.T) {
 	dekStore, _, pool, cleanup := setupDekStoreIntegrationTest(t)
 	defer cleanup()
 
@@ -120,11 +131,17 @@ func TestDekStore_GetExistingDek(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			streamId := makeStreamId(1, "Order", "order-1")
-			dek, err := dekStore.GetOrCreate(txSession, streamId)
+			cipher, err := dekStore.GetOrCreate(txSession, streamId)
 			require.NoError(t, err)
-			loadedDek, err := dekStore.Get(txSession, streamId)
+			plaintext := []byte("hello")
+			encrypted, err := cipher.Encrypt(plaintext)
 			require.NoError(t, err)
-			assert.Equal(t, dek, loadedDek)
+			version := int(binary.BigEndian.Uint32(encrypted[:dekVersionSize]))
+			loadedCipher, err := dekStore.Get(txSession, streamId, version)
+			require.NoError(t, err)
+			decrypted, err := loadedCipher.Decrypt(encrypted)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, decrypted)
 			return nil
 		})
 	})
@@ -139,7 +156,7 @@ func TestDekStore_GetMissingDekReturnsError(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			streamId := makeStreamId(1, "Order", "order-1")
-			_, err := dekStore.Get(txSession, streamId)
+			_, err := dekStore.Get(txSession, streamId, 1)
 			assert.ErrorIs(t, err, ErrDekNotFound)
 			return nil
 		})
@@ -147,7 +164,7 @@ func TestDekStore_GetMissingDekReturnsError(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestDekStore_DifferentStreamsGetDifferentDeks(t *testing.T) {
+func TestDekStore_DifferentStreamsGetDifferentCiphers(t *testing.T) {
 	dekStore, _, pool, cleanup := setupDekStoreIntegrationTest(t)
 	defer cleanup()
 
@@ -156,18 +173,22 @@ func TestDekStore_DifferentStreamsGetDifferentDeks(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			streamId1 := makeStreamId(1, "Order", "order-1")
 			streamId2 := makeStreamId(1, "Order", "order-2")
-			dek1, err := dekStore.GetOrCreate(txSession, streamId1)
+			cipher1, err := dekStore.GetOrCreate(txSession, streamId1)
 			require.NoError(t, err)
-			dek2, err := dekStore.GetOrCreate(txSession, streamId2)
+			cipher2, err := dekStore.GetOrCreate(txSession, streamId2)
 			require.NoError(t, err)
-			assert.NotEqual(t, dek1, dek2)
+			plaintext := []byte("hello")
+			encrypted1, err := cipher1.Encrypt(plaintext)
+			require.NoError(t, err)
+			_, err = cipher2.Decrypt(encrypted1)
+			assert.Error(t, err)
 			return nil
 		})
 	})
 	require.NoError(t, err)
 }
 
-func TestDekStore_DifferentTenantsGetDifferentDeks(t *testing.T) {
+func TestDekStore_DifferentTenantsGetDifferentCiphers(t *testing.T) {
 	dekStore, _, pool, cleanup := setupDekStoreIntegrationTest(t)
 	defer cleanup()
 
@@ -176,11 +197,15 @@ func TestDekStore_DifferentTenantsGetDifferentDeks(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			streamId1 := makeStreamId(1, "Order", "order-1")
 			streamId2 := makeStreamId(2, "Order", "order-1")
-			dek1, err := dekStore.GetOrCreate(txSession, streamId1)
+			cipher1, err := dekStore.GetOrCreate(txSession, streamId1)
 			require.NoError(t, err)
-			dek2, err := dekStore.GetOrCreate(txSession, streamId2)
+			cipher2, err := dekStore.GetOrCreate(txSession, streamId2)
 			require.NoError(t, err)
-			assert.NotEqual(t, dek1, dek2)
+			plaintext := []byte("hello")
+			encrypted1, err := cipher1.Encrypt(plaintext)
+			require.NoError(t, err)
+			_, err = cipher2.Decrypt(encrypted1)
+			assert.Error(t, err)
 			return nil
 		})
 	})
@@ -195,13 +220,19 @@ func TestDekStore_DekSurvivesKekRotation(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			streamId := makeStreamId(1, "Order", "order-1")
-			dek, err := dekStore.GetOrCreate(txSession, streamId)
+			cipher, err := dekStore.GetOrCreate(txSession, streamId)
+			require.NoError(t, err)
+			plaintext := []byte("hello")
+			encrypted, err := cipher.Encrypt(plaintext)
 			require.NoError(t, err)
 			_, err = keyManagement.RotateKek(txSession, fmt.Sprint(streamId.TenantId()))
 			require.NoError(t, err)
-			loadedDek, err := dekStore.Get(txSession, streamId)
+			version := int(binary.BigEndian.Uint32(encrypted[:dekVersionSize]))
+			loadedCipher, err := dekStore.Get(txSession, streamId, version)
 			require.NoError(t, err)
-			assert.Equal(t, dek, loadedDek)
+			decrypted, err := loadedCipher.Decrypt(encrypted)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, decrypted)
 			return nil
 		})
 	})
@@ -220,7 +251,7 @@ func TestDekStore_Delete(t *testing.T) {
 			require.NoError(t, err)
 			err = dekStore.Delete(txSession, streamId)
 			require.NoError(t, err)
-			_, err = dekStore.Get(txSession, streamId)
+			_, err = dekStore.Get(txSession, streamId, 1)
 			assert.ErrorIs(t, err, ErrDekNotFound)
 			return nil
 		})
@@ -237,21 +268,98 @@ func TestDekStore_RewrapAfterKekRotation(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			streamId1 := makeStreamId(1, "Order", "order-1")
 			streamId2 := makeStreamId(1, "Order", "order-2")
-			dek1, err := dekStore.GetOrCreate(txSession, streamId1)
+			cipher1, err := dekStore.GetOrCreate(txSession, streamId1)
 			require.NoError(t, err)
-			dek2, err := dekStore.GetOrCreate(txSession, streamId2)
+			cipher2, err := dekStore.GetOrCreate(txSession, streamId2)
+			require.NoError(t, err)
+			plaintext := []byte("hello")
+			encrypted1, err := cipher1.Encrypt(plaintext)
+			require.NoError(t, err)
+			encrypted2, err := cipher2.Encrypt(plaintext)
 			require.NoError(t, err)
 			_, err = keyManagement.RotateKek(txSession, fmt.Sprint(streamId1.TenantId()))
 			require.NoError(t, err)
 			count, err := dekStore.Rewrap(txSession, fmt.Sprint(streamId1.TenantId()))
 			require.NoError(t, err)
 			assert.Equal(t, 2, count)
-			loadedDek1, err := dekStore.Get(txSession, streamId1)
+			v1 := int(binary.BigEndian.Uint32(encrypted1[:dekVersionSize]))
+			v2 := int(binary.BigEndian.Uint32(encrypted2[:dekVersionSize]))
+			loaded1, err := dekStore.Get(txSession, streamId1, v1)
 			require.NoError(t, err)
-			assert.Equal(t, dek1, loadedDek1)
-			loadedDek2, err := dekStore.Get(txSession, streamId2)
+			loaded2, err := dekStore.Get(txSession, streamId2, v2)
 			require.NoError(t, err)
-			assert.Equal(t, dek2, loadedDek2)
+			decrypted1, err := loaded1.Decrypt(encrypted1)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, decrypted1)
+			decrypted2, err := loaded2.Decrypt(encrypted2)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, decrypted2)
+			return nil
+		})
+	})
+	require.NoError(t, err)
+}
+
+func TestDekStore_GetAllDecryptsAllVersions(t *testing.T) {
+	dekStore, _, pool, cleanup := setupDekStoreIntegrationTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	err := pool.Session(ctx, func(s session.Session) error {
+		return s.Atomic(func(txSession session.Session) error {
+			streamId := makeStreamId(1, "Order", "order-1")
+			cipherV1, err := dekStore.GetOrCreate(txSession, streamId)
+			require.NoError(t, err)
+			plaintext := []byte("hello")
+			encryptedV1, err := cipherV1.Encrypt(plaintext)
+			require.NoError(t, err)
+			composite, err := dekStore.GetAll(txSession, streamId)
+			require.NoError(t, err)
+			decrypted, err := composite.Decrypt(encryptedV1)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, decrypted)
+			return nil
+		})
+	})
+	require.NoError(t, err)
+}
+
+func TestDekStore_GetAllEncryptsWithLatestVersion(t *testing.T) {
+	dekStore, _, pool, cleanup := setupDekStoreIntegrationTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	err := pool.Session(ctx, func(s session.Session) error {
+		return s.Atomic(func(txSession session.Session) error {
+			streamId := makeStreamId(1, "Order", "order-1")
+			_, err := dekStore.GetOrCreate(txSession, streamId)
+			require.NoError(t, err)
+			composite, err := dekStore.GetAll(txSession, streamId)
+			require.NoError(t, err)
+			plaintext := []byte("hello")
+			encrypted, err := composite.Encrypt(plaintext)
+			require.NoError(t, err)
+			version := int(binary.BigEndian.Uint32(encrypted[:dekVersionSize]))
+			assert.Equal(t, 1, version)
+			decrypted, err := composite.Decrypt(encrypted)
+			require.NoError(t, err)
+			assert.Equal(t, plaintext, decrypted)
+			return nil
+		})
+	})
+	require.NoError(t, err)
+}
+
+func TestDekStore_GetAllMissingReturnsError(t *testing.T) {
+	dekStore, _, pool, cleanup := setupDekStoreIntegrationTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	err := pool.Session(ctx, func(s session.Session) error {
+		return s.Atomic(func(txSession session.Session) error {
+			streamId := makeStreamId(1, "Order", "order-1")
+			_, err := dekStore.GetAll(txSession, streamId)
+			assert.ErrorIs(t, err, ErrDekNotFound)
 			return nil
 		})
 	})
@@ -270,7 +378,7 @@ func TestDekStore_CryptoShredding(t *testing.T) {
 			require.NoError(t, err)
 			err = keyManagement.DeleteKek(txSession, fmt.Sprint(streamId.TenantId()))
 			require.NoError(t, err)
-			_, err = dekStore.Get(txSession, streamId)
+			_, err = dekStore.Get(txSession, streamId, 1)
 			assert.Error(t, err)
 			return nil
 		})

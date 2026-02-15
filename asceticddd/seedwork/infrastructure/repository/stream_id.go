@@ -1,5 +1,7 @@
 package repository
 
+import "fmt"
+
 func NewStreamId(
 	tenantId any,
 	streamType string,
@@ -26,4 +28,8 @@ func (id StreamId) StreamType() string {
 }
 func (id StreamId) StreamId() string {
 	return id.streamId
+}
+
+func (id StreamId) String() string {
+	return fmt.Sprintf("StreamId(tenantId=%v, streamType=%s, streamId=%s)", id.tenantId, id.streamType, id.streamId)
 }
