@@ -231,6 +231,36 @@ func TestDekStore_Delete(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestDekStore_RewrapAfterKekRotation(t *testing.T) {
+	dekStore, keyManagement, pool, cleanup := setupDekStoreIntegrationTest(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	err := pool.Session(ctx, func(s session.Session) error {
+		return s.Atomic(func(txSession session.Session) error {
+			streamId1 := makeStreamId(1, "Order", "order-1")
+			streamId2 := makeStreamId(1, "Order", "order-2")
+			dek1, err := dekStore.GetOrCreate(txSession, streamId1)
+			require.NoError(t, err)
+			dek2, err := dekStore.GetOrCreate(txSession, streamId2)
+			require.NoError(t, err)
+			_, err = keyManagement.RotateKek(txSession, fmt.Sprint(streamId1.TenantId()))
+			require.NoError(t, err)
+			count, err := dekStore.Rewrap(txSession, fmt.Sprint(streamId1.TenantId()))
+			require.NoError(t, err)
+			assert.Equal(t, 2, count)
+			loadedDek1, err := dekStore.Get(txSession, streamId1)
+			require.NoError(t, err)
+			assert.Equal(t, dek1, loadedDek1)
+			loadedDek2, err := dekStore.Get(txSession, streamId2)
+			require.NoError(t, err)
+			assert.Equal(t, dek2, loadedDek2)
+			return nil
+		})
+	})
+	require.NoError(t, err)
+}
+
 func TestDekStore_CryptoShredding(t *testing.T) {
 	dekStore, keyManagement, pool, cleanup := setupDekStoreIntegrationTest(t)
 	defer cleanup()

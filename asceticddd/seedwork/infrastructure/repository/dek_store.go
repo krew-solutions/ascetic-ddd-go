@@ -14,6 +14,7 @@ var ErrDekNotFound = errors.New("dek not found")
 type DekStore interface {
 	GetOrCreate(s session.Session, streamId StreamId) ([]byte, error)
 	Get(s session.Session, streamId StreamId) ([]byte, error)
+	Rewrap(s session.Session, tenantId any) (int, error)
 	Delete(s session.Session, streamId StreamId) error
 	Setup(s session.Session) error
 	Cleanup(s session.Session) error
@@ -91,6 +92,51 @@ func (ds *PgDekStore) insert(s session.Session, streamId StreamId, encryptedDek 
 		fmt.Sprint(streamId.TenantId()), streamId.StreamType(), encodedStreamId, encryptedDek,
 	)
 	return err
+}
+
+func (ds *PgDekStore) Rewrap(s session.Session, tenantId any) (int, error) {
+	conn := s.(session.DbSession).Connection()
+	rows, err := conn.Query(
+		fmt.Sprintf("SELECT stream_type, stream_id, encrypted_dek FROM %s WHERE tenant_id = $1", ds.table),
+		tenantId,
+	)
+	if err != nil {
+		return 0, err
+	}
+	type row struct {
+		streamType   string
+		streamId     []byte
+		encryptedDek []byte
+	}
+	var deks []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.streamType, &r.streamId, &r.encryptedDek); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		deks = append(deks, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, r := range deks {
+		newEncryptedDek, err := ds.kms.RewrapDek(s, tenantId, r.encryptedDek)
+		if err != nil {
+			return count, err
+		}
+		_, err = conn.Exec(
+			fmt.Sprintf("UPDATE %s SET encrypted_dek = $1 WHERE tenant_id = $2 AND stream_type = $3 AND stream_id = $4", ds.table),
+			newEncryptedDek, tenantId, r.streamType, r.streamId,
+		)
+		if err != nil {
+			return count, err
+		}
+		count++
+	}
+	return count, nil
 }
 
 func (ds *PgDekStore) Delete(s session.Session, streamId StreamId) error {
