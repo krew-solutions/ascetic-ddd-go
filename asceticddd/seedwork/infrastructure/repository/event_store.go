@@ -59,6 +59,11 @@ func (r *EventStore) Save(
 }
 
 func (r *EventStore) makeCodecFactory() CodecFactory {
+	if r.dekStore == nil {
+		return func(s session.Session, streamId StreamId) (Codec, error) {
+			return NewJsonCodec(), nil
+		}
+	}
 	cache := make(map[StreamId]Codec)
 	return func(s session.Session, streamId StreamId) (Codec, error) {
 		if codec, ok := cache[streamId]; ok {
@@ -74,7 +79,12 @@ func (r *EventStore) makeCodecFactory() CodecFactory {
 	}
 }
 
-func (r *EventStore) makeReadCodecFactory() CodecFactory {
+func (r *EventStore) MakeReadCodecFactory() CodecFactory {
+	if r.dekStore == nil {
+		return func(s session.Session, streamId StreamId) (Codec, error) {
+			return NewJsonCodec(), nil
+		}
+	}
 	cache := make(map[StreamId]Codec)
 	return func(s session.Session, streamId StreamId) (Codec, error) {
 		if codec, ok := cache[streamId]; ok {
