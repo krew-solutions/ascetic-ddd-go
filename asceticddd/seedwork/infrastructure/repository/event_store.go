@@ -59,15 +59,33 @@ func (r *EventStore) Save(
 }
 
 func (r *EventStore) makeCodecFactory() CodecFactory {
+	cache := make(map[StreamId]Codec)
 	return func(s session.Session, streamId StreamId) (Codec, error) {
-		dek, err := r.dekStore.GetOrCreate(s, streamId)
+		if codec, ok := cache[streamId]; ok {
+			return codec, nil
+		}
+		cipher, err := r.dekStore.GetOrCreate(s, streamId)
 		if err != nil {
 			return nil, err
 		}
-		codec, err := NewAesGcmEncryptor(dek, NewZlibCompressor(NewJsonCodec()))
+		codec := NewEncryptionCodec(cipher, NewZlibCodec(NewJsonCodec()))
+		cache[streamId] = codec
+		return codec, nil
+	}
+}
+
+func (r *EventStore) makeReadCodecFactory() CodecFactory {
+	cache := make(map[StreamId]Codec)
+	return func(s session.Session, streamId StreamId) (Codec, error) {
+		if codec, ok := cache[streamId]; ok {
+			return codec, nil
+		}
+		cipher, err := r.dekStore.GetAll(s, streamId)
 		if err != nil {
 			return nil, err
 		}
+		codec := NewEncryptionCodec(cipher, NewZlibCodec(NewJsonCodec()))
+		cache[streamId] = codec
 		return codec, nil
 	}
 }
