@@ -6,21 +6,25 @@ import (
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 )
 
+type CodecFactory func(session.Session, StreamId) (Codec, error)
+
 type EventSourcedQueryEvaluator interface {
-	session.QueryEvaluator
+	Evaluate(CodecFactory, session.Session) (session.Result, error)
 	SetStreamType(string)
 }
 
 type EventQueryFactory func(aggregate.PersistentDomainEvent) EventSourcedQueryEvaluator
 
-func NewEventStore(streamType string, eventQuery EventQueryFactory) *EventStore {
+func NewEventStore(dekStore DekStore, streamType string, eventQuery EventQueryFactory) *EventStore {
 	return &EventStore{
+		dekStore:   dekStore,
 		streamType: streamType,
 		eventQuery: eventQuery,
 	}
 }
 
 type EventStore struct {
+	dekStore   DekStore
 	streamType string
 	eventQuery EventQueryFactory
 }
@@ -39,16 +43,31 @@ func (r *EventStore) Save(
 ) error {
 	pendingEvents := agg.PendingDomainEvents()
 	agg.ClearPendingDomainEvents()
+	codecFactory := r.makeCodecFactory()
 
 	for _, iEvent := range pendingEvents {
 		eventMeta = eventMeta.Spawn(uuid.NewUuid())
 		iEvent.SetEventMeta(eventMeta)
 		q := r.eventQuery(iEvent)
 		q.SetStreamType(r.streamType)
-		_, err := q.Evaluate(s)
+		_, err := q.Evaluate(codecFactory, s)
 		if err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (r *EventStore) makeCodecFactory() CodecFactory {
+	return func(s session.Session, streamId StreamId) (Codec, error) {
+		dek, err := r.dekStore.GetOrCreate(s, streamId)
+		if err != nil {
+			return nil, err
+		}
+		codec, err := NewAesGcmEncryptor(dek, NewZlibCompressor(NewJsonCodec()))
+		if err != nil {
+			return nil, err
+		}
+		return codec, nil
+	}
 }

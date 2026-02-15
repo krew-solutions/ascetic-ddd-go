@@ -45,7 +45,15 @@ func (q *EventInsertQuery) SetEventVersion(val uint8) {
 	q.params[5] = val
 }
 
-func (q *EventInsertQuery) Evaluate(codec Codec, s session.Session) (session.Result, error) {
+func (q *EventInsertQuery) Evaluate(codecFactory CodecFactory, s session.Session) (session.Result, error) {
+	streamId, err := NewStreamId(q.params[0].(uint), q.params[1].(string), q.params[2].(string))
+	if err != nil {
+		return nil, err
+	}
+	codec, err := codecFactory(s, streamId)
+	if err != nil {
+		return nil, err
+	}
 	payload, err := codec.Encode(q.payload)
 	if err != nil {
 		return nil, err
