@@ -3,11 +3,10 @@ package repository
 import (
 	"bytes"
 	"compress/zlib"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"encoding/json"
 	"io"
+
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/kms"
 )
 
 type Codec interface {
@@ -29,15 +28,15 @@ func (c *JsonCodec) Decode(data []byte, v any) error {
 	return json.Unmarshal(data, v)
 }
 
-func NewZlibCompressor(delegate Codec) *ZlibCompressor {
-	return &ZlibCompressor{delegate: delegate}
+func NewZlibCodec(delegate Codec) *ZlibCodec {
+	return &ZlibCodec{delegate: delegate}
 }
 
-type ZlibCompressor struct {
+type ZlibCodec struct {
 	delegate Codec
 }
 
-func (c *ZlibCompressor) Encode(obj any) ([]byte, error) {
+func (c *ZlibCodec) Encode(obj any) ([]byte, error) {
 	data, err := c.delegate.Encode(obj)
 	if err != nil {
 		return nil, err
@@ -55,7 +54,7 @@ func (c *ZlibCompressor) Encode(obj any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (c *ZlibCompressor) Decode(data []byte, v any) error {
+func (c *ZlibCodec) Decode(data []byte, v any) error {
 	r, err := zlib.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return err
@@ -68,43 +67,25 @@ func (c *ZlibCompressor) Decode(data []byte, v any) error {
 	return c.delegate.Decode(decompressed, v)
 }
 
-const aesGcmNonceSize = 12
-
-func NewAesGcmEncryptor(key []byte, delegate Codec) (*AesGcmEncryptor, error) {
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	return &AesGcmEncryptor{aead: aead, delegate: delegate}, nil
+func NewEncryptionCodec(cipher kms.Cipher, delegate Codec) *EncryptionCodec {
+	return &EncryptionCodec{cipher: cipher, delegate: delegate}
 }
 
-type AesGcmEncryptor struct {
-	aead     cipher.AEAD
+type EncryptionCodec struct {
+	cipher   kms.Cipher
 	delegate Codec
 }
 
-func (c *AesGcmEncryptor) Encode(obj any) ([]byte, error) {
+func (c *EncryptionCodec) Encode(obj any) ([]byte, error) {
 	data, err := c.delegate.Encode(obj)
 	if err != nil {
 		return nil, err
 	}
-	nonce := make([]byte, aesGcmNonceSize)
-	_, err = rand.Read(nonce)
-	if err != nil {
-		return nil, err
-	}
-	ciphertext := c.aead.Seal(nil, nonce, data, nil)
-	return append(nonce, ciphertext...), nil
+	return c.cipher.Encrypt(data)
 }
 
-func (c *AesGcmEncryptor) Decode(data []byte, v any) error {
-	nonce := data[:aesGcmNonceSize]
-	ciphertext := data[aesGcmNonceSize:]
-	plaintext, err := c.aead.Open(nil, nonce, ciphertext, nil)
+func (c *EncryptionCodec) Decode(data []byte, v any) error {
+	plaintext, err := c.cipher.Decrypt(data)
 	if err != nil {
 		return err
 	}
