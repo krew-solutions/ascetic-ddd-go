@@ -44,9 +44,9 @@ func (s *Session) Atomic(callback session.SessionCallback) error {
 		return errors.Wrap(err, "unable to start transaction")
 	}
 
-	txSession := NewTransactionSession(s.ctx, tx, s)
+	atomicSession := NewAtomicSession(s.ctx, tx, s)
 
-	err = callback(txSession)
+	err = callback(atomicSession)
 	if err != nil {
 		if txErr := tx.Rollback(s.ctx); txErr != nil {
 			return multierror.Append(err, txErr)
@@ -61,39 +61,39 @@ func (s *Session) Atomic(callback session.SessionCallback) error {
 	return nil
 }
 
-// TransactionSession represents a session inside transaction
-type TransactionSession struct {
+// AtomicSession represents a session inside transaction
+type AtomicSession struct {
 	ctx    context.Context
 	tx     pgx.Tx
 	parent session.Session
 }
 
-func NewTransactionSession(ctx context.Context, tx pgx.Tx, parent session.Session) *TransactionSession {
-	return &TransactionSession{
+func NewAtomicSession(ctx context.Context, tx pgx.Tx, parent session.Session) *AtomicSession {
+	return &AtomicSession{
 		ctx:    ctx,
 		tx:     tx,
 		parent: parent,
 	}
 }
 
-func (s *TransactionSession) Context() context.Context {
+func (s *AtomicSession) Context() context.Context {
 	return s.ctx
 }
 
-func (s *TransactionSession) Connection() session.DbConnection {
+func (s *AtomicSession) Connection() session.DbConnection {
 	return &connection{ctx: s.ctx, exec: s.tx}
 }
 
-func (s *TransactionSession) Atomic(callback session.SessionCallback) error {
+func (s *AtomicSession) Atomic(callback session.SessionCallback) error {
 	// Create savepoint (nested transaction)
 	nestedTx, err := s.tx.Begin(s.ctx)
 	if err != nil {
 		return errors.Wrap(err, "unable to start savepoint")
 	}
 
-	savepointSession := NewSavepointSession(s.ctx, nestedTx, s)
+	atomicSession := NewAtomicSession(s.ctx, nestedTx, s)
 
-	err = callback(savepointSession)
+	err = callback(atomicSession)
 	if err != nil {
 		if txErr := nestedTx.Rollback(s.ctx); txErr != nil {
 			return multierror.Append(err, txErr)
@@ -103,53 +103,6 @@ func (s *TransactionSession) Atomic(callback session.SessionCallback) error {
 
 	if txErr := nestedTx.Commit(s.ctx); txErr != nil {
 		return errors.Wrap(txErr, "failed to commit savepoint")
-	}
-
-	return nil
-}
-
-// SavepointSession represents a session inside savepoint (nested transaction)
-type SavepointSession struct {
-	ctx    context.Context
-	tx     pgx.Tx
-	parent session.Session
-}
-
-func NewSavepointSession(ctx context.Context, tx pgx.Tx, parent session.Session) *SavepointSession {
-	return &SavepointSession{
-		ctx:    ctx,
-		tx:     tx,
-		parent: parent,
-	}
-}
-
-func (s *SavepointSession) Context() context.Context {
-	return s.ctx
-}
-
-func (s *SavepointSession) Connection() session.DbConnection {
-	return &connection{ctx: s.ctx, exec: s.tx}
-}
-
-func (s *SavepointSession) Atomic(callback session.SessionCallback) error {
-	// Create nested savepoint
-	nestedTx, err := s.tx.Begin(s.ctx)
-	if err != nil {
-		return errors.Wrap(err, "unable to start nested savepoint")
-	}
-
-	nestedSession := NewSavepointSession(s.ctx, nestedTx, s)
-
-	err = callback(nestedSession)
-	if err != nil {
-		if txErr := nestedTx.Rollback(s.ctx); txErr != nil {
-			return multierror.Append(err, txErr)
-		}
-		return err
-	}
-
-	if txErr := nestedTx.Commit(s.ctx); txErr != nil {
-		return errors.Wrap(txErr, "failed to commit nested savepoint")
 	}
 
 	return nil
