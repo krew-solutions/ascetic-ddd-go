@@ -124,9 +124,9 @@ func TestSignal_DisposableDetachesWithoutID(t *testing.T) {
 	assert.False(t, called)
 }
 
-func TestMakeIDForFunction(t *testing.T) {
+func TestMakeIdForFunction(t *testing.T) {
 	observer := Observer[sampleEvent](func(e sampleEvent) {})
-	result := makeID(observer)
+	result := makeId(observer)
 	assert.Equal(t, reflect.ValueOf(observer).Pointer(), result)
 }
 

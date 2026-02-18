@@ -7,7 +7,7 @@ import (
 type Observer[E any] func(E)
 
 type Signal[E any] interface {
-	Attach(observer Observer[E], observerID ...any) disposable.Disposable
-	Detach(observer Observer[E], observerID ...any)
+	Attach(observer Observer[E], observerId ...any) disposable.Disposable
+	Detach(observer Observer[E], observerId ...any)
 	Notify(event E)
 }

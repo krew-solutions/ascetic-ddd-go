@@ -19,8 +19,8 @@ func NewSignal[E any]() *SignalImp[E] {
 	return &SignalImp[E]{}
 }
 
-func (s *SignalImp[E]) Attach(observer Observer[E], observerID ...any) disposable.Disposable {
-	id := resolveID(observer, observerID)
+func (s *SignalImp[E]) Attach(observer Observer[E], observerId ...any) disposable.Disposable {
+	id := resolveId(observer, observerId)
 	for _, e := range s.observers {
 		if e.id == id {
 			return disposable.NewDisposable(func() {
@@ -34,8 +34,8 @@ func (s *SignalImp[E]) Attach(observer Observer[E], observerID ...any) disposabl
 	})
 }
 
-func (s *SignalImp[E]) Detach(observer Observer[E], observerID ...any) {
-	id := resolveID(observer, observerID)
+func (s *SignalImp[E]) Detach(observer Observer[E], observerId ...any) {
+	id := resolveId(observer, observerId)
 	for i, e := range s.observers {
 		if e.id == id {
 			s.observers = append(s.observers[:i], s.observers[i+1:]...)
@@ -50,13 +50,13 @@ func (s *SignalImp[E]) Notify(event E) {
 	}
 }
 
-func resolveID[E any](observer Observer[E], observerID []any) any {
-	if len(observerID) > 0 {
-		return observerID[0]
+func resolveId[E any](observer Observer[E], observerId []any) any {
+	if len(observerId) > 0 {
+		return observerId[0]
 	}
-	return makeID(observer)
+	return makeId(observer)
 }
 
-func makeID[E any](observer Observer[E]) uintptr {
+func makeId[E any](observer Observer[E]) uintptr {
 	return reflect.ValueOf(observer).Pointer()
 }
