@@ -115,7 +115,7 @@ func (v *TransformVisitor) VisitInfix(n s.InfixNode) error {
 		case s.OperatorEq:
 			v.currentNode, err = leftComposite.Equal(rightComposite)
 		case s.OperatorNe:
-			v.currentNode, err = leftComposite.Equal(rightComposite)
+			v.currentNode, err = leftComposite.NotEqual(rightComposite)
 		default:
 			return fmt.Errorf("operator \"%s\" is not supported for composite expressions", n.Operator())
 		}
