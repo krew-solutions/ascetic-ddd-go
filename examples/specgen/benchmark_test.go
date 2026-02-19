@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	spec "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 var testUser = User{
@@ -30,7 +31,7 @@ func BenchmarkAdultUserSpec_ManualAST(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		visitor := spec.NewEvaluateVisitor(&userContext{testUser})
+		visitor := spec.NewEvaluateVisitor(&userContext{testUser}, operators.NewDefaultRegistry())
 		_ = ast.Accept(visitor)
 		_, _ = visitor.Result()
 	}

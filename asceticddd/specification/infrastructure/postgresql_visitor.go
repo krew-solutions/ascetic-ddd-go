@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 func Compile(context Context, exp s.Visitable) (sql string, params []any, err error) {
@@ -380,7 +381,7 @@ func (v *PostgresqlVisitor) VisitPrefix(node s.PrefixNode) error {
 	precedenceKey := v.getNodePrecedenceKey(node)
 	return v.visit(precedenceKey, func() error {
 		operator := node.Operator()
-		if operator == s.OperatorPos || operator == s.OperatorNeg {
+		if operator == operators.OperatorPos || operator == operators.OperatorNeg {
 			v.sql += string(operator)
 		} else {
 			v.sql += fmt.Sprintf("%s ", operator)

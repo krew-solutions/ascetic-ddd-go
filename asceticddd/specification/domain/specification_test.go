@@ -2,6 +2,8 @@ package specification
 
 import (
 	"testing"
+
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 // TestNodes tests AST node creation
@@ -55,7 +57,7 @@ func TestAndNodeMultiple(t *testing.T) {
 	andNode := And(And(a, b), c)
 
 	// Just verify it was created
-	if andNode.Operator() != OperatorAnd {
+	if andNode.Operator() != operators.OperatorAnd {
 		t.Error("Expected AND operator")
 	}
 }
@@ -87,7 +89,7 @@ func (c testContext) Get(key string) (interface{}, error) {
 
 func TestSimpleValue(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	valNode := Value(true)
 	err := valNode.Accept(visitor)
@@ -107,7 +109,7 @@ func TestSimpleValue(t *testing.T) {
 
 func TestNotOperator(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := Not(Value(true))
 	err := expression.Accept(visitor)
@@ -127,7 +129,7 @@ func TestNotOperator(t *testing.T) {
 
 func TestAndOperator(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := And(Value(true), Value(true))
 	err := expression.Accept(visitor)
@@ -147,7 +149,7 @@ func TestAndOperator(t *testing.T) {
 
 func TestAndOperatorFalse(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := And(Value(true), Value(false))
 	err := expression.Accept(visitor)
@@ -167,7 +169,7 @@ func TestAndOperatorFalse(t *testing.T) {
 
 func TestEqualOperator(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := Equal(Value(5), Value(5))
 	err := expression.Accept(visitor)
@@ -187,7 +189,7 @@ func TestEqualOperator(t *testing.T) {
 
 func TestEqualOperatorNotEqual(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := Equal(Value(5), Value(10))
 	err := expression.Accept(visitor)
@@ -207,7 +209,7 @@ func TestEqualOperatorNotEqual(t *testing.T) {
 
 func TestGreaterThanOperator(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := GreaterThan(Value(10), Value(5))
 	err := expression.Accept(visitor)
@@ -227,7 +229,7 @@ func TestGreaterThanOperator(t *testing.T) {
 
 func TestGreaterThanOperatorFalse(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := GreaterThan(Value(5), Value(10))
 	err := expression.Accept(visitor)
@@ -247,7 +249,7 @@ func TestGreaterThanOperatorFalse(t *testing.T) {
 
 func TestFieldAccess(t *testing.T) {
 	ctx := testContext{"age": 25}
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	fieldNode := Field(GlobalScope(), "age")
 	err := fieldNode.Accept(visitor)
@@ -264,7 +266,7 @@ func TestFieldAccess(t *testing.T) {
 func TestObjectNavigation(t *testing.T) {
 	userCtx := testContext{"name": "Alice"}
 	rootCtx := testContext{"user": userCtx}
-	visitor := NewEvaluateVisitor(rootCtx)
+	visitor := NewEvaluateVisitor(rootCtx, operators.NewDefaultRegistry())
 
 	obj := Object(GlobalScope(), "user")
 	fieldNode := Field(obj, "name")
@@ -281,7 +283,7 @@ func TestObjectNavigation(t *testing.T) {
 
 func TestComplexExpression(t *testing.T) {
 	ctx := testContext{"age": 25, "active": true}
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	// (age > 18) AND active
 	ageField := Field(GlobalScope(), "age")
@@ -312,7 +314,7 @@ func TestCollectionWildcard(t *testing.T) {
 	collection := NewCollectionContext([]Context{item1, item2, item3})
 	rootCtx := testContext{"items": collection}
 
-	visitor := NewEvaluateVisitor(rootCtx)
+	visitor := NewEvaluateVisitor(rootCtx, operators.NewDefaultRegistry())
 
 	// items[*].score > 80
 	itemsObj := Object(GlobalScope(), "items")
@@ -343,7 +345,7 @@ func TestCollectionAllFalse(t *testing.T) {
 	collection := NewCollectionContext([]Context{item1, item2})
 	rootCtx := testContext{"items": collection}
 
-	visitor := NewEvaluateVisitor(rootCtx)
+	visitor := NewEvaluateVisitor(rootCtx, operators.NewDefaultRegistry())
 
 	// items[*].score > 80
 	itemsObj := Object(GlobalScope(), "items")
@@ -371,7 +373,7 @@ func TestCollectionAllFalse(t *testing.T) {
 
 func TestMissingKey(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	fieldNode := Field(GlobalScope(), "nonexistent")
 
@@ -383,7 +385,7 @@ func TestMissingKey(t *testing.T) {
 
 func TestTypeCheckingInComparison(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	// Strings should work with Equal
 	expression := Equal(Value("hello"), Value("world"))

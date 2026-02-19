@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 // TestCompileToSQL tests the public CompileToSQL function
@@ -285,7 +286,7 @@ func TestCompositeExpressionNotEqual(t *testing.T) {
 		t.Fatalf("Expected PrefixNode (NOT), got %T", result)
 	}
 
-	if notNode.Operator() != s.OperatorNot {
+	if notNode.Operator() != operators.OperatorNot {
 		t.Errorf("Expected NOT operator, got %s", notNode.Operator())
 	}
 }
@@ -316,7 +317,7 @@ func TestCompositeExpressionNotEqualComplex(t *testing.T) {
 		t.Fatalf("Expected PrefixNode (NOT), got %T", result)
 	}
 
-	if notNode.Operator() != s.OperatorNot {
+	if notNode.Operator() != operators.OperatorNot {
 		t.Errorf("Expected NOT operator, got %s", notNode.Operator())
 	}
 }

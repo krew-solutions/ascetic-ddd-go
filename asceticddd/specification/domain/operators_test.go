@@ -2,13 +2,15 @@ package specification
 
 import (
 	"testing"
+
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 // TestOperators tests all operators that were not covered by basic tests
 
 func TestNotEqualOperator(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := NotEqual(Value(5), Value(10))
 	err := expression.Accept(visitor)
@@ -28,7 +30,7 @@ func TestNotEqualOperator(t *testing.T) {
 
 func TestNotEqualOperatorFalse(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := NotEqual(Value(5), Value(5))
 	err := expression.Accept(visitor)
@@ -48,7 +50,7 @@ func TestNotEqualOperatorFalse(t *testing.T) {
 
 func TestLessThanOperator(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := LessThan(Value(5), Value(10))
 	err := expression.Accept(visitor)
@@ -68,7 +70,7 @@ func TestLessThanOperator(t *testing.T) {
 
 func TestLessThanOperatorFalse(t *testing.T) {
 	ctx := make(testContext)
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := LessThan(Value(10), Value(5))
 	err := expression.Accept(visitor)
@@ -102,7 +104,7 @@ func TestLessThanEqualOperator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			visitor := NewEvaluateVisitor(ctx)
+			visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 			expression := LessThanEqual(Value(tt.left), Value(tt.right))
 			err := expression.Accept(visitor)
 			if err != nil {
@@ -137,7 +139,7 @@ func TestGreaterThanEqualOperator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			visitor := NewEvaluateVisitor(ctx)
+			visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 			expression := GreaterThanEqual(Value(tt.left), Value(tt.right))
 			err := expression.Accept(visitor)
 			if err != nil {
@@ -173,7 +175,7 @@ func TestOrOperator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			visitor := NewEvaluateVisitor(ctx)
+			visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 			expression := Or(Value(tt.left), Value(tt.right))
 			err := expression.Accept(visitor)
 			if err != nil {
@@ -196,7 +198,7 @@ func TestIsOperator(t *testing.T) {
 	// IS operator is for SQL (IS TRUE, IS FALSE, IS NULL)
 	// For now just test node creation
 	expr := Is(Value(true), Value(true))
-	if expr.Operator() != OperatorIs {
+	if expr.Operator() != operators.OperatorIs {
 		t.Errorf("Expected IS operator, got %s", expr.Operator())
 	}
 }
@@ -209,7 +211,7 @@ func TestAddOperator(t *testing.T) {
 	ctx["a"] = 5
 	ctx["b"] = 3
 
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	// (a + b) > 7
 	expression := GreaterThan(
@@ -237,7 +239,7 @@ func TestSubOperator(t *testing.T) {
 	ctx["a"] = 10
 	ctx["b"] = 3
 
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	// (a - b) > 5
 	expression := GreaterThan(
@@ -265,7 +267,7 @@ func TestMulOperator(t *testing.T) {
 	ctx["a"] = 5
 	ctx["b"] = 3
 
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	// (a * b) > 10
 	expression := GreaterThan(
@@ -293,7 +295,7 @@ func TestDivOperator(t *testing.T) {
 	ctx["a"] = 10
 	ctx["b"] = 2
 
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	// (a / b) == 5
 	expression := Equal(
@@ -321,7 +323,7 @@ func TestModOperator(t *testing.T) {
 	ctx["a"] = 10
 	ctx["b"] = 3
 
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	// (a % b) == 1
 	expression := Equal(
@@ -350,7 +352,7 @@ func TestLeftShiftOperator(t *testing.T) {
 	// Just test node creation for now
 	// Bitwise operators are not yet supported in EvaluateVisitor
 	expr := LeftShift(Value(2), Value(3))
-	if expr.Operator() != OperatorLshift {
+	if expr.Operator() != operators.OperatorLshift {
 		t.Errorf("Expected LSHIFT operator, got %s", expr.Operator())
 	}
 }
@@ -358,7 +360,7 @@ func TestLeftShiftOperator(t *testing.T) {
 func TestRightShiftOperator(t *testing.T) {
 	// Just test node creation for now
 	expr := RightShift(Value(16), Value(2))
-	if expr.Operator() != OperatorRshift {
+	if expr.Operator() != operators.OperatorRshift {
 		t.Errorf("Expected RSHIFT operator, got %s", expr.Operator())
 	}
 }
@@ -369,7 +371,7 @@ func TestIsNullOperator(t *testing.T) {
 	ctx := make(testContext)
 	ctx["value"] = nil
 
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := IsNull(Field(GlobalScope(), "value"))
 	err := expression.Accept(visitor)
@@ -391,7 +393,7 @@ func TestIsNullOperatorFalse(t *testing.T) {
 	ctx := make(testContext)
 	ctx["value"] = 42
 
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := IsNull(Field(GlobalScope(), "value"))
 	err := expression.Accept(visitor)
@@ -413,7 +415,7 @@ func TestIsNotNullOperator(t *testing.T) {
 	ctx := make(testContext)
 	ctx["value"] = 42
 
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := IsNotNull(Field(GlobalScope(), "value"))
 	err := expression.Accept(visitor)
@@ -435,7 +437,7 @@ func TestIsNotNullOperatorFalse(t *testing.T) {
 	ctx := make(testContext)
 	ctx["value"] = nil
 
-	visitor := NewEvaluateVisitor(ctx)
+	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := IsNotNull(Field(GlobalScope(), "value"))
 	err := expression.Accept(visitor)

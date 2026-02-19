@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 var (
@@ -112,9 +113,9 @@ func (v *TransformVisitor) VisitInfix(n s.InfixNode) error {
 			return errors.New("not enough composite expressions")
 		}
 		switch n.Operator() {
-		case s.OperatorEq:
+		case operators.OperatorEq:
 			v.currentNode, err = leftComposite.Equal(rightComposite)
-		case s.OperatorNe:
+		case operators.OperatorNe:
 			v.currentNode, err = leftComposite.NotEqual(rightComposite)
 		default:
 			return fmt.Errorf("operator \"%s\" is not supported for composite expressions", n.Operator())

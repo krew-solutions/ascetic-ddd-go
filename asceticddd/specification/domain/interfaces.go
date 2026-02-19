@@ -1,21 +1,9 @@
 package specification
 
-type EqualOperand interface {
-	Equal(EqualOperand) bool
-}
+import "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 
-type LessThanOperand interface {
-	LessThan(LessThanOperand) bool
-}
-
-type GreaterThanOperand interface {
-	GreaterThan(GreaterThanOperand) bool
-}
-
-type GreaterThanEqualOperand interface {
-	GreaterThanEqual(GreaterThanEqualOperand) bool
-}
-
-type LessThanEqualOperand interface {
-	LessThanEqual(LessThanEqualOperand) bool
-}
+type EqualOperand = operators.EqualOperand
+type LessThanOperand = operators.LessThanOperand
+type GreaterThanOperand = operators.GreaterThanOperand
+type GreaterThanEqualOperand = operators.GreaterThanEqualOperand
+type LessThanEqualOperand = operators.LessThanEqualOperand

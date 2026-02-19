@@ -5,6 +5,7 @@ import (
 	"time"
 
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 // TestDelegating tests the Delegating adapter
@@ -45,7 +46,7 @@ func TestLogical(t *testing.T) {
 		if !ok {
 			t.Error("Expected delegate to be InfixNode (And)")
 		}
-		if delegate.(s.InfixNode).Operator() != s.OperatorAnd {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorAnd {
 			t.Error("Expected AND operator")
 		}
 	})
@@ -65,7 +66,7 @@ func TestLogical(t *testing.T) {
 		if !ok {
 			t.Error("Expected delegate to be InfixNode (Or)")
 		}
-		if delegate.(s.InfixNode).Operator() != s.OperatorOr {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorOr {
 			t.Error("Expected OR operator")
 		}
 	})
@@ -85,7 +86,7 @@ func TestLogical(t *testing.T) {
 		if !ok {
 			t.Error("Expected delegate to be InfixNode (Is)")
 		}
-		if delegate.(s.InfixNode).Operator() != s.OperatorIs {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorIs {
 			t.Error("Expected IS operator")
 		}
 	})
@@ -107,7 +108,7 @@ func TestNullable(t *testing.T) {
 		if !ok {
 			t.Error("Expected delegate to be PostfixNode (IsNull)")
 		}
-		if delegate.(s.PostfixNode).Operator() != s.OperatorIsNull {
+		if delegate.(s.PostfixNode).Operator() != operators.OperatorIsNull {
 			t.Error("Expected IS NULL operator")
 		}
 	})
@@ -126,7 +127,7 @@ func TestNullable(t *testing.T) {
 		if !ok {
 			t.Error("Expected delegate to be PostfixNode (IsNotNull)")
 		}
-		if delegate.(s.PostfixNode).Operator() != s.OperatorIsNotNull {
+		if delegate.(s.PostfixNode).Operator() != operators.OperatorIsNotNull {
 			t.Error("Expected IS NOT NULL operator")
 		}
 	})
@@ -149,7 +150,7 @@ func TestComparison(t *testing.T) {
 		if !ok {
 			t.Error("Expected delegate to be InfixNode (Equal)")
 		}
-		if delegate.(s.InfixNode).Operator() != s.OperatorEq {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorEq {
 			t.Error("Expected EQ operator")
 		}
 	})
@@ -164,7 +165,7 @@ func TestComparison(t *testing.T) {
 		if !ok {
 			t.Error("Expected delegate to be InfixNode (NotEqual)")
 		}
-		if delegate.(s.InfixNode).Operator() != s.OperatorNe {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorNe {
 			t.Error("Expected NE operator")
 		}
 	})
@@ -175,7 +176,7 @@ func TestComparison(t *testing.T) {
 		result := left.Gt(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorGt {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorGt {
 			t.Error("Expected GT operator")
 		}
 	})
@@ -186,7 +187,7 @@ func TestComparison(t *testing.T) {
 		result := left.Lt(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorLt {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorLt {
 			t.Error("Expected LT operator")
 		}
 	})
@@ -197,7 +198,7 @@ func TestComparison(t *testing.T) {
 		result := left.Gte(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorGte {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorGte {
 			t.Error("Expected GTE operator")
 		}
 	})
@@ -208,7 +209,7 @@ func TestComparison(t *testing.T) {
 		result := left.Lte(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorLte {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorLte {
 			t.Error("Expected LTE operator")
 		}
 	})
@@ -219,7 +220,7 @@ func TestComparison(t *testing.T) {
 		result := left.Lshift(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorLshift {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorLshift {
 			t.Error("Expected LSHIFT operator")
 		}
 	})
@@ -230,7 +231,7 @@ func TestComparison(t *testing.T) {
 		result := left.Rshift(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorRshift {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorRshift {
 			t.Error("Expected RSHIFT operator")
 		}
 	})
@@ -249,7 +250,7 @@ func TestMathematical(t *testing.T) {
 		}
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorAdd {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorAdd {
 			t.Error("Expected ADD operator")
 		}
 	})
@@ -260,7 +261,7 @@ func TestMathematical(t *testing.T) {
 		result := left.Sub(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorSub {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorSub {
 			t.Error("Expected SUB operator")
 		}
 	})
@@ -271,7 +272,7 @@ func TestMathematical(t *testing.T) {
 		result := left.Mul(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorMul {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorMul {
 			t.Error("Expected MUL operator")
 		}
 	})
@@ -282,7 +283,7 @@ func TestMathematical(t *testing.T) {
 		result := left.Div(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorDiv {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorDiv {
 			t.Error("Expected DIV operator")
 		}
 	})
@@ -293,7 +294,7 @@ func TestMathematical(t *testing.T) {
 		result := left.Mod(right)
 
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorMod {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorMod {
 			t.Error("Expected MOD operator")
 		}
 	})
@@ -556,7 +557,7 @@ func TestIntegration(t *testing.T) {
 
 		result := age.Gt(minAge)
 		delegate := result.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorGt {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorGt {
 			t.Error("Expected GT operator")
 		}
 	})
@@ -569,7 +570,7 @@ func TestIntegration(t *testing.T) {
 		combined := ageCheck.And(isActive)
 
 		delegate := combined.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorAnd {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorAnd {
 			t.Error("Expected AND operator")
 		}
 	})
@@ -604,7 +605,7 @@ func TestIntegration(t *testing.T) {
 
 		// Should return Mathematical type
 		delegate := total.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorSub {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorSub {
 			t.Error("Expected SUB operator at top level")
 		}
 	})
@@ -626,7 +627,7 @@ func TestIntegration(t *testing.T) {
 
 		// Should return Mathematical type
 		delegate := remainder.Delegate()
-		if delegate.(s.InfixNode).Operator() != s.OperatorMod {
+		if delegate.(s.InfixNode).Operator() != operators.OperatorMod {
 			t.Error("Expected MOD operator")
 		}
 	})

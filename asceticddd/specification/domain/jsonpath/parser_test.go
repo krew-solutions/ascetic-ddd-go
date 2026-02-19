@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	spec "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 func TestNativeParser_SimpleComparisonGreaterThan(t *testing.T) {
@@ -956,7 +957,7 @@ func TestOperatorAssociativity_AndLeftAssociative(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode at top level, got %T", ast)
 	}
-	if topAnd.Operator() != spec.OperatorAnd {
+	if topAnd.Operator() != operators.OperatorAnd {
 		t.Errorf("expected AND operator, got %s", topAnd.Operator())
 	}
 
@@ -965,7 +966,7 @@ func TestOperatorAssociativity_AndLeftAssociative(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for left child, got %T", topAnd.Left())
 	}
-	if leftAnd.Operator() != spec.OperatorAnd {
+	if leftAnd.Operator() != operators.OperatorAnd {
 		t.Errorf("expected AND operator for inner, got %s", leftAnd.Operator())
 	}
 
@@ -974,7 +975,7 @@ func TestOperatorAssociativity_AndLeftAssociative(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for right child, got %T", topAnd.Right())
 	}
-	if rightEqual.Operator() != spec.OperatorEq {
+	if rightEqual.Operator() != operators.OperatorEq {
 		t.Errorf("expected EQ operator for right, got %s", rightEqual.Operator())
 	}
 
@@ -997,7 +998,7 @@ func TestOperatorAssociativity_OrLeftAssociative(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode at top level, got %T", ast)
 	}
-	if topOr.Operator() != spec.OperatorOr {
+	if topOr.Operator() != operators.OperatorOr {
 		t.Errorf("expected OR operator, got %s", topOr.Operator())
 	}
 
@@ -1006,7 +1007,7 @@ func TestOperatorAssociativity_OrLeftAssociative(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
 	}
-	if leftOr.Operator() != spec.OperatorOr {
+	if leftOr.Operator() != operators.OperatorOr {
 		t.Errorf("expected OR operator for inner, got %s", leftOr.Operator())
 	}
 
@@ -1015,7 +1016,7 @@ func TestOperatorAssociativity_OrLeftAssociative(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
 	}
-	if rightEqual.Operator() != spec.OperatorEq {
+	if rightEqual.Operator() != operators.OperatorEq {
 		t.Errorf("expected EQ operator for right, got %s", rightEqual.Operator())
 	}
 }
@@ -1031,7 +1032,7 @@ func TestOperatorAssociativity_MixedOperators(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode at top level, got %T", ast)
 	}
-	if topOr.Operator() != spec.OperatorOr {
+	if topOr.Operator() != operators.OperatorOr {
 		t.Errorf("expected OR operator, got %s", topOr.Operator())
 	}
 
@@ -1040,7 +1041,7 @@ func TestOperatorAssociativity_MixedOperators(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
 	}
-	if leftAnd.Operator() != spec.OperatorAnd {
+	if leftAnd.Operator() != operators.OperatorAnd {
 		t.Errorf("expected AND operator for left, got %s", leftAnd.Operator())
 	}
 
@@ -1048,7 +1049,7 @@ func TestOperatorAssociativity_MixedOperators(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
 	}
-	if rightAnd.Operator() != spec.OperatorAnd {
+	if rightAnd.Operator() != operators.OperatorAnd {
 		t.Errorf("expected AND operator for right, got %s", rightAnd.Operator())
 	}
 }
@@ -1069,7 +1070,7 @@ func TestOperatorPrecedence_AndHigherThanOr(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode at top level, got %T", ast)
 	}
-	if topOr.Operator() != spec.OperatorOr {
+	if topOr.Operator() != operators.OperatorOr {
 		t.Errorf("expected OR operator, got %s", topOr.Operator())
 	}
 
@@ -1078,7 +1079,7 @@ func TestOperatorPrecedence_AndHigherThanOr(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
 	}
-	if leftEqual.Operator() != spec.OperatorEq {
+	if leftEqual.Operator() != operators.OperatorEq {
 		t.Errorf("expected EQ operator for left, got %s", leftEqual.Operator())
 	}
 
@@ -1087,7 +1088,7 @@ func TestOperatorPrecedence_AndHigherThanOr(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
 	}
-	if rightAnd.Operator() != spec.OperatorAnd {
+	if rightAnd.Operator() != operators.OperatorAnd {
 		t.Errorf("expected AND operator for right, got %s", rightAnd.Operator())
 	}
 }
@@ -1103,7 +1104,7 @@ func TestOperatorPrecedence_AndHigherThanOrReverse(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode at top level, got %T", ast)
 	}
-	if topOr.Operator() != spec.OperatorOr {
+	if topOr.Operator() != operators.OperatorOr {
 		t.Errorf("expected OR operator, got %s", topOr.Operator())
 	}
 
@@ -1112,7 +1113,7 @@ func TestOperatorPrecedence_AndHigherThanOrReverse(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
 	}
-	if leftAnd.Operator() != spec.OperatorAnd {
+	if leftAnd.Operator() != operators.OperatorAnd {
 		t.Errorf("expected AND operator for left, got %s", leftAnd.Operator())
 	}
 
@@ -1121,7 +1122,7 @@ func TestOperatorPrecedence_AndHigherThanOrReverse(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
 	}
-	if rightEqual.Operator() != spec.OperatorEq {
+	if rightEqual.Operator() != operators.OperatorEq {
 		t.Errorf("expected EQ operator for right, got %s", rightEqual.Operator())
 	}
 }
@@ -1138,7 +1139,7 @@ func TestOperatorPrecedence_ParenthesesOverride(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode at top level, got %T", ast)
 	}
-	if topAnd.Operator() != spec.OperatorAnd {
+	if topAnd.Operator() != operators.OperatorAnd {
 		t.Errorf("expected AND operator, got %s", topAnd.Operator())
 	}
 
@@ -1147,7 +1148,7 @@ func TestOperatorPrecedence_ParenthesesOverride(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for left child, got %T", topAnd.Left())
 	}
-	if leftOr.Operator() != spec.OperatorOr {
+	if leftOr.Operator() != operators.OperatorOr {
 		t.Errorf("expected OR operator for left, got %s", leftOr.Operator())
 	}
 
@@ -1156,7 +1157,7 @@ func TestOperatorPrecedence_ParenthesesOverride(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for right child, got %T", topAnd.Right())
 	}
-	if rightEqual.Operator() != spec.OperatorEq {
+	if rightEqual.Operator() != operators.OperatorEq {
 		t.Errorf("expected EQ operator for right, got %s", rightEqual.Operator())
 	}
 }
@@ -1173,7 +1174,7 @@ func TestOperatorPrecedence_Complex(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode at top level, got %T", ast)
 	}
-	if topOr.Operator() != spec.OperatorOr {
+	if topOr.Operator() != operators.OperatorOr {
 		t.Errorf("expected OR operator, got %s", topOr.Operator())
 	}
 
@@ -1182,7 +1183,7 @@ func TestOperatorPrecedence_Complex(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for left child, got %T", topOr.Left())
 	}
-	if leftOr.Operator() != spec.OperatorOr {
+	if leftOr.Operator() != operators.OperatorOr {
 		t.Errorf("expected OR operator for left, got %s", leftOr.Operator())
 	}
 
@@ -1191,7 +1192,7 @@ func TestOperatorPrecedence_Complex(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for right child, got %T", topOr.Right())
 	}
-	if rightAnd.Operator() != spec.OperatorAnd {
+	if rightAnd.Operator() != operators.OperatorAnd {
 		t.Errorf("expected AND operator for right, got %s", rightAnd.Operator())
 	}
 
@@ -1200,7 +1201,7 @@ func TestOperatorPrecedence_Complex(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected InfixNode for leftOr.Right, got %T", leftOr.Right())
 	}
-	if leftOrRight.Operator() != spec.OperatorAnd {
+	if leftOrRight.Operator() != operators.OperatorAnd {
 		t.Errorf("expected AND operator for leftOr.Right, got %s", leftOrRight.Operator())
 	}
 }

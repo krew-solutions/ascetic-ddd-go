@@ -1,5 +1,7 @@
 package specification
 
+import "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
+
 type Associativity string
 
 const (
@@ -8,65 +10,9 @@ const (
 	NonAssociative   Associativity = "NON"
 )
 
-type Operator string
-
-const (
-	// Comparison
-
-	OperatorEq  Operator = "="
-	OperatorGt  Operator = ">"
-	OperatorLt  Operator = "<"
-	OperatorGte Operator = ">="
-	OperatorLte Operator = "<="
-	OperatorNe  Operator = "!="
-	OperatorIs  Operator = "IS"
-
-	// Logical operators
-
-	OperatorAnd Operator = "AND"
-	OperatorOr  Operator = "OR"
-	OperatorNot Operator = "NOT"
-
-	// Mathematical
-
-	OperatorAdd Operator = "+"
-	OperatorSub Operator = "-"
-	OperatorMul Operator = "*"
-	OperatorDiv Operator = "/"
-	OperatorMod Operator = "%"
-
-	OperatorPos Operator = "+pos"
-	OperatorNeg Operator = "-neg"
-
-	// Bitwise
-
-	OperatorLshift Operator = "<<"
-	OperatorRshift Operator = ">>"
-
-	// Postfix
-
-	OperatorIsNull    Operator = "IS NULL"
-	OperatorIsNotNull Operator = "IS NOT NULL"
-)
-
-var YieldBooleanOperators = []Operator{
-	OperatorEq,
-	OperatorGt,
-	OperatorLt,
-	OperatorGte,
-	OperatorLte,
-	OperatorNe,
-	OperatorIs,
-	OperatorAnd,
-	OperatorOr,
-	OperatorNot,
-	OperatorIsNull,
-	OperatorIsNotNull,
-}
-
 type Operable interface {
 	Associativity() Associativity
-	Operator() Operator
+	Operator() operators.Operator
 }
 
 type Visitable interface {
@@ -105,13 +51,13 @@ func (n ValueNode) Accept(v Visitor) error {
 
 func Not(operand Visitable) PrefixNode {
 	return PrefixNode{
-		operator:      OperatorNot,
+		operator:      operators.OperatorNot,
 		operand:       operand,
 		associativity: RightAssociative,
 	}
 }
 
-func NewPrefixNode(operator Operator, operand Visitable, associativity Associativity) PrefixNode {
+func NewPrefixNode(operator operators.Operator, operand Visitable, associativity Associativity) PrefixNode {
 	return PrefixNode{
 		operator:      operator,
 		operand:       operand,
@@ -120,7 +66,7 @@ func NewPrefixNode(operator Operator, operand Visitable, associativity Associati
 }
 
 type PrefixNode struct {
-	operator      Operator
+	operator      operators.Operator
 	operand       Visitable
 	associativity Associativity
 }
@@ -128,7 +74,7 @@ type PrefixNode struct {
 func (n PrefixNode) Operand() Visitable {
 	return n.operand
 }
-func (n PrefixNode) Operator() Operator {
+func (n PrefixNode) Operator() operators.Operator {
 	return n.operator
 }
 func (n PrefixNode) Associativity() Associativity {
@@ -141,7 +87,7 @@ func (n PrefixNode) Accept(v Visitor) error {
 func Equal(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorEq,
+		operator:      operators.OperatorEq,
 		right:         right,
 		associativity: NonAssociative,
 	}
@@ -150,7 +96,7 @@ func Equal(left, right Visitable) InfixNode {
 func NotEqual(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorNe,
+		operator:      operators.OperatorNe,
 		right:         right,
 		associativity: NonAssociative,
 	}
@@ -159,7 +105,7 @@ func NotEqual(left, right Visitable) InfixNode {
 func GreaterThan(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorGt,
+		operator:      operators.OperatorGt,
 		right:         right,
 		associativity: NonAssociative,
 	}
@@ -168,7 +114,7 @@ func GreaterThan(left, right Visitable) InfixNode {
 func GreaterThanEqual(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorGte,
+		operator:      operators.OperatorGte,
 		right:         right,
 		associativity: NonAssociative,
 	}
@@ -177,7 +123,7 @@ func GreaterThanEqual(left, right Visitable) InfixNode {
 func LessThan(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorLt,
+		operator:      operators.OperatorLt,
 		right:         right,
 		associativity: NonAssociative,
 	}
@@ -186,7 +132,7 @@ func LessThan(left, right Visitable) InfixNode {
 func LessThanEqual(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorLte,
+		operator:      operators.OperatorLte,
 		right:         right,
 		associativity: NonAssociative,
 	}
@@ -195,7 +141,7 @@ func LessThanEqual(left, right Visitable) InfixNode {
 func Is(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorIs,
+		operator:      operators.OperatorIs,
 		right:         right,
 		associativity: NonAssociative,
 	}
@@ -205,7 +151,7 @@ func And(left Visitable, rights ...Visitable) InfixNode {
 	left, right := foldRights(And, left, rights...)
 	return InfixNode{
 		left:          left,
-		operator:      OperatorAnd,
+		operator:      operators.OperatorAnd,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -215,7 +161,7 @@ func Or(left Visitable, rights ...Visitable) InfixNode {
 	left, right := foldRights(Or, left, rights...)
 	return InfixNode{
 		left:          left,
-		operator:      OperatorOr,
+		operator:      operators.OperatorOr,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -224,7 +170,7 @@ func Or(left Visitable, rights ...Visitable) InfixNode {
 func LeftShift(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorLshift,
+		operator:      operators.OperatorLshift,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -233,7 +179,7 @@ func LeftShift(left, right Visitable) InfixNode {
 func RightShift(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorRshift,
+		operator:      operators.OperatorRshift,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -242,7 +188,7 @@ func RightShift(left, right Visitable) InfixNode {
 func Add(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorAdd,
+		operator:      operators.OperatorAdd,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -251,7 +197,7 @@ func Add(left, right Visitable) InfixNode {
 func Sub(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorSub,
+		operator:      operators.OperatorSub,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -260,7 +206,7 @@ func Sub(left, right Visitable) InfixNode {
 func Mul(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorMul,
+		operator:      operators.OperatorMul,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -269,7 +215,7 @@ func Mul(left, right Visitable) InfixNode {
 func Div(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorDiv,
+		operator:      operators.OperatorDiv,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -278,7 +224,7 @@ func Div(left, right Visitable) InfixNode {
 func Mod(left, right Visitable) InfixNode {
 	return InfixNode{
 		left:          left,
-		operator:      OperatorMod,
+		operator:      operators.OperatorMod,
 		right:         right,
 		associativity: LeftAssociative,
 	}
@@ -296,7 +242,7 @@ func foldRights(
 	return aLeft, aRights[0]
 }
 
-func NewInfixNode(left Visitable, operator Operator, right Visitable, associativity Associativity) InfixNode {
+func NewInfixNode(left Visitable, operator operators.Operator, right Visitable, associativity Associativity) InfixNode {
 	return InfixNode{
 		left:          left,
 		operator:      operator,
@@ -307,7 +253,7 @@ func NewInfixNode(left Visitable, operator Operator, right Visitable, associativ
 
 type InfixNode struct {
 	left          Visitable
-	operator      Operator
+	operator      operators.Operator
 	right         Visitable
 	associativity Associativity
 }
@@ -316,7 +262,7 @@ func (n InfixNode) Left() Visitable {
 	return n.left
 }
 
-func (n InfixNode) Operator() Operator {
+func (n InfixNode) Operator() operators.Operator {
 	return n.operator
 }
 
@@ -335,7 +281,7 @@ func (n InfixNode) Accept(v Visitor) error {
 func IsNull(operand Visitable) PostfixNode {
 	return PostfixNode{
 		operand:       operand,
-		operator:      OperatorIsNull,
+		operator:      operators.OperatorIsNull,
 		associativity: NonAssociative,
 	}
 }
@@ -343,12 +289,12 @@ func IsNull(operand Visitable) PostfixNode {
 func IsNotNull(operand Visitable) PostfixNode {
 	return PostfixNode{
 		operand:       operand,
-		operator:      OperatorIsNotNull,
+		operator:      operators.OperatorIsNotNull,
 		associativity: NonAssociative,
 	}
 }
 
-func NewPostfixNode(operand Visitable, operator Operator, associativity Associativity) PostfixNode {
+func NewPostfixNode(operand Visitable, operator operators.Operator, associativity Associativity) PostfixNode {
 	return PostfixNode{
 		operand:       operand,
 		operator:      operator,
@@ -358,7 +304,7 @@ func NewPostfixNode(operand Visitable, operator Operator, associativity Associat
 
 type PostfixNode struct {
 	operand       Visitable
-	operator      Operator
+	operator      operators.Operator
 	associativity Associativity
 }
 
@@ -366,7 +312,7 @@ func (n PostfixNode) Operand() Visitable {
 	return n.operand
 }
 
-func (n PostfixNode) Operator() Operator {
+func (n PostfixNode) Operator() operators.Operator {
 	return n.operator
 }
 
@@ -521,4 +467,3 @@ func (n FieldNode) Object() EmptiableObject {
 func (n FieldNode) Accept(v Visitor) error {
 	return v.VisitField(n)
 }
-

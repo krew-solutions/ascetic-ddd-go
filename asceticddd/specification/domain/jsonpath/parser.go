@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	spec "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 // JSONPathError is the base error type for JSONPath parsing and evaluation errors.
@@ -830,7 +831,7 @@ func (p *NativeParametrizedSpecification) matchInternal(data spec.Context, param
 	boundAST := p.bindValuesInAST(p.ast, params, namedParams)
 
 	// Evaluate using EvaluateVisitor
-	visitor := spec.NewEvaluateVisitor(data)
+	visitor := spec.NewEvaluateVisitor(data, operators.NewDefaultRegistry())
 	err := boundAST.Accept(visitor)
 	if err != nil {
 		return false, err
