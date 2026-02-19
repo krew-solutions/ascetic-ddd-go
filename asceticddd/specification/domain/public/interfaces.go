@@ -19,6 +19,7 @@ type Nullable interface {
 // Logical represents a type that supports logical operations.
 type Logical interface {
 	Delegating
+	Not() Logical
 	And(other Logical) Logical
 	Or(other Logical) Logical
 	Is(other Logical) Logical

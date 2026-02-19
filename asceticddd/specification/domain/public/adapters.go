@@ -34,6 +34,11 @@ func NewLogical(delegate s.Visitable) LogicalImp {
 	return LogicalImp{DelegatingImp: NewDelegating(delegate)}
 }
 
+// Not creates a NOT operation.
+func (l LogicalImp) Not() Logical {
+	return NewLogical(s.Not(l.Delegate()))
+}
+
 // And creates an AND operation.
 func (l LogicalImp) And(other Logical) Logical {
 	return NewLogical(s.And(l.Delegate(), other.Delegate()))
