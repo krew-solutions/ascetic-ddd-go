@@ -1,63 +1,78 @@
 package identitymap
 
-import (
-	"errors"
+// IsolationLevel controls how the identity map caches objects.
+type IsolationLevel int
 
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/identitymap/collections"
+const (
+	ReadUncommitted IsolationLevel = iota // Identity map is disabled
+	ReadCommitted                         // Identity map is disabled
+	RepeatableReads                       // Prevents repeated queries for existent objects only
+	Serializable                          // Prevents repeated queries for both existent and nonexistent objects
 )
 
-var (
-	ErrObjectAlreadyWatched = errors.New("")
-	ErrObjectNotFound       = errors.New("")
-)
-
-type IdentityMap[K comparable, V any] struct {
-	manageable collections.ReplacingMap[K, V]
-	isolation  IsolationStrategy[K, V]
+// IdentityMap tracks entity instances to ensure each entity is loaded only once per session.
+type IdentityMap struct {
+	cache    *lruCache
+	strategy isolationStrategy
 }
 
-func NewIdentityMap[K comparable, V any](size uint) *IdentityMap[K, V] {
-	manageable := collections.NewReplacingMap[K, V](size)
-	isolation := serializableStrategy[K, V]{manageable: manageable}
-
-	return &IdentityMap[K, V]{
-		manageable: manageable,
-		isolation:  &isolation,
-	}
+func New(cacheSize int, level IsolationLevel) *IdentityMap {
+	cache := newLruCache(cacheSize)
+	m := &IdentityMap{cache: cache}
+	m.SetIsolationLevel(level)
+	return m
 }
 
-func (im *IdentityMap[K, V]) Add(key K, object V) (bool, error) {
-	if err := im.isolation.add(key, object); err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
-
-func (im *IdentityMap[K, V]) Get(key K) (object V, err error) {
-	return im.isolation.get(key)
-}
-
-func (im *IdentityMap[K, V]) Has(key K) bool {
-	return im.isolation.has(key)
-}
-
-func (im *IdentityMap[K, V]) SetSize(size uint) {
-	im.manageable.SetSize(size)
-}
-
-func (im *IdentityMap[K, V]) SetIsolationLevel(level IsolationLevel) {
-
+func (m *IdentityMap) SetIsolationLevel(level IsolationLevel) {
 	switch level {
 	case ReadUncommitted:
-		im.isolation = &readUncommittedStrategy[K, V]{manageable: im.manageable}
-	case RepeatableReads:
-		im.isolation = &repeatableReadsStrategy[K, V]{manageable: im.manageable}
-	case Serializable:
-		im.isolation = &serializableStrategy[K, V]{manageable: im.manageable}
+		m.strategy = &readUncommittedStrategy{}
 	case ReadCommitted:
-		im.isolation = &readCommittedStrategy[K, V]{manageable: im.manageable}
+		m.strategy = &readCommittedStrategy{}
+	case RepeatableReads:
+		m.strategy = &repeatableReadsStrategy{cache: m.cache}
+	case Serializable:
+		m.strategy = &serializableStrategy{cache: m.cache}
 	default:
-		im.isolation = &serializableStrategy[K, V]{manageable: im.manageable}
+		m.strategy = &serializableStrategy{cache: m.cache}
 	}
+}
+
+func (m *IdentityMap) SetSize(size int) {
+	m.cache.setSize(size)
+}
+
+func (m *IdentityMap) Clear() {
+	m.cache.clear()
+}
+
+// Add stores a found object in the identity map.
+func Add[V any](m *IdentityMap, key IdentityKey[V], value V) {
+	m.strategy.add(key, value)
+}
+
+// AddAbsent records that the key was queried but does not exist.
+// Only effective with Serializable isolation level.
+func AddAbsent[V any](m *IdentityMap, key IdentityKey[V]) {
+	m.strategy.addAbsent(key)
+}
+
+// Get retrieves a previously stored object by its key.
+func Get[V any](m *IdentityMap, key IdentityKey[V]) (V, error) {
+	result, err := m.strategy.get(key)
+	if err != nil {
+		var zero V
+		return zero, err
+	}
+	return result.(V), nil
+}
+
+// Has checks whether the key exists in the identity map.
+func Has[V any](m *IdentityMap, key IdentityKey[V]) bool {
+	return m.strategy.has(key)
+}
+
+// Remove removes an object from the identity map.
+func Remove[V any](m *IdentityMap, key IdentityKey[V]) {
+	m.cache.remove(key)
 }

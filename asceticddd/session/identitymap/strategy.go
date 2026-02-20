@@ -1,91 +1,92 @@
 package identitymap
 
-import (
-	"errors"
+type nonexistentObject struct{}
 
-	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/identitymap/collections"
-)
+var nonexistent = &nonexistentObject{}
 
-type IsolationLevel uint
-
-const (
-	ReadUncommitted IsolationLevel = iota
-	ReadCommitted                  = iota
-	RepeatableReads                = iota
-	Serializable                   = iota
-)
-
-var (
-	ErrNonexistentObject          = errors.New("")
-	ErrDeniedOperationForStrategy = errors.New("")
-)
-
-type IsolationStrategy[K comparable, V any] interface {
-	add(key K, object V) error
-	get(key K) (V, error)
-	has(key K) bool
+type isolationStrategy interface {
+	add(key any, value any)
+	addAbsent(key any)
+	get(key any) (any, error)
+	has(key any) bool
 }
 
-type readUncommittedStrategy[K comparable, V any] struct {
-	manageable collections.ReplacingMap[K, V]
+// readUncommittedStrategy — identity map is disabled.
+type readUncommittedStrategy struct{}
+
+func (s *readUncommittedStrategy) add(any, any)    {}
+func (s *readUncommittedStrategy) addAbsent(any)   {}
+func (s *readUncommittedStrategy) has(any) bool     { return false }
+func (s *readUncommittedStrategy) get(any) (any, error) {
+	return nil, ErrKeyNotFound
 }
 
-func (r *readUncommittedStrategy[K, V]) add(key K, object V) error {
-	return nil
+// readCommittedStrategy — identity map is disabled.
+type readCommittedStrategy struct{}
+
+func (s *readCommittedStrategy) add(any, any)    {}
+func (s *readCommittedStrategy) addAbsent(any)   {}
+func (s *readCommittedStrategy) has(any) bool     { return false }
+func (s *readCommittedStrategy) get(any) (any, error) {
+	return nil, ErrKeyNotFound
 }
 
-func (r *readUncommittedStrategy[K, V]) get(key K) (object V, err error) {
-	return object, ErrDeniedOperationForStrategy
+// repeatableReadsStrategy — caches existent objects only.
+type repeatableReadsStrategy struct {
+	cache *lruCache
 }
 
-func (r *readUncommittedStrategy[K, V]) has(key K) bool {
-	return false
+func (s *repeatableReadsStrategy) add(key any, value any) {
+	s.cache.add(key, value)
 }
 
-type readCommittedStrategy[K comparable, V any] struct {
-	manageable collections.ReplacingMap[K, V]
+func (s *repeatableReadsStrategy) addAbsent(any) {}
+
+func (s *repeatableReadsStrategy) get(key any) (any, error) {
+	value, ok := s.cache.get(key)
+	if !ok {
+		return nil, ErrKeyNotFound
+	}
+	if _, isNonexistent := value.(*nonexistentObject); isNonexistent {
+		return nil, ErrKeyNotFound
+	}
+	return value, nil
 }
 
-func (r *readCommittedStrategy[K, V]) add(key K, object V) error {
-	return nil
+func (s *repeatableReadsStrategy) has(key any) bool {
+	value, ok := s.cache.get(key)
+	if !ok {
+		return false
+	}
+	_, isNonexistent := value.(*nonexistentObject)
+	return !isNonexistent
 }
 
-func (r *readCommittedStrategy[K, V]) get(key K) (object V, err error) {
-	return object, nil
+// serializableStrategy — caches both existent and nonexistent objects.
+type serializableStrategy struct {
+	cache *lruCache
 }
 
-func (r *readCommittedStrategy[K, V]) has(key K) bool {
-	return false
+func (s *serializableStrategy) add(key any, value any) {
+	s.cache.add(key, value)
 }
 
-type repeatableReadsStrategy[K comparable, V any] struct {
-	manageable collections.ReplacingMap[K, V]
+func (s *serializableStrategy) addAbsent(key any) {
+	s.cache.add(key, nonexistent)
 }
 
-func (r *repeatableReadsStrategy[K, V]) add(key K, object V) error {
-	return nil
+func (s *serializableStrategy) get(key any) (any, error) {
+	value, ok := s.cache.get(key)
+	if !ok {
+		return nil, ErrKeyNotFound
+	}
+	if _, isNonexistent := value.(*nonexistentObject); isNonexistent {
+		return nil, ErrObjectNotFound
+	}
+	return value, nil
 }
 
-func (r *repeatableReadsStrategy[K, V]) get(key K) (V, error) {
-	return r.manageable.Get(key)
-}
-
-func (r *repeatableReadsStrategy[K, V]) has(key K) bool {
-	return r.manageable.Has(key)
-}
-
-type serializableStrategy[K comparable, V any] struct {
-	manageable collections.ReplacingMap[K, V]
-}
-
-func (s *serializableStrategy[K, V]) add(key K, object V) error {
-	return nil
-}
-
-func (s *serializableStrategy[K, V]) get(key K) (V, error) {
-	return s.manageable.Get(key)
-}
-
-func (s *serializableStrategy[K, V]) has(key K) bool {
-	return s.manageable.Has(key)
+func (s *serializableStrategy) has(key any) bool {
+	_, ok := s.cache.get(key)
+	return ok
 }
