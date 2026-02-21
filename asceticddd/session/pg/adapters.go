@@ -43,3 +43,15 @@ func (r *rowAdapter) Scan(dest ...any) error {
 	}
 	return err
 }
+
+type errorRow struct {
+	err error
+}
+
+func (r *errorRow) Err() error {
+	return r.err
+}
+
+func (r *errorRow) Scan(...any) error {
+	return r.err
+}

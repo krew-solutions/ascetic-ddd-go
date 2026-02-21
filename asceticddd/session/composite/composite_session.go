@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/signals"
 )
 
 type CompositeSession struct {
@@ -16,6 +17,22 @@ func NewCompositeSession(delegates []session.Session) *CompositeSession {
 
 func (s *CompositeSession) Context() context.Context {
 	return s.delegates[0].Context()
+}
+
+func (s *CompositeSession) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+	delegates := make([]signals.Signal[session.SessionScopeStartedEvent], len(s.delegates))
+	for i, d := range s.delegates {
+		delegates[i] = d.OnStarted()
+	}
+	return signals.NewCompositeSignal(delegates...)
+}
+
+func (s *CompositeSession) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+	delegates := make([]signals.Signal[session.SessionScopeEndedEvent], len(s.delegates))
+	for i, d := range s.delegates {
+		delegates[i] = d.OnEnded()
+	}
+	return signals.NewCompositeSignal(delegates...)
 }
 
 func (s *CompositeSession) Atomic(callback session.SessionCallback) error {

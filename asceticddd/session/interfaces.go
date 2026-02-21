@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/identitymap"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/signals"
 )
 
 type SessionCallback func(Session) error
@@ -11,12 +12,16 @@ type SessionCallback func(Session) error
 type Session interface {
 	Context() context.Context
 	Atomic(SessionCallback) error
+	OnStarted() signals.Signal[SessionScopeStartedEvent]
+	OnEnded() signals.Signal[SessionScopeEndedEvent]
 }
 
 type SessionPoolCallback func(Session) error
 
 type SessionPool interface {
 	Session(context.Context, SessionPoolCallback) error
+	OnSessionStarted() signals.Signal[SessionScopeStartedEvent]
+	OnSessionEnded() signals.Signal[SessionScopeEndedEvent]
 }
 
 // Db
@@ -60,6 +65,8 @@ type DbSession interface {
 	Session
 	Connection() DbConnection
 	IdentityMap() *identitymap.IdentityMap
+	OnQueryStarted() signals.Signal[QueryStartedEvent]
+	OnQueryEnded() signals.Signal[QueryEndedEvent]
 }
 
 type QueryEvaluator interface {

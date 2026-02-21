@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/identitymap"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/signals"
 )
 
 // Mock implementations
@@ -88,7 +90,12 @@ func (e *noRowsError) Error() string {
 }
 
 type mockDbSession struct {
-	connection *mockConnection
+	connection     *mockConnection
+	identityMap    *identitymap.IdentityMap
+	onStarted      signals.Signal[session.SessionScopeStartedEvent]
+	onEnded        signals.Signal[session.SessionScopeEndedEvent]
+	onQueryStarted signals.Signal[session.QueryStartedEvent]
+	onQueryEnded   signals.Signal[session.QueryEndedEvent]
 }
 
 func (m *mockDbSession) Context() context.Context {
@@ -103,12 +110,63 @@ func (m *mockDbSession) Atomic(callback session.SessionCallback) error {
 	return callback(m)
 }
 
+func (m *mockDbSession) IdentityMap() *identitymap.IdentityMap {
+	if m.identityMap == nil {
+		m.identityMap = identitymap.New(100, identitymap.ReadUncommitted)
+	}
+	return m.identityMap
+}
+
+func (m *mockDbSession) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+	if m.onStarted == nil {
+		m.onStarted = signals.NewSignal[session.SessionScopeStartedEvent]()
+	}
+	return m.onStarted
+}
+
+func (m *mockDbSession) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+	if m.onEnded == nil {
+		m.onEnded = signals.NewSignal[session.SessionScopeEndedEvent]()
+	}
+	return m.onEnded
+}
+
+func (m *mockDbSession) OnQueryStarted() signals.Signal[session.QueryStartedEvent] {
+	if m.onQueryStarted == nil {
+		m.onQueryStarted = signals.NewSignal[session.QueryStartedEvent]()
+	}
+	return m.onQueryStarted
+}
+
+func (m *mockDbSession) OnQueryEnded() signals.Signal[session.QueryEndedEvent] {
+	if m.onQueryEnded == nil {
+		m.onQueryEnded = signals.NewSignal[session.QueryEndedEvent]()
+	}
+	return m.onQueryEnded
+}
+
 type mockSessionPool struct {
-	session *mockDbSession
+	session          *mockDbSession
+	onSessionStarted signals.Signal[session.SessionScopeStartedEvent]
+	onSessionEnded   signals.Signal[session.SessionScopeEndedEvent]
 }
 
 func (m *mockSessionPool) Session(ctx context.Context, callback session.SessionPoolCallback) error {
 	return callback(m.session)
+}
+
+func (m *mockSessionPool) OnSessionStarted() signals.Signal[session.SessionScopeStartedEvent] {
+	if m.onSessionStarted == nil {
+		m.onSessionStarted = signals.NewSignal[session.SessionScopeStartedEvent]()
+	}
+	return m.onSessionStarted
+}
+
+func (m *mockSessionPool) OnSessionEnded() signals.Signal[session.SessionScopeEndedEvent] {
+	if m.onSessionEnded == nil {
+		m.onSessionEnded = signals.NewSignal[session.SessionScopeEndedEvent]()
+	}
+	return m.onSessionEnded
 }
 
 func (m *mockSessionPool) Close() {}

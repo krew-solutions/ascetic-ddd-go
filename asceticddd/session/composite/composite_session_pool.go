@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/signals"
 )
 
 type CompositeSessionPool struct {
@@ -12,6 +13,22 @@ type CompositeSessionPool struct {
 
 func NewCompositeSessionPool(delegates ...session.SessionPool) *CompositeSessionPool {
 	return &CompositeSessionPool{delegates: delegates}
+}
+
+func (p *CompositeSessionPool) OnSessionStarted() signals.Signal[session.SessionScopeStartedEvent] {
+	delegates := make([]signals.Signal[session.SessionScopeStartedEvent], len(p.delegates))
+	for i, d := range p.delegates {
+		delegates[i] = d.OnSessionStarted()
+	}
+	return signals.NewCompositeSignal(delegates...)
+}
+
+func (p *CompositeSessionPool) OnSessionEnded() signals.Signal[session.SessionScopeEndedEvent] {
+	delegates := make([]signals.Signal[session.SessionScopeEndedEvent], len(p.delegates))
+	for i, d := range p.delegates {
+		delegates[i] = d.OnSessionEnded()
+	}
+	return signals.NewCompositeSignal(delegates...)
 }
 
 func (p *CompositeSessionPool) Session(ctx context.Context, callback session.SessionPoolCallback) error {

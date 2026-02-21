@@ -6,22 +6,34 @@ import (
 	"errors"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/identitymap"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/result"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/signals"
 )
 
 func NewDbSessionStub(rows *RowsStub) *DbSessionStub {
 	stub := &DbSessionStub{
-		Rows: rows,
+		Rows:           rows,
+		identityMap:    identitymap.New(100, identitymap.ReadUncommitted),
+		onStarted:      signals.NewSignal[session.SessionScopeStartedEvent](),
+		onEnded:        signals.NewSignal[session.SessionScopeEndedEvent](),
+		onQueryStarted: signals.NewSignal[session.QueryStartedEvent](),
+		onQueryEnded:   signals.NewSignal[session.QueryEndedEvent](),
 	}
 	stub.conn = &connectionStub{session: stub}
 	return stub
 }
 
 type DbSessionStub struct {
-	Rows         *RowsStub
-	ActualQuery  string
-	ActualParams []any
-	conn         *connectionStub
+	Rows           *RowsStub
+	ActualQuery    string
+	ActualParams   []any
+	conn           *connectionStub
+	identityMap    *identitymap.IdentityMap
+	onStarted      signals.Signal[session.SessionScopeStartedEvent]
+	onEnded        signals.Signal[session.SessionScopeEndedEvent]
+	onQueryStarted signals.Signal[session.QueryStartedEvent]
+	onQueryEnded   signals.Signal[session.QueryEndedEvent]
 }
 
 func (s *DbSessionStub) Context() context.Context {
@@ -34,6 +46,26 @@ func (s *DbSessionStub) Atomic(callback session.SessionCallback) error {
 
 func (s *DbSessionStub) Connection() session.DbConnection {
 	return s.conn
+}
+
+func (s *DbSessionStub) IdentityMap() *identitymap.IdentityMap {
+	return s.identityMap
+}
+
+func (s *DbSessionStub) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+	return s.onStarted
+}
+
+func (s *DbSessionStub) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+	return s.onEnded
+}
+
+func (s *DbSessionStub) OnQueryStarted() signals.Signal[session.QueryStartedEvent] {
+	return s.onQueryStarted
+}
+
+func (s *DbSessionStub) OnQueryEnded() signals.Signal[session.QueryEndedEvent] {
+	return s.onQueryEnded
 }
 
 type connectionStub struct {

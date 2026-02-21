@@ -7,12 +7,15 @@ import (
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/deferred"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/result"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/signals"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
 )
 
 func NewQueryCollector() *QueryCollector {
 	r := &QueryCollector{
 		multiQueryMap: make(map[string]MultiQuerier),
+		onStarted:     signals.NewSignal[session.SessionScopeStartedEvent](),
+		onEnded:       signals.NewSignal[session.SessionScopeEndedEvent](),
 	}
 	r.conn = &connectionCollector{collector: r}
 	return r
@@ -26,6 +29,8 @@ type MultiQuerier interface {
 type QueryCollector struct {
 	multiQueryMap map[string]MultiQuerier
 	conn          *connectionCollector
+	onStarted     signals.Signal[session.SessionScopeStartedEvent]
+	onEnded       signals.Signal[session.SessionScopeEndedEvent]
 }
 
 func (c *QueryCollector) Context() context.Context {
@@ -34,6 +39,14 @@ func (c *QueryCollector) Context() context.Context {
 
 func (c *QueryCollector) Atomic(callback session.SessionCallback) error {
 	return callback(c)
+}
+
+func (c *QueryCollector) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+	return c.onStarted
+}
+
+func (c *QueryCollector) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+	return c.onEnded
 }
 
 func (c *QueryCollector) Connection() DeferredDbConnection {
