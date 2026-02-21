@@ -13,6 +13,7 @@ require (
 require (
 	github.com/corpix/uarand v0.0.0-20170723150923-031be390f409 // indirect
 	github.com/jackc/puddle/v2 v2.2.0 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	golang.org/x/sync v0.1.0 // indirect
 )

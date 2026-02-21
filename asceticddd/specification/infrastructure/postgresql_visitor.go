@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jinzhu/inflection"
+
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
@@ -320,23 +322,11 @@ func (v *PostgresqlVisitor) extractCollectionPath(n s.CollectionNode) string {
 }
 
 // extractCollectionName extracts the collection name for alias generation
-// e.g., "Items" -> "item", "Categories" -> "categorie" (will be singularized by caller)
+// e.g., "Items" -> "item", "Categories" -> "category", "Series" -> "series"
 func (v *PostgresqlVisitor) extractCollectionName(n s.CollectionNode) string {
-	// Get the immediate parent's name (the collection field name)
 	parent := n.Parent()
 	if !parent.IsRoot() {
-		name := parent.Name()
-		// Simple singularization: remove trailing 's' if present
-		if len(name) > 1 && (name[len(name)-1] == 's' || name[len(name)-1] == 'S') {
-			// Handle common cases: Items -> item, Categories -> category
-			if strings.HasSuffix(strings.ToLower(name), "ies") {
-				// Categories -> category
-				return name[:len(name)-3] + "y"
-			}
-			// Items -> item, Regions -> region
-			return name[:len(name)-1]
-		}
-		return name
+		return inflection.Singular(parent.Name())
 	}
 	return "item" // fallback
 }
