@@ -44,10 +44,13 @@ func (s *SignalImp[E]) Detach(observer Observer[E], observerId ...any) {
 	}
 }
 
-func (s *SignalImp[E]) Notify(event E) {
+func (s *SignalImp[E]) Notify(event E) error {
 	for _, e := range s.observers {
-		e.observer(event)
+		if err := e.observer(event); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func resolveId[E any](observer Observer[E], observerId []any) any {

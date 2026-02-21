@@ -26,8 +26,11 @@ func (s *CompositeSignalImp[E]) Detach(observer Observer[E], observerId ...any) 
 	}
 }
 
-func (s *CompositeSignalImp[E]) Notify(event E) {
+func (s *CompositeSignalImp[E]) Notify(event E) error {
 	for _, delegate := range s.delegates {
-		delegate.Notify(event)
+		if err := delegate.Notify(event); err != nil {
+			return err
+		}
 	}
+	return nil
 }

@@ -4,10 +4,10 @@ import (
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/disposable"
 )
 
-type Observer[E any] func(E)
+type Observer[E any] func(E) error
 
 type Signal[E any] interface {
 	Attach(observer Observer[E], observerId ...any) disposable.Disposable
 	Detach(observer Observer[E], observerId ...any)
-	Notify(event E)
+	Notify(event E) error
 }
