@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/identitymap"
 )
 
 type SessionCallback func(Session) error
@@ -57,6 +59,7 @@ type DbConnection interface {
 type DbSession interface {
 	Session
 	Connection() DbConnection
+	IdentityMap() *identitymap.IdentityMap
 }
 
 type QueryEvaluator interface {

@@ -10,22 +10,27 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/identitymap"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/result"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils"
 )
 
+const defaultCacheSize = 100
+
 // Session represents a database session without transaction
 type Session struct {
-	ctx    context.Context
-	conn   *pgxpool.Conn
-	parent session.Session
+	ctx         context.Context
+	conn        *pgxpool.Conn
+	parent      session.Session
+	identityMap *identitymap.IdentityMap
 }
 
 func NewSession(ctx context.Context, conn *pgxpool.Conn) *Session {
 	return &Session{
-		ctx:    ctx,
-		conn:   conn,
-		parent: nil,
+		ctx:         ctx,
+		conn:        conn,
+		parent:      nil,
+		identityMap: identitymap.New(defaultCacheSize, identitymap.ReadUncommitted),
 	}
 }
 
@@ -37,16 +42,22 @@ func (s *Session) Connection() session.DbConnection {
 	return &connection{ctx: s.ctx, exec: s.conn}
 }
 
+func (s *Session) IdentityMap() *identitymap.IdentityMap {
+	return s.identityMap
+}
+
 func (s *Session) Atomic(callback session.SessionCallback) error {
-	// Start new transaction
 	tx, err := s.conn.Begin(s.ctx)
 	if err != nil {
 		return errors.Wrap(err, "unable to start transaction")
 	}
 
-	atomicSession := NewAtomicSession(s.ctx, tx, s)
+	im := identitymap.New(defaultCacheSize, identitymap.Serializable)
+	atomicSession := NewAtomicSession(s.ctx, tx, im, s)
 
 	err = callback(atomicSession)
+	im.Clear()
+
 	if err != nil {
 		if txErr := tx.Rollback(s.ctx); txErr != nil {
 			return multierror.Append(err, txErr)
@@ -63,16 +74,18 @@ func (s *Session) Atomic(callback session.SessionCallback) error {
 
 // AtomicSession represents a session inside transaction
 type AtomicSession struct {
-	ctx    context.Context
-	tx     pgx.Tx
-	parent session.Session
+	ctx         context.Context
+	tx          pgx.Tx
+	parent      session.Session
+	identityMap *identitymap.IdentityMap
 }
 
-func NewAtomicSession(ctx context.Context, tx pgx.Tx, parent session.Session) *AtomicSession {
+func NewAtomicSession(ctx context.Context, tx pgx.Tx, identityMap *identitymap.IdentityMap, parent session.Session) *AtomicSession {
 	return &AtomicSession{
-		ctx:    ctx,
-		tx:     tx,
-		parent: parent,
+		ctx:         ctx,
+		tx:          tx,
+		parent:      parent,
+		identityMap: identityMap,
 	}
 }
 
@@ -84,14 +97,17 @@ func (s *AtomicSession) Connection() session.DbConnection {
 	return &connection{ctx: s.ctx, exec: s.tx}
 }
 
+func (s *AtomicSession) IdentityMap() *identitymap.IdentityMap {
+	return s.identityMap
+}
+
 func (s *AtomicSession) Atomic(callback session.SessionCallback) error {
-	// Create savepoint (nested transaction)
 	nestedTx, err := s.tx.Begin(s.ctx)
 	if err != nil {
 		return errors.Wrap(err, "unable to start savepoint")
 	}
 
-	atomicSession := NewAtomicSession(s.ctx, nestedTx, s)
+	atomicSession := NewAtomicSession(s.ctx, nestedTx, s.identityMap, s)
 
 	err = callback(atomicSession)
 	if err != nil {
