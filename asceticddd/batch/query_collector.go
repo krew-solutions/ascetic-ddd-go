@@ -41,11 +41,11 @@ func (c *QueryCollector) Atomic(callback session.SessionCallback) error {
 	return callback(c)
 }
 
-func (c *QueryCollector) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+func (c *QueryCollector) OnAtomicStarted() signals.Signal[session.SessionScopeStartedEvent] {
 	return c.onStarted
 }
 
-func (c *QueryCollector) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+func (c *QueryCollector) OnAtomicEnded() signals.Signal[session.SessionScopeEndedEvent] {
 	return c.onEnded
 }
 

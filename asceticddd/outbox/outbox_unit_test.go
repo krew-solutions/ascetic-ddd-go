@@ -154,14 +154,14 @@ func (m *mockDbSession) IdentityMap() *identitymap.IdentityMap {
 	return m.identityMap
 }
 
-func (m *mockDbSession) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+func (m *mockDbSession) OnAtomicStarted() signals.Signal[session.SessionScopeStartedEvent] {
 	if m.onStarted == nil {
 		m.onStarted = signals.NewSignal[session.SessionScopeStartedEvent]()
 	}
 	return m.onStarted
 }
 
-func (m *mockDbSession) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+func (m *mockDbSession) OnAtomicEnded() signals.Signal[session.SessionScopeEndedEvent] {
 	if m.onEnded == nil {
 		m.onEnded = signals.NewSignal[session.SessionScopeEndedEvent]()
 	}

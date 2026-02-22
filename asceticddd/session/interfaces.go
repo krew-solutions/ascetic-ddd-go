@@ -12,8 +12,8 @@ type SessionCallback func(Session) error
 type Session interface {
 	Context() context.Context
 	Atomic(SessionCallback) error
-	OnStarted() signals.Signal[SessionScopeStartedEvent]
-	OnEnded() signals.Signal[SessionScopeEndedEvent]
+	OnAtomicStarted() signals.Signal[SessionScopeStartedEvent]
+	OnAtomicEnded() signals.Signal[SessionScopeEndedEvent]
 }
 
 type SessionPoolCallback func(Session) error

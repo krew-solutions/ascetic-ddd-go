@@ -62,11 +62,11 @@ func (s *Session) IdentityMap() *identitymap.IdentityMap {
 	return s.identityMap
 }
 
-func (s *Session) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+func (s *Session) OnAtomicStarted() signals.Signal[session.SessionScopeStartedEvent] {
 	return s.onStarted
 }
 
-func (s *Session) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+func (s *Session) OnAtomicEnded() signals.Signal[session.SessionScopeEndedEvent] {
 	return s.onEnded
 }
 
@@ -158,11 +158,11 @@ func (s *AtomicSession) IdentityMap() *identitymap.IdentityMap {
 	return s.identityMap
 }
 
-func (s *AtomicSession) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+func (s *AtomicSession) OnAtomicStarted() signals.Signal[session.SessionScopeStartedEvent] {
 	return s.onStarted
 }
 
-func (s *AtomicSession) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+func (s *AtomicSession) OnAtomicEnded() signals.Signal[session.SessionScopeEndedEvent] {
 	return s.onEnded
 }
 

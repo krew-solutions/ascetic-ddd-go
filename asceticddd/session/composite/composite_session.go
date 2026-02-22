@@ -19,18 +19,18 @@ func (s *CompositeSession) Context() context.Context {
 	return s.delegates[0].Context()
 }
 
-func (s *CompositeSession) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+func (s *CompositeSession) OnAtomicStarted() signals.Signal[session.SessionScopeStartedEvent] {
 	delegates := make([]signals.Signal[session.SessionScopeStartedEvent], len(s.delegates))
 	for i, d := range s.delegates {
-		delegates[i] = d.OnStarted()
+		delegates[i] = d.OnAtomicStarted()
 	}
 	return signals.NewCompositeSignal(delegates...)
 }
 
-func (s *CompositeSession) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+func (s *CompositeSession) OnAtomicEnded() signals.Signal[session.SessionScopeEndedEvent] {
 	delegates := make([]signals.Signal[session.SessionScopeEndedEvent], len(s.delegates))
 	for i, d := range s.delegates {
-		delegates[i] = d.OnEnded()
+		delegates[i] = d.OnAtomicEnded()
 	}
 	return signals.NewCompositeSignal(delegates...)
 }

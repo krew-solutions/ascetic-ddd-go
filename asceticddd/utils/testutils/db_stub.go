@@ -52,11 +52,11 @@ func (s *DbSessionStub) IdentityMap() *identitymap.IdentityMap {
 	return s.identityMap
 }
 
-func (s *DbSessionStub) OnStarted() signals.Signal[session.SessionScopeStartedEvent] {
+func (s *DbSessionStub) OnAtomicStarted() signals.Signal[session.SessionScopeStartedEvent] {
 	return s.onStarted
 }
 
-func (s *DbSessionStub) OnEnded() signals.Signal[session.SessionScopeEndedEvent] {
+func (s *DbSessionStub) OnAtomicEnded() signals.Signal[session.SessionScopeEndedEvent] {
 	return s.onEnded
 }
 
