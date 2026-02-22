@@ -30,7 +30,7 @@ func setupDekStoreIntegrationTest(t *testing.T) (*PgDekStore, *kms.PgKeyManageme
 	}
 
 	keyManagement := kms.NewPgKeyManagementService(masterKey)
-	keyManagement.SetTable("kms_keys_test")
+	keyManagement.SetTable("kms_keys_dek_test")
 
 	dekStore := NewDekStore(keyManagement)
 	dekStore.table = "stream_deks_test"
@@ -45,7 +45,7 @@ func setupDekStoreIntegrationTest(t *testing.T) (*PgDekStore, *kms.PgKeyManageme
 				return err
 			}
 			conn := txSession.(session.DbSession).Connection()
-			_, err := conn.Exec("TRUNCATE TABLE kms_keys_test")
+			_, err := conn.Exec("TRUNCATE TABLE kms_keys_dek_test")
 			if err != nil {
 				return err
 			}
@@ -63,7 +63,7 @@ func setupDekStoreIntegrationTest(t *testing.T) (*PgDekStore, *kms.PgKeyManageme
 			return s.Atomic(func(txSession session.Session) error {
 				conn := txSession.(session.DbSession).Connection()
 				_, _ = conn.Exec("DROP TABLE IF EXISTS stream_deks_test")
-				_, _ = conn.Exec("DROP TABLE IF EXISTS kms_keys_test")
+				_, _ = conn.Exec("DROP TABLE IF EXISTS kms_keys_dek_test")
 				return nil
 			})
 		})
