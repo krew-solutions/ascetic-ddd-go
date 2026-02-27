@@ -19,6 +19,10 @@ import (
 
 const defaultCacheSize = 100
 
+func ExtractConnection(s session.Session) session.DbConnection {
+	return s.(session.DbSession).Connection()
+}
+
 // Session represents a database session without transaction
 type Session struct {
 	ctx            context.Context

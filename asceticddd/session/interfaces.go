@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/identitymap"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/signals"
@@ -67,6 +68,14 @@ type DbSession interface {
 	IdentityMap() *identitymap.IdentityMap
 	OnQueryStarted() signals.Signal[QueryStartedEvent]
 	OnQueryEnded() signals.Signal[QueryEndedEvent]
+}
+
+type RestSession interface {
+	Session
+	HttpClient() *http.Client
+	IdentityMap() *identitymap.IdentityMap
+	OnRequestStarted() signals.Signal[RequestStartedEvent]
+	OnRequestEnded() signals.Signal[RequestEndedEvent]
 }
 
 type QueryEvaluator interface {
