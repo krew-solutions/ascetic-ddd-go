@@ -3,6 +3,7 @@ package query
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
@@ -109,12 +110,11 @@ func (w *EvaluateWalker) evaluateComposite(
 	query CompositeQuery,
 	state any,
 ) (bool, error) {
-	stateMap, ok := state.(map[string]any)
-	if !ok {
+	if !isStructLike(state) {
 		return false, nil
 	}
 	for field, fieldOp := range query.Fields {
-		fieldValue := stateMap[field]
+		fieldValue, _ := getFieldValue(state, field)
 		result, err := w.evaluateField(s, field, fieldOp, fieldValue)
 		if err != nil {
 			return false, err
@@ -210,12 +210,11 @@ func (w *EvaluateWalker) evaluateCompositeSync(
 	query CompositeQuery,
 	state any,
 ) (bool, error) {
-	stateMap, ok := state.(map[string]any)
-	if !ok {
+	if !isStructLike(state) {
 		return false, nil
 	}
 	for field, fieldOp := range query.Fields {
-		fieldValue := stateMap[field]
+		fieldValue, _ := getFieldValue(state, field)
 		result, err := w.evaluateFieldSync(field, fieldOp, fieldValue)
 		if err != nil {
 			return false, err
@@ -275,6 +274,58 @@ func (w *EvaluateWalker) contains(values []any, state any) bool {
 		}
 	}
 	return false
+}
+
+func isStructLike(state any) bool {
+	if state == nil {
+		return false
+	}
+	if _, ok := state.(map[string]any); ok {
+		return true
+	}
+	t := reflect.TypeOf(state)
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+	return t.Kind() == reflect.Struct
+}
+
+func getFieldValue(state any, field string) (any, bool) {
+	if m, ok := state.(map[string]any); ok {
+		v, found := m[field]
+		return v, found
+	}
+	v := reflect.ValueOf(state)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return nil, false
+	}
+	t := v.Type()
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if !sf.IsExported() {
+			continue
+		}
+		tag := sf.Tag.Get("json")
+		if tag != "" {
+			name, _, _ := strings.Cut(tag, ",")
+			if name == field {
+				return v.Field(i).Interface(), true
+			}
+		}
+	}
+	for i := 0; i < t.NumField(); i++ {
+		sf := t.Field(i)
+		if !sf.IsExported() {
+			continue
+		}
+		if sf.Name == field {
+			return v.Field(i).Interface(), true
+		}
+	}
+	return nil, false
 }
 
 // EvaluateVisitor is a visitor-based evaluator.
@@ -401,12 +452,11 @@ func (v *EvaluateVisitor) VisitRel(op RelOperator) (any, error) {
 }
 
 func (v *EvaluateVisitor) VisitComposite(op CompositeQuery) (any, error) {
-	stateMap, ok := v.state.(map[string]any)
-	if !ok {
+	if !isStructLike(v.state) {
 		return false, nil
 	}
 	for field, fieldOp := range op.Fields {
-		fieldValue := stateMap[field]
+		fieldValue, _ := getFieldValue(v.state, field)
 		if relOp, isRel := fieldOp.(RelOperator); isRel && v.objectResolver != nil {
 			foreignState, nestedResolver, err := v.objectResolver.Resolve(v.sess, field, fieldValue)
 			if err != nil {

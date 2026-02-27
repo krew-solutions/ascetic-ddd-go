@@ -1128,3 +1128,135 @@ func TestEvaluateVisitorThreeTableCascade(t *testing.T) {
 		assert.False(t, r)
 	})
 }
+
+type personWithTags struct {
+	Name   string `json:"name"`
+	Age    int    `json:"age"`
+	Status string `json:"status"`
+}
+
+type personWithoutTags struct {
+	Name   string
+	Age    int
+	Status string
+}
+
+func TestEvaluateWalker_Struct(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("struct with json tags", func(t *testing.T) {
+		state := personWithTags{Name: "Alice", Age: 30, Status: "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"name":   EqOperator{Value: "Alice"},
+			"age":    ComparisonOperator{Op: "$gte", Value: 30},
+			"status": EqOperator{Value: "active"},
+		}}
+		result, err := walker.Evaluate(nil, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("struct with json tags no match", func(t *testing.T) {
+		state := personWithTags{Name: "Alice", Age: 30, Status: "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"name": EqOperator{Value: "Bob"},
+		}}
+		result, err := walker.Evaluate(nil, query, state)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("struct field name match without json tags", func(t *testing.T) {
+		state := personWithoutTags{Name: "Alice", Age: 30, Status: "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"Name":   EqOperator{Value: "Alice"},
+			"Age":    ComparisonOperator{Op: "$gt", Value: 25},
+			"Status": EqOperator{Value: "active"},
+		}}
+		result, err := walker.Evaluate(nil, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("pointer to struct", func(t *testing.T) {
+		state := &personWithTags{Name: "Alice", Age: 30, Status: "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"name": EqOperator{Value: "Alice"},
+		}}
+		result, err := walker.Evaluate(nil, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("missing field returns nil", func(t *testing.T) {
+		state := personWithTags{Name: "Alice", Age: 30, Status: "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"nonexistent": IsNullOperator{Value: true},
+		}}
+		result, err := walker.Evaluate(nil, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+}
+
+func TestEvaluateWalker_StructSync(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("struct with json tags sync", func(t *testing.T) {
+		state := personWithTags{Name: "Alice", Age: 30, Status: "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"name": EqOperator{Value: "Alice"},
+			"age":  ComparisonOperator{Op: "$gte", Value: 30},
+		}}
+		result, err := walker.EvaluateSync(query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("pointer to struct sync", func(t *testing.T) {
+		state := &personWithTags{Name: "Bob", Age: 25, Status: "inactive"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"name":   EqOperator{Value: "Bob"},
+			"status": EqOperator{Value: "inactive"},
+		}}
+		result, err := walker.EvaluateSync(query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+}
+
+func TestEvaluateVisitor_Struct(t *testing.T) {
+	t.Run("struct with json tags visitor", func(t *testing.T) {
+		state := personWithTags{Name: "Alice", Age: 30, Status: "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"name": EqOperator{Value: "Alice"},
+			"age":  ComparisonOperator{Op: "$gte", Value: 30},
+		}}
+		v := NewEvaluateVisitor(state, nil, nil)
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+
+	t.Run("pointer to struct visitor", func(t *testing.T) {
+		state := &personWithTags{Name: "Alice", Age: 30, Status: "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"name": EqOperator{Value: "Alice"},
+		}}
+		v := NewEvaluateVisitor(state, nil, nil)
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+
+	t.Run("struct without tags visitor", func(t *testing.T) {
+		state := personWithoutTags{Name: "Alice", Age: 30, Status: "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"Name": EqOperator{Value: "Alice"},
+		}}
+		v := NewEvaluateVisitor(state, nil, nil)
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+}
