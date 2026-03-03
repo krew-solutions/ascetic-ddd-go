@@ -85,6 +85,14 @@ func (p QueryParser) parseSingleOperator(opName string, opValue any) (IQueryOper
 		return p.parseOr(opValue)
 	case "$is_null":
 		return p.parseIsNull(opValue)
+	case "$not":
+		return p.parseNot(opValue)
+	case "$any":
+		return p.parseAny(opValue)
+	case "$all":
+		return p.parseAll(opValue)
+	case "$len":
+		return p.parseLen(opValue)
 	case "$rel":
 		return p.parseRel(opValue)
 	default:
@@ -155,6 +163,46 @@ func (p QueryParser) parseRel(constraints any) (IQueryOperator, error) {
 	return RelOperator{Query: cq}, nil
 }
 
+func (p QueryParser) parseNot(value any) (IQueryOperator, error) {
+	inner, err := p.Parse(value)
+	if err != nil {
+		return nil, err
+	}
+	return NotOperator{Operand: inner}, nil
+}
+
+func (p QueryParser) parseAny(value any) (IQueryOperator, error) {
+	m, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("$any value must be dict, got: %T", value)
+	}
+	inner, err := p.Parse(m)
+	if err != nil {
+		return nil, err
+	}
+	return AnyElementOperator{Query: inner}, nil
+}
+
+func (p QueryParser) parseAll(value any) (IQueryOperator, error) {
+	m, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("$all value must be dict, got: %T", value)
+	}
+	inner, err := p.Parse(m)
+	if err != nil {
+		return nil, err
+	}
+	return AllElementsOperator{Query: inner}, nil
+}
+
+func (p QueryParser) parseLen(value any) (IQueryOperator, error) {
+	inner, err := p.Parse(value)
+	if err != nil {
+		return nil, err
+	}
+	return LenOperator{Query: inner}, nil
+}
+
 func (p QueryParser) parseFields(fields map[string]any) (CompositeQuery, error) {
 	parsed := make(map[string]IQueryOperator, len(fields))
 	for field, value := range fields {
@@ -175,6 +223,18 @@ func NormalizeQuery(op IQueryOperator) IQueryOperator {
 			return NormalizeQuery(inner)
 		}
 		return o
+
+	case NotOperator:
+		return NotOperator{Operand: NormalizeQuery(o.Operand)}
+
+	case AnyElementOperator:
+		return AnyElementOperator{Query: NormalizeQuery(o.Query)}
+
+	case AllElementsOperator:
+		return AllElementsOperator{Query: NormalizeQuery(o.Query)}
+
+	case LenOperator:
+		return LenOperator{Query: NormalizeQuery(o.Query)}
 
 	case RelOperator:
 		normalized := NormalizeQuery(o.Query)

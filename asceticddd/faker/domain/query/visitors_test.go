@@ -249,6 +249,80 @@ func TestQueryToDictVisitorAnd(t *testing.T) {
 	})
 }
 
+func TestQueryToDictVisitorNot(t *testing.T) {
+	v := QueryToDictVisitor{}
+
+	t.Run("not with eq", func(t *testing.T) {
+		query := NotOperator{Operand: EqOperator{Value: "deleted"}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$not": map[string]any{"$eq": "deleted"}}, result)
+	})
+	t.Run("not with gt", func(t *testing.T) {
+		query := NotOperator{Operand: ComparisonOperator{Op: "$gt", Value: 65}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$not": map[string]any{"$gt": 65}}, result)
+	})
+	t.Run("not in composite", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": NotOperator{Operand: EqOperator{Value: "deleted"}},
+		}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"status": map[string]any{"$not": map[string]any{"$eq": "deleted"}},
+		}, result)
+	})
+}
+
+func TestQueryToDictVisitorAnyElement(t *testing.T) {
+	v := QueryToDictVisitor{}
+
+	t.Run("any with composite", func(t *testing.T) {
+		query := AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "shipped"},
+		}}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"$any": map[string]any{"status": map[string]any{"$eq": "shipped"}},
+		}, result)
+	})
+}
+
+func TestQueryToDictVisitorAllElements(t *testing.T) {
+	v := QueryToDictVisitor{}
+
+	t.Run("all with composite", func(t *testing.T) {
+		query := AllElementsOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "active"},
+		}}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{
+			"$all": map[string]any{"status": map[string]any{"$eq": "active"}},
+		}, result)
+	})
+}
+
+func TestQueryToDictVisitorLen(t *testing.T) {
+	v := QueryToDictVisitor{}
+
+	t.Run("len with gt", func(t *testing.T) {
+		query := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$len": map[string]any{"$gt": 2}}, result)
+	})
+	t.Run("len with eq", func(t *testing.T) {
+		query := LenOperator{Query: EqOperator{Value: 0}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$len": map[string]any{"$eq": 0}}, result)
+	})
+}
+
 // =============================================================================
 // QueryToPlainValueVisitor
 // =============================================================================
@@ -456,6 +530,66 @@ func TestQueryToPlainValueVisitorAnd(t *testing.T) {
 		result, err := v.Visit(query)
 		assert.NoError(t, err)
 		assert.Equal(t, map[string]any{"age": map[string]any{"$gt": 5, "$lt": 10}}, result)
+	})
+}
+
+func TestQueryToPlainValueVisitorNot(t *testing.T) {
+	v := QueryToPlainValueVisitor{}
+
+	t.Run("not with eq", func(t *testing.T) {
+		query := NotOperator{Operand: EqOperator{Value: "deleted"}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$not": "deleted"}, result)
+	})
+	t.Run("not with gt", func(t *testing.T) {
+		query := NotOperator{Operand: ComparisonOperator{Op: "$gt", Value: 65}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$not": map[string]any{"$gt": 65}}, result)
+	})
+}
+
+func TestQueryToPlainValueVisitorAnyElement(t *testing.T) {
+	v := QueryToPlainValueVisitor{}
+
+	t.Run("any with composite", func(t *testing.T) {
+		query := AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "shipped"},
+		}}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$any": map[string]any{"status": "shipped"}}, result)
+	})
+}
+
+func TestQueryToPlainValueVisitorAllElements(t *testing.T) {
+	v := QueryToPlainValueVisitor{}
+
+	t.Run("all with composite", func(t *testing.T) {
+		query := AllElementsOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "active"},
+		}}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$all": map[string]any{"status": "active"}}, result)
+	})
+}
+
+func TestQueryToPlainValueVisitorLen(t *testing.T) {
+	v := QueryToPlainValueVisitor{}
+
+	t.Run("len with gt", func(t *testing.T) {
+		query := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$len": map[string]any{"$gt": 2}}, result)
+	})
+	t.Run("len with eq", func(t *testing.T) {
+		query := LenOperator{Query: EqOperator{Value: 0}}
+		result, err := v.Visit(query)
+		assert.NoError(t, err)
+		assert.Equal(t, map[string]any{"$len": 0}, result)
 	})
 }
 

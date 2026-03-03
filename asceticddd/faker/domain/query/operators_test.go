@@ -254,6 +254,159 @@ func TestIsNullOperatorMerge(t *testing.T) {
 }
 
 // =============================================================================
+// NotOperator equality
+// =============================================================================
+
+func TestNotOperatorEqual(t *testing.T) {
+	t.Run("equal", func(t *testing.T) {
+		a := NotOperator{Operand: EqOperator{Value: "deleted"}}
+		b := NotOperator{Operand: EqOperator{Value: "deleted"}}
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("different", func(t *testing.T) {
+		a := NotOperator{Operand: EqOperator{Value: "deleted"}}
+		b := NotOperator{Operand: EqOperator{Value: "active"}}
+		assert.False(t, a.Equal(b))
+	})
+	t.Run("different type", func(t *testing.T) {
+		assert.False(t, NotOperator{Operand: EqOperator{Value: 5}}.Equal(EqOperator{Value: 5}))
+	})
+}
+
+// =============================================================================
+// NotOperator merge
+// =============================================================================
+
+func TestNotOperatorMerge(t *testing.T) {
+	t.Run("same operand", func(t *testing.T) {
+		left := NotOperator{Operand: EqOperator{Value: "deleted"}}
+		right := NotOperator{Operand: EqOperator{Value: "deleted"}}
+		result, err := left.Merge(right)
+		assert.NoError(t, err)
+		assert.True(t, result.Equal(left))
+	})
+	t.Run("different operand raises MergeConflict", func(t *testing.T) {
+		left := NotOperator{Operand: EqOperator{Value: "deleted"}}
+		right := NotOperator{Operand: EqOperator{Value: "active"}}
+		_, err := left.Merge(right)
+		var mc *MergeConflict
+		assert.True(t, errors.As(err, &mc))
+	})
+	t.Run("wrong type returns ErrUnsupportedMerge", func(t *testing.T) {
+		left := NotOperator{Operand: EqOperator{Value: 5}}
+		_, err := left.Merge(EqOperator{Value: 5})
+		assert.ErrorIs(t, err, ErrUnsupportedMerge)
+	})
+}
+
+// =============================================================================
+// AnyElementOperator equality and merge
+// =============================================================================
+
+func TestAnyElementOperatorEqual(t *testing.T) {
+	t.Run("equal", func(t *testing.T) {
+		inner := CompositeQuery{Fields: map[string]IQueryOperator{"status": EqOperator{Value: "shipped"}}}
+		a := AnyElementOperator{Query: inner}
+		b := AnyElementOperator{Query: inner}
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("different", func(t *testing.T) {
+		a := AnyElementOperator{Query: EqOperator{Value: 1}}
+		b := AnyElementOperator{Query: EqOperator{Value: 2}}
+		assert.False(t, a.Equal(b))
+	})
+}
+
+func TestAnyElementOperatorMerge(t *testing.T) {
+	t.Run("same query", func(t *testing.T) {
+		op := AnyElementOperator{Query: EqOperator{Value: 1}}
+		result, err := op.Merge(AnyElementOperator{Query: EqOperator{Value: 1}})
+		assert.NoError(t, err)
+		assert.True(t, result.Equal(op))
+	})
+	t.Run("different query raises MergeConflict", func(t *testing.T) {
+		_, err := AnyElementOperator{Query: EqOperator{Value: 1}}.Merge(AnyElementOperator{Query: EqOperator{Value: 2}})
+		var mc *MergeConflict
+		assert.True(t, errors.As(err, &mc))
+	})
+	t.Run("wrong type returns ErrUnsupportedMerge", func(t *testing.T) {
+		_, err := AnyElementOperator{Query: EqOperator{Value: 1}}.Merge(EqOperator{Value: 1})
+		assert.ErrorIs(t, err, ErrUnsupportedMerge)
+	})
+}
+
+// =============================================================================
+// AllElementsOperator equality and merge
+// =============================================================================
+
+func TestAllElementsOperatorEqual(t *testing.T) {
+	t.Run("equal", func(t *testing.T) {
+		inner := CompositeQuery{Fields: map[string]IQueryOperator{"status": EqOperator{Value: "active"}}}
+		a := AllElementsOperator{Query: inner}
+		b := AllElementsOperator{Query: inner}
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("different", func(t *testing.T) {
+		a := AllElementsOperator{Query: EqOperator{Value: 1}}
+		b := AllElementsOperator{Query: EqOperator{Value: 2}}
+		assert.False(t, a.Equal(b))
+	})
+}
+
+func TestAllElementsOperatorMerge(t *testing.T) {
+	t.Run("same query", func(t *testing.T) {
+		op := AllElementsOperator{Query: EqOperator{Value: 1}}
+		result, err := op.Merge(AllElementsOperator{Query: EqOperator{Value: 1}})
+		assert.NoError(t, err)
+		assert.True(t, result.Equal(op))
+	})
+	t.Run("different query raises MergeConflict", func(t *testing.T) {
+		_, err := AllElementsOperator{Query: EqOperator{Value: 1}}.Merge(AllElementsOperator{Query: EqOperator{Value: 2}})
+		var mc *MergeConflict
+		assert.True(t, errors.As(err, &mc))
+	})
+	t.Run("wrong type returns ErrUnsupportedMerge", func(t *testing.T) {
+		_, err := AllElementsOperator{Query: EqOperator{Value: 1}}.Merge(EqOperator{Value: 1})
+		assert.ErrorIs(t, err, ErrUnsupportedMerge)
+	})
+}
+
+// =============================================================================
+// LenOperator equality and merge
+// =============================================================================
+
+func TestLenOperatorEqual(t *testing.T) {
+	t.Run("equal", func(t *testing.T) {
+		a := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		b := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		assert.True(t, a.Equal(b))
+	})
+	t.Run("different", func(t *testing.T) {
+		a := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		b := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 5}}
+		assert.False(t, a.Equal(b))
+	})
+}
+
+func TestLenOperatorMerge(t *testing.T) {
+	t.Run("same query", func(t *testing.T) {
+		op := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		result, err := op.Merge(LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}})
+		assert.NoError(t, err)
+		assert.True(t, result.Equal(op))
+	})
+	t.Run("different query raises MergeConflict", func(t *testing.T) {
+		_, err := LenOperator{Query: EqOperator{Value: 0}}.Merge(LenOperator{Query: EqOperator{Value: 1}})
+		var mc *MergeConflict
+		assert.True(t, errors.As(err, &mc))
+	})
+	t.Run("wrong type returns ErrUnsupportedMerge", func(t *testing.T) {
+		_, err := LenOperator{Query: EqOperator{Value: 0}}.Merge(EqOperator{Value: 0})
+		assert.ErrorIs(t, err, ErrUnsupportedMerge)
+	})
+}
+
+// =============================================================================
 // Cross-type merge
 // =============================================================================
 
@@ -321,5 +474,36 @@ func TestNormalizeQuery(t *testing.T) {
 		cq := result.(CompositeQuery)
 		a := cq.Fields["a"].(CompositeQuery)
 		assert.True(t, a.Fields["nested"].Equal(EqOperator{Value: "value"}))
+	})
+	t.Run("not with nested eq wrapping composite", func(t *testing.T) {
+		inner := CompositeQuery{Fields: map[string]IQueryOperator{"x": EqOperator{Value: 1}}}
+		op := NotOperator{Operand: EqOperator{Value: inner}}
+		result := NormalizeQuery(op)
+		not := result.(NotOperator)
+		cq := not.Operand.(CompositeQuery)
+		assert.True(t, cq.Fields["x"].Equal(EqOperator{Value: 1}))
+	})
+	t.Run("any element normalizes inner", func(t *testing.T) {
+		inner := CompositeQuery{Fields: map[string]IQueryOperator{"x": EqOperator{Value: 1}}}
+		op := AnyElementOperator{Query: EqOperator{Value: inner}}
+		result := NormalizeQuery(op)
+		any_ := result.(AnyElementOperator)
+		cq := any_.Query.(CompositeQuery)
+		assert.True(t, cq.Fields["x"].Equal(EqOperator{Value: 1}))
+	})
+	t.Run("all elements normalizes inner", func(t *testing.T) {
+		inner := CompositeQuery{Fields: map[string]IQueryOperator{"x": EqOperator{Value: 1}}}
+		op := AllElementsOperator{Query: EqOperator{Value: inner}}
+		result := NormalizeQuery(op)
+		all := result.(AllElementsOperator)
+		cq := all.Query.(CompositeQuery)
+		assert.True(t, cq.Fields["x"].Equal(EqOperator{Value: 1}))
+	})
+	t.Run("len normalizes inner", func(t *testing.T) {
+		op := LenOperator{Query: EqOperator{Value: EqOperator{Value: 5}}}
+		result := NormalizeQuery(op)
+		lenOp := result.(LenOperator)
+		eq := lenOp.Query.(EqOperator)
+		assert.Equal(t, 5, eq.Value)
 	})
 }

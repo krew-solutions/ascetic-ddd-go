@@ -22,6 +22,10 @@ type IQueryVisitor interface {
 	VisitComparison(op ComparisonOperator) (any, error)
 	VisitIn(op InOperator) (any, error)
 	VisitIsNull(op IsNullOperator) (any, error)
+	VisitNot(op NotOperator) (any, error)
+	VisitAnyElement(op AnyElementOperator) (any, error)
+	VisitAllElements(op AllElementsOperator) (any, error)
+	VisitLen(op LenOperator) (any, error)
 	VisitAnd(op AndOperator) (any, error)
 	VisitOr(op OrOperator) (any, error)
 	VisitRel(op RelOperator) (any, error)
@@ -168,6 +172,134 @@ func (o IsNullOperator) Merge(other IQueryOperator) (IQueryOperator, error) {
 
 func (o IsNullOperator) String() string {
 	return fmt.Sprintf("IsNullOperator(%v)", o.Value)
+}
+
+// NotOperator represents logical NOT: {'$not': expr}
+type NotOperator struct {
+	Operand IQueryOperator
+}
+
+func (o NotOperator) Accept(visitor IQueryVisitor) (any, error) {
+	return visitor.VisitNot(o)
+}
+
+func (o NotOperator) Equal(other IQueryOperator) bool {
+	oo, ok := other.(NotOperator)
+	if !ok {
+		return false
+	}
+	return o.Operand.Equal(oo.Operand)
+}
+
+func (o NotOperator) Merge(other IQueryOperator) (IQueryOperator, error) {
+	oo, ok := other.(NotOperator)
+	if !ok {
+		return nil, ErrUnsupportedMerge
+	}
+	if o.Operand.Equal(oo.Operand) {
+		return o, nil
+	}
+	return nil, &MergeConflict{ExistingValue: o.Operand, NewValue: oo.Operand}
+}
+
+func (o NotOperator) String() string {
+	return fmt.Sprintf("NotOperator(%v)", o.Operand)
+}
+
+// AnyElementOperator represents existential quantifier: {'$any': expr}
+type AnyElementOperator struct {
+	Query IQueryOperator
+}
+
+func (o AnyElementOperator) Accept(visitor IQueryVisitor) (any, error) {
+	return visitor.VisitAnyElement(o)
+}
+
+func (o AnyElementOperator) Equal(other IQueryOperator) bool {
+	oo, ok := other.(AnyElementOperator)
+	if !ok {
+		return false
+	}
+	return o.Query.Equal(oo.Query)
+}
+
+func (o AnyElementOperator) Merge(other IQueryOperator) (IQueryOperator, error) {
+	oo, ok := other.(AnyElementOperator)
+	if !ok {
+		return nil, ErrUnsupportedMerge
+	}
+	if o.Query.Equal(oo.Query) {
+		return o, nil
+	}
+	return nil, &MergeConflict{ExistingValue: o.Query, NewValue: oo.Query}
+}
+
+func (o AnyElementOperator) String() string {
+	return fmt.Sprintf("AnyElementOperator(%v)", o.Query)
+}
+
+// AllElementsOperator represents universal quantifier: {'$all': expr}
+type AllElementsOperator struct {
+	Query IQueryOperator
+}
+
+func (o AllElementsOperator) Accept(visitor IQueryVisitor) (any, error) {
+	return visitor.VisitAllElements(o)
+}
+
+func (o AllElementsOperator) Equal(other IQueryOperator) bool {
+	oo, ok := other.(AllElementsOperator)
+	if !ok {
+		return false
+	}
+	return o.Query.Equal(oo.Query)
+}
+
+func (o AllElementsOperator) Merge(other IQueryOperator) (IQueryOperator, error) {
+	oo, ok := other.(AllElementsOperator)
+	if !ok {
+		return nil, ErrUnsupportedMerge
+	}
+	if o.Query.Equal(oo.Query) {
+		return o, nil
+	}
+	return nil, &MergeConflict{ExistingValue: o.Query, NewValue: oo.Query}
+}
+
+func (o AllElementsOperator) String() string {
+	return fmt.Sprintf("AllElementsOperator(%v)", o.Query)
+}
+
+// LenOperator represents array length predicate: {'$len': expr}
+type LenOperator struct {
+	Query IQueryOperator
+}
+
+func (o LenOperator) Accept(visitor IQueryVisitor) (any, error) {
+	return visitor.VisitLen(o)
+}
+
+func (o LenOperator) Equal(other IQueryOperator) bool {
+	oo, ok := other.(LenOperator)
+	if !ok {
+		return false
+	}
+	return o.Query.Equal(oo.Query)
+}
+
+func (o LenOperator) Merge(other IQueryOperator) (IQueryOperator, error) {
+	oo, ok := other.(LenOperator)
+	if !ok {
+		return nil, ErrUnsupportedMerge
+	}
+	if o.Query.Equal(oo.Query) {
+		return o, nil
+	}
+	return nil, &MergeConflict{ExistingValue: o.Query, NewValue: oo.Query}
+}
+
+func (o LenOperator) String() string {
+	return fmt.Sprintf("LenOperator(%v)", o.Query)
 }
 
 // AndOperator represents implicit AND of operators at the same level.

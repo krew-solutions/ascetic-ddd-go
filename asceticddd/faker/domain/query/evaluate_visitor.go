@@ -84,6 +84,52 @@ func (w *EvaluateWalker) evaluate(
 		}
 		return false, nil
 
+	case NotOperator:
+		result, err := w.evaluate(s, q.Operand, state, fc)
+		if err != nil {
+			return false, err
+		}
+		return !result, nil
+
+	case AnyElementOperator:
+		items, ok := toSlice(state)
+		if !ok {
+			return false, nil
+		}
+		for _, item := range items {
+			result, err := w.evaluate(s, q.Query, item, nil)
+			if err != nil {
+				return false, err
+			}
+			if result {
+				return true, nil
+			}
+		}
+		return false, nil
+
+	case AllElementsOperator:
+		items, ok := toSlice(state)
+		if !ok {
+			return false, nil
+		}
+		for _, item := range items {
+			result, err := w.evaluate(s, q.Query, item, nil)
+			if err != nil {
+				return false, err
+			}
+			if !result {
+				return false, nil
+			}
+		}
+		return true, nil
+
+	case LenOperator:
+		items, ok := toSlice(state)
+		if !ok {
+			return false, nil
+		}
+		return w.evaluate(s, q.Query, len(items), nil)
+
 	case CompositeQuery:
 		return w.evaluateComposite(s, q, state)
 
@@ -196,6 +242,52 @@ func (w *EvaluateWalker) evaluateSync(
 		}
 		return false, nil
 
+	case NotOperator:
+		result, err := w.evaluateSync(q.Operand, state, fc)
+		if err != nil {
+			return false, err
+		}
+		return !result, nil
+
+	case AnyElementOperator:
+		items, ok := toSlice(state)
+		if !ok {
+			return false, nil
+		}
+		for _, item := range items {
+			result, err := w.evaluateSync(q.Query, item, nil)
+			if err != nil {
+				return false, err
+			}
+			if result {
+				return true, nil
+			}
+		}
+		return false, nil
+
+	case AllElementsOperator:
+		items, ok := toSlice(state)
+		if !ok {
+			return false, nil
+		}
+		for _, item := range items {
+			result, err := w.evaluateSync(q.Query, item, nil)
+			if err != nil {
+				return false, err
+			}
+			if !result {
+				return false, nil
+			}
+		}
+		return true, nil
+
+	case LenOperator:
+		items, ok := toSlice(state)
+		if !ok {
+			return false, nil
+		}
+		return w.evaluateSync(q.Query, len(items), nil)
+
 	case CompositeQuery:
 		return w.evaluateCompositeSync(q, state)
 
@@ -274,6 +366,24 @@ func (w *EvaluateWalker) contains(values []any, state any) bool {
 		}
 	}
 	return false
+}
+
+func toSlice(state any) ([]any, bool) {
+	if state == nil {
+		return nil, false
+	}
+	if s, ok := state.([]any); ok {
+		return s, true
+	}
+	v := reflect.ValueOf(state)
+	if v.Kind() == reflect.Slice {
+		result := make([]any, v.Len())
+		for i := 0; i < v.Len(); i++ {
+			result[i] = v.Index(i).Interface()
+		}
+		return result, true
+	}
+	return nil, false
 }
 
 func isStructLike(state any) bool {
@@ -406,6 +516,60 @@ func (v *EvaluateVisitor) VisitIn(op InOperator) (any, error) {
 
 func (v *EvaluateVisitor) VisitIsNull(op IsNullOperator) (any, error) {
 	return (v.state == nil) == op.Value, nil
+}
+
+func (v *EvaluateVisitor) VisitNot(op NotOperator) (any, error) {
+	evaluator := v.withState(v.state, nil, v.fieldCtx)
+	result, err := op.Operand.Accept(evaluator)
+	if err != nil {
+		return false, err
+	}
+	return !result.(bool), nil
+}
+
+func (v *EvaluateVisitor) VisitAnyElement(op AnyElementOperator) (any, error) {
+	items, ok := toSlice(v.state)
+	if !ok {
+		return false, nil
+	}
+	for _, item := range items {
+		evaluator := v.withState(item, nil, nil)
+		result, err := op.Query.Accept(evaluator)
+		if err != nil {
+			return false, err
+		}
+		if result.(bool) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (v *EvaluateVisitor) VisitAllElements(op AllElementsOperator) (any, error) {
+	items, ok := toSlice(v.state)
+	if !ok {
+		return false, nil
+	}
+	for _, item := range items {
+		evaluator := v.withState(item, nil, nil)
+		result, err := op.Query.Accept(evaluator)
+		if err != nil {
+			return false, err
+		}
+		if !result.(bool) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (v *EvaluateVisitor) VisitLen(op LenOperator) (any, error) {
+	items, ok := toSlice(v.state)
+	if !ok {
+		return false, nil
+	}
+	evaluator := v.withState(len(items), nil, nil)
+	return op.Query.Accept(evaluator)
 }
 
 func (v *EvaluateVisitor) VisitAnd(op AndOperator) (any, error) {

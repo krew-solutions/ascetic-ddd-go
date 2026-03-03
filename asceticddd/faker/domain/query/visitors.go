@@ -36,6 +36,38 @@ func (v QueryToDictVisitor) VisitIsNull(op IsNullOperator) (any, error) {
 	return map[string]any{"$is_null": op.Value}, nil
 }
 
+func (v QueryToDictVisitor) VisitNot(op NotOperator) (any, error) {
+	inner, err := op.Operand.Accept(v)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"$not": inner}, nil
+}
+
+func (v QueryToDictVisitor) VisitAnyElement(op AnyElementOperator) (any, error) {
+	inner, err := op.Query.Accept(v)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"$any": inner}, nil
+}
+
+func (v QueryToDictVisitor) VisitAllElements(op AllElementsOperator) (any, error) {
+	inner, err := op.Query.Accept(v)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"$all": inner}, nil
+}
+
+func (v QueryToDictVisitor) VisitLen(op LenOperator) (any, error) {
+	inner, err := op.Query.Accept(v)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"$len": inner}, nil
+}
+
 func (v QueryToDictVisitor) VisitAnd(op AndOperator) (any, error) {
 	result := make(map[string]any)
 	for _, operand := range op.Operands {
@@ -108,6 +140,38 @@ func (v QueryToPlainValueVisitor) VisitIn(op InOperator) (any, error) {
 
 func (v QueryToPlainValueVisitor) VisitIsNull(op IsNullOperator) (any, error) {
 	return map[string]any{"$is_null": op.Value}, nil
+}
+
+func (v QueryToPlainValueVisitor) VisitNot(op NotOperator) (any, error) {
+	inner, err := op.Operand.Accept(v)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"$not": inner}, nil
+}
+
+func (v QueryToPlainValueVisitor) VisitAnyElement(op AnyElementOperator) (any, error) {
+	inner, err := op.Query.Accept(v)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"$any": inner}, nil
+}
+
+func (v QueryToPlainValueVisitor) VisitAllElements(op AllElementsOperator) (any, error) {
+	inner, err := op.Query.Accept(v)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"$all": inner}, nil
+}
+
+func (v QueryToPlainValueVisitor) VisitLen(op LenOperator) (any, error) {
+	inner, err := op.Query.Accept(v)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"$len": inner}, nil
 }
 
 func (v QueryToPlainValueVisitor) VisitAnd(op AndOperator) (any, error) {

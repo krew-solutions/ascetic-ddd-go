@@ -379,6 +379,149 @@ func TestQueryParserAnd(t *testing.T) {
 	})
 }
 
+func TestQueryParserNot(t *testing.T) {
+	parser := QueryParser{}
+
+	t.Run("not with eq", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{"$not": map[string]any{"$eq": "deleted"}})
+		assert.NoError(t, err)
+		not := result.(NotOperator)
+		assert.True(t, not.Operand.Equal(EqOperator{Value: "deleted"}))
+	})
+	t.Run("not with gt", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{"$not": map[string]any{"$gt": 65}})
+		assert.NoError(t, err)
+		not := result.(NotOperator)
+		assert.True(t, not.Operand.Equal(ComparisonOperator{Op: "$gt", Value: 65}))
+	})
+	t.Run("not in composite", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{
+			"status": map[string]any{"$not": map[string]any{"$eq": "deleted"}},
+		})
+		assert.NoError(t, err)
+		cq := result.(CompositeQuery)
+		not := cq.Fields["status"].(NotOperator)
+		assert.True(t, not.Operand.Equal(EqOperator{Value: "deleted"}))
+	})
+	t.Run("not with scalar", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{"$not": 42})
+		assert.NoError(t, err)
+		not := result.(NotOperator)
+		assert.True(t, not.Operand.Equal(EqOperator{Value: 42}))
+	})
+}
+
+func TestQueryParserAnyElement(t *testing.T) {
+	parser := QueryParser{}
+
+	t.Run("any with composite", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{
+			"$any": map[string]any{"status": map[string]any{"$eq": "shipped"}},
+		})
+		assert.NoError(t, err)
+		anyOp := result.(AnyElementOperator)
+		cq := anyOp.Query.(CompositeQuery)
+		assert.True(t, cq.Fields["status"].Equal(EqOperator{Value: "shipped"}))
+	})
+	t.Run("any in composite field", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{
+			"items": map[string]any{
+				"$any": map[string]any{"status": map[string]any{"$eq": "shipped"}},
+			},
+		})
+		assert.NoError(t, err)
+		cq := result.(CompositeQuery)
+		anyOp := cq.Fields["items"].(AnyElementOperator)
+		inner := anyOp.Query.(CompositeQuery)
+		assert.True(t, inner.Fields["status"].Equal(EqOperator{Value: "shipped"}))
+	})
+	t.Run("any with non dict raises", func(t *testing.T) {
+		_, err := parser.Parse(map[string]any{"$any": "invalid"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "$any value must be dict")
+	})
+}
+
+func TestQueryParserAllElements(t *testing.T) {
+	parser := QueryParser{}
+
+	t.Run("all with composite", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{
+			"$all": map[string]any{"status": map[string]any{"$eq": "active"}},
+		})
+		assert.NoError(t, err)
+		allOp := result.(AllElementsOperator)
+		cq := allOp.Query.(CompositeQuery)
+		assert.True(t, cq.Fields["status"].Equal(EqOperator{Value: "active"}))
+	})
+	t.Run("all in composite field", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{
+			"items": map[string]any{
+				"$all": map[string]any{"status": map[string]any{"$eq": "active"}},
+			},
+		})
+		assert.NoError(t, err)
+		cq := result.(CompositeQuery)
+		allOp := cq.Fields["items"].(AllElementsOperator)
+		inner := allOp.Query.(CompositeQuery)
+		assert.True(t, inner.Fields["status"].Equal(EqOperator{Value: "active"}))
+	})
+	t.Run("all with non dict raises", func(t *testing.T) {
+		_, err := parser.Parse(map[string]any{"$all": "invalid"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "$all value must be dict")
+	})
+}
+
+func TestQueryParserLen(t *testing.T) {
+	parser := QueryParser{}
+
+	t.Run("len with gt", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{"$len": map[string]any{"$gt": 2}})
+		assert.NoError(t, err)
+		lenOp := result.(LenOperator)
+		assert.True(t, lenOp.Query.Equal(ComparisonOperator{Op: "$gt", Value: 2}))
+	})
+	t.Run("len with eq", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{"$len": map[string]any{"$eq": 0}})
+		assert.NoError(t, err)
+		lenOp := result.(LenOperator)
+		assert.True(t, lenOp.Query.Equal(EqOperator{Value: 0}))
+	})
+	t.Run("len in composite field", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{
+			"items": map[string]any{"$len": map[string]any{"$gte": 1}},
+		})
+		assert.NoError(t, err)
+		cq := result.(CompositeQuery)
+		lenOp := cq.Fields["items"].(LenOperator)
+		assert.True(t, lenOp.Query.Equal(ComparisonOperator{Op: "$gte", Value: 1}))
+	})
+	t.Run("len with scalar", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{"$len": 3})
+		assert.NoError(t, err)
+		lenOp := result.(LenOperator)
+		assert.True(t, lenOp.Query.Equal(EqOperator{Value: 3}))
+	})
+}
+
+func TestQueryParserAnyLenCombined(t *testing.T) {
+	parser := QueryParser{}
+
+	t.Run("any and len at same level", func(t *testing.T) {
+		result, err := parser.Parse(map[string]any{
+			"items": map[string]any{
+				"$any": map[string]any{"price": map[string]any{"$gt": 100}},
+				"$len": map[string]any{"$gte": 1},
+			},
+		})
+		assert.NoError(t, err)
+		cq := result.(CompositeQuery)
+		and := cq.Fields["items"].(AndOperator)
+		assert.Equal(t, 2, len(and.Operands))
+	})
+}
+
 func TestQueryParserErrors(t *testing.T) {
 	parser := QueryParser{}
 

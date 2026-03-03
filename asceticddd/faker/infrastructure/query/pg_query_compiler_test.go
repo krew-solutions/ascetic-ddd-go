@@ -632,6 +632,339 @@ func TestVisitAnd(t *testing.T) {
 	})
 }
 
+func TestVisitNotOperator(t *testing.T) {
+	t.Run("not eq bare", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.NotOperator{
+			Operand: domainquery.EqOperator{Value: "deleted"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "NOT (value @> $1)", sql)
+		assert.Equal(t, "deleted", params[0].(Jsonb).Obj)
+	})
+
+	t.Run("not eq in composite", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"status": domainquery.NotOperator{
+					Operand: domainquery.EqOperator{Value: "deleted"},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "NOT (value @> $1)", sql)
+		assert.Equal(t, map[string]any{"status": "deleted"}, params[0].(Jsonb).Obj)
+	})
+
+	t.Run("not gt in composite", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"age": domainquery.NotOperator{
+					Operand: domainquery.ComparisonOperator{Op: "$gt", Value: 65},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "NOT (value->'age' > $1)", sql)
+		assert.Equal(t, []any{65}, params)
+	})
+
+	t.Run("not mixed with eq", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"status": domainquery.EqOperator{Value: "active"},
+				"role":   domainquery.NotOperator{Operand: domainquery.EqOperator{Value: "admin"}},
+			},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, sql, "value @> $")
+		assert.Contains(t, sql, "NOT (value @> $")
+		_ = params
+	})
+}
+
+func TestVisitAnyElement(t *testing.T) {
+	t.Run("any simple", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"items": domainquery.AnyElementOperator{
+					Query: domainquery.CompositeQuery{
+						Fields: map[string]domainquery.IQueryOperator{
+							"status": domainquery.EqOperator{Value: "shipped"},
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM jsonb_array_elements(value->'items') AS rt1 WHERE")
+		assert.Contains(t, sql, "rt1 @> $")
+		assert.Equal(t, map[string]any{"status": "shipped"}, params[0].(Jsonb).Obj)
+	})
+
+	t.Run("any with comparison", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"items": domainquery.AnyElementOperator{
+					Query: domainquery.CompositeQuery{
+						Fields: map[string]domainquery.IQueryOperator{
+							"price": domainquery.ComparisonOperator{Op: "$gt", Value: 100},
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, sql, "EXISTS")
+		assert.Contains(t, sql, "jsonb_array_elements(value->'items')")
+		assert.Contains(t, sql, "rt1->'price' > $")
+		assert.Equal(t, []any{100}, params)
+	})
+}
+
+func TestVisitAllElements(t *testing.T) {
+	t.Run("all simple", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"items": domainquery.AllElementsOperator{
+					Query: domainquery.CompositeQuery{
+						Fields: map[string]domainquery.IQueryOperator{
+							"status": domainquery.EqOperator{Value: "active"},
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, sql, "NOT EXISTS (SELECT 1 FROM jsonb_array_elements(value->'items') AS rt1 WHERE NOT (")
+		assert.Contains(t, sql, "rt1 @> $")
+		assert.Equal(t, map[string]any{"status": "active"}, params[0].(Jsonb).Obj)
+	})
+}
+
+func TestVisitLen(t *testing.T) {
+	t.Run("len gt", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"items": domainquery.LenOperator{
+					Query: domainquery.ComparisonOperator{Op: "$gt", Value: 2},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "jsonb_array_length(value->'items') > $1", sql)
+		assert.Equal(t, []any{2}, params)
+	})
+
+	t.Run("len eq zero", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"items": domainquery.LenOperator{
+					Query: domainquery.EqOperator{Value: 0},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "jsonb_array_length(value->'items') = $1", sql)
+		assert.Equal(t, []any{0}, params)
+	})
+
+	t.Run("len gte", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"items": domainquery.LenOperator{
+					Query: domainquery.ComparisonOperator{Op: "$gte", Value: 1},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "jsonb_array_length(value->'items') >= $1", sql)
+		assert.Equal(t, []any{1}, params)
+	})
+
+	t.Run("len ne", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"items": domainquery.LenOperator{
+					Query: domainquery.ComparisonOperator{Op: "$ne", Value: 0},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "jsonb_array_length(value->'items') != $1", sql)
+		assert.Equal(t, []any{0}, params)
+	})
+}
+
+func TestVisitAnyLenCombined(t *testing.T) {
+	t.Run("any and len at same level", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"items": domainquery.AndOperator{Operands: []domainquery.IQueryOperator{
+					domainquery.AnyElementOperator{
+						Query: domainquery.CompositeQuery{
+							Fields: map[string]domainquery.IQueryOperator{
+								"price": domainquery.ComparisonOperator{Op: "$gt", Value: 100},
+							},
+						},
+					},
+					domainquery.LenOperator{
+						Query: domainquery.ComparisonOperator{Op: "$gte", Value: 1},
+					},
+				}},
+			},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, sql, "EXISTS")
+		assert.Contains(t, sql, "jsonb_array_length")
+		assert.True(t, len(params) >= 2)
+	})
+}
+
+func TestScalarPgQueryCompiler(t *testing.T) {
+	t.Run("eq", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.EqOperator{Value: 5})
+		require.NoError(t, err)
+		assert.Equal(t, "expr = $1", sql)
+		assert.Equal(t, []any{5}, params)
+	})
+
+	t.Run("ne", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.ComparisonOperator{Op: "$ne", Value: 0})
+		require.NoError(t, err)
+		assert.Equal(t, "expr != $1", sql)
+		assert.Equal(t, []any{0}, params)
+	})
+
+	t.Run("gt", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.ComparisonOperator{Op: "$gt", Value: 10})
+		require.NoError(t, err)
+		assert.Equal(t, "expr > $1", sql)
+		assert.Equal(t, []any{10}, params)
+	})
+
+	t.Run("in", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.InOperator{Values: []any{1, 2, 3}})
+		require.NoError(t, err)
+		assert.Equal(t, "(expr = $1 OR expr = $2 OR expr = $3)", sql)
+		assert.Equal(t, []any{1, 2, 3}, params)
+	})
+
+	t.Run("in single", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.InOperator{Values: []any{42}})
+		require.NoError(t, err)
+		assert.Equal(t, "expr = $1", sql)
+		assert.Equal(t, []any{42}, params)
+	})
+
+	t.Run("is null true", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.IsNullOperator{Value: true})
+		require.NoError(t, err)
+		assert.Equal(t, "expr IS NULL", sql)
+		assert.Empty(t, params)
+	})
+
+	t.Run("is null false", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.IsNullOperator{Value: false})
+		require.NoError(t, err)
+		assert.Equal(t, "expr IS NOT NULL", sql)
+		assert.Empty(t, params)
+	})
+
+	t.Run("not", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.NotOperator{
+			Operand: domainquery.ComparisonOperator{Op: "$gt", Value: 10},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "NOT (expr > $1)", sql)
+		assert.Equal(t, []any{10}, params)
+	})
+
+	t.Run("and", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.AndOperator{
+			Operands: []domainquery.IQueryOperator{
+				domainquery.ComparisonOperator{Op: "$gt", Value: 0},
+				domainquery.ComparisonOperator{Op: "$lt", Value: 100},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "expr > $1 AND expr < $2", sql)
+		assert.Equal(t, []any{0, 100}, params)
+	})
+
+	t.Run("or", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		sql, params, err := compiler.Compile(domainquery.OrOperator{
+			Operands: []domainquery.IQueryOperator{
+				domainquery.EqOperator{Value: 1},
+				domainquery.EqOperator{Value: 2},
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "(expr = $1 OR expr = $2)", sql)
+		assert.Equal(t, []any{1, 2}, params)
+	})
+
+	t.Run("any raises", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		_, _, err := compiler.Compile(domainquery.AnyElementOperator{Query: domainquery.EqOperator{Value: 1}})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "$any is not supported")
+	})
+
+	t.Run("all raises", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		_, _, err := compiler.Compile(domainquery.AllElementsOperator{Query: domainquery.EqOperator{Value: 1}})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "$all is not supported")
+	})
+
+	t.Run("len raises", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		_, _, err := compiler.Compile(domainquery.LenOperator{Query: domainquery.EqOperator{Value: 1}})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "$len is not supported")
+	})
+
+	t.Run("rel raises", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		_, _, err := compiler.Compile(domainquery.RelOperator{
+			Query: domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{"a": domainquery.EqOperator{Value: 1}}},
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "$rel is not supported")
+	})
+
+	t.Run("composite raises", func(t *testing.T) {
+		compiler := NewScalarPgQueryCompiler("expr")
+		_, _, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{"a": domainquery.EqOperator{Value: 1}},
+		})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "CompositeQuery is not supported")
+	})
+}
+
 func TestToDict(t *testing.T) {
 	t.Run("eq", func(t *testing.T) {
 		assert.Equal(t, 42, toDict(domainquery.EqOperator{Value: 42}))

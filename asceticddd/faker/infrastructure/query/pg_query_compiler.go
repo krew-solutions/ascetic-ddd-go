@@ -172,6 +172,92 @@ func (c *PgQueryCompiler) VisitOr(op domainquery.OrOperator) (any, error) {
 	return nil, nil
 }
 
+func (c *PgQueryCompiler) VisitNot(op domainquery.NotOperator) (any, error) {
+	sub := NewPgQueryCompiler(c.targetValueExpr, c.relationResolver, c.aliasSeq)
+	sub.fieldPath = make([]string, len(c.fieldPath))
+	copy(sub.fieldPath, c.fieldPath)
+	_, err := op.Operand.Accept(sub)
+	if err != nil {
+		return nil, err
+	}
+	sub.flushEq()
+	if subSql := sub.sql(); subSql != "" {
+		c.sqlParts = append(c.sqlParts, fmt.Sprintf("NOT (%s)", subSql))
+		c.params = append(c.params, sub.params...)
+	}
+	return nil, nil
+}
+
+func (c *PgQueryCompiler) VisitAnyElement(op domainquery.AnyElementOperator) (any, error) {
+	var jsonPath string
+	if len(c.fieldPath) > 0 {
+		jsonPath = c.jsonPathExpr()
+	} else {
+		jsonPath = c.targetValueExpr
+	}
+	alias := c.nextAlias()
+	sub := NewPgQueryCompiler(alias, c.relationResolver, c.aliasSeq)
+	_, err := op.Query.Accept(sub)
+	if err != nil {
+		return nil, err
+	}
+	sub.flushEq()
+	if subSql := sub.sql(); subSql != "" {
+		sql := fmt.Sprintf(
+			"EXISTS (SELECT 1 FROM jsonb_array_elements(%s) AS %s WHERE %s)",
+			jsonPath, alias, subSql,
+		)
+		c.sqlParts = append(c.sqlParts, sql)
+		c.params = append(c.params, sub.params...)
+	}
+	return nil, nil
+}
+
+func (c *PgQueryCompiler) VisitAllElements(op domainquery.AllElementsOperator) (any, error) {
+	var jsonPath string
+	if len(c.fieldPath) > 0 {
+		jsonPath = c.jsonPathExpr()
+	} else {
+		jsonPath = c.targetValueExpr
+	}
+	alias := c.nextAlias()
+	sub := NewPgQueryCompiler(alias, c.relationResolver, c.aliasSeq)
+	_, err := op.Query.Accept(sub)
+	if err != nil {
+		return nil, err
+	}
+	sub.flushEq()
+	if subSql := sub.sql(); subSql != "" {
+		sql := fmt.Sprintf(
+			"NOT EXISTS (SELECT 1 FROM jsonb_array_elements(%s) AS %s WHERE NOT (%s))",
+			jsonPath, alias, subSql,
+		)
+		c.sqlParts = append(c.sqlParts, sql)
+		c.params = append(c.params, sub.params...)
+	}
+	return nil, nil
+}
+
+func (c *PgQueryCompiler) VisitLen(op domainquery.LenOperator) (any, error) {
+	var jsonPath string
+	if len(c.fieldPath) > 0 {
+		jsonPath = c.jsonPathExpr()
+	} else {
+		jsonPath = c.targetValueExpr
+	}
+	lenExpr := fmt.Sprintf("jsonb_array_length(%s)", jsonPath)
+	scalar := NewScalarPgQueryCompiler(lenExpr)
+	_, err := op.Query.Accept(scalar)
+	if err != nil {
+		return nil, err
+	}
+	if scalarSql := scalar.sql(); scalarSql != "" {
+		c.sqlParts = append(c.sqlParts, scalarSql)
+		c.params = append(c.params, scalar.params...)
+	}
+	return nil, nil
+}
+
 func (c *PgQueryCompiler) VisitComposite(op domainquery.CompositeQuery) (any, error) {
 	for field, fieldOp := range op.Fields {
 		if _, ok := fieldOp.(domainquery.RelOperator); ok {
@@ -342,4 +428,140 @@ func replaceParamMarkers(sql string) string {
 		}
 	}
 	return b.String()
+}
+
+// ScalarPgQueryCompiler compiles IQueryOperator tree against a scalar SQL expression.
+// Unlike PgQueryCompiler which uses JSONB containment (@>),
+// this generates standard SQL comparisons (=, >, <, etc.)
+// for plain values like jsonb_array_length().
+type ScalarPgQueryCompiler struct {
+	targetExpr string
+	sqlParts   []string
+	params     []any
+}
+
+func NewScalarPgQueryCompiler(targetExpr string) *ScalarPgQueryCompiler {
+	return &ScalarPgQueryCompiler{targetExpr: targetExpr}
+}
+
+func (c *ScalarPgQueryCompiler) Compile(query domainquery.IQueryOperator) (string, []any, error) {
+	c.sqlParts = nil
+	c.params = nil
+	_, err := query.Accept(c)
+	if err != nil {
+		return "", nil, err
+	}
+	sql := c.sql()
+	sql = replaceParamMarkers(sql)
+	return sql, c.params, nil
+}
+
+func (c *ScalarPgQueryCompiler) sql() string {
+	if len(c.sqlParts) == 0 {
+		return ""
+	}
+	return strings.Join(c.sqlParts, " AND ")
+}
+
+func (c *ScalarPgQueryCompiler) VisitEq(op domainquery.EqOperator) (any, error) {
+	c.sqlParts = append(c.sqlParts, fmt.Sprintf("%s = ?", c.targetExpr))
+	c.params = append(c.params, op.Value)
+	return nil, nil
+}
+
+func (c *ScalarPgQueryCompiler) VisitComparison(op domainquery.ComparisonOperator) (any, error) {
+	if op.Op == "$ne" {
+		c.sqlParts = append(c.sqlParts, fmt.Sprintf("%s != ?", c.targetExpr))
+		c.params = append(c.params, op.Value)
+	} else {
+		sqlOp := sqlOps[op.Op]
+		c.sqlParts = append(c.sqlParts, fmt.Sprintf("%s %s ?", c.targetExpr, sqlOp))
+		c.params = append(c.params, op.Value)
+	}
+	return nil, nil
+}
+
+func (c *ScalarPgQueryCompiler) VisitIn(op domainquery.InOperator) (any, error) {
+	var orParts []string
+	for _, value := range op.Values {
+		orParts = append(orParts, fmt.Sprintf("%s = ?", c.targetExpr))
+		c.params = append(c.params, value)
+	}
+	if len(orParts) == 1 {
+		c.sqlParts = append(c.sqlParts, orParts[0])
+	} else {
+		c.sqlParts = append(c.sqlParts, fmt.Sprintf("(%s)", strings.Join(orParts, " OR ")))
+	}
+	return nil, nil
+}
+
+func (c *ScalarPgQueryCompiler) VisitIsNull(op domainquery.IsNullOperator) (any, error) {
+	if op.Value {
+		c.sqlParts = append(c.sqlParts, fmt.Sprintf("%s IS NULL", c.targetExpr))
+	} else {
+		c.sqlParts = append(c.sqlParts, fmt.Sprintf("%s IS NOT NULL", c.targetExpr))
+	}
+	return nil, nil
+}
+
+func (c *ScalarPgQueryCompiler) VisitNot(op domainquery.NotOperator) (any, error) {
+	sub := NewScalarPgQueryCompiler(c.targetExpr)
+	_, err := op.Operand.Accept(sub)
+	if err != nil {
+		return nil, err
+	}
+	if subSql := sub.sql(); subSql != "" {
+		c.sqlParts = append(c.sqlParts, fmt.Sprintf("NOT (%s)", subSql))
+		c.params = append(c.params, sub.params...)
+	}
+	return nil, nil
+}
+
+func (c *ScalarPgQueryCompiler) VisitAnd(op domainquery.AndOperator) (any, error) {
+	for _, operand := range op.Operands {
+		_, err := operand.Accept(c)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return nil, nil
+}
+
+func (c *ScalarPgQueryCompiler) VisitOr(op domainquery.OrOperator) (any, error) {
+	var orParts []string
+	for _, operand := range op.Operands {
+		sub := NewScalarPgQueryCompiler(c.targetExpr)
+		_, err := operand.Accept(sub)
+		if err != nil {
+			return nil, err
+		}
+		if subSql := sub.sql(); subSql != "" {
+			orParts = append(orParts, subSql)
+			c.params = append(c.params, sub.params...)
+		}
+	}
+	if len(orParts) > 0 {
+		c.sqlParts = append(c.sqlParts, fmt.Sprintf("(%s)", strings.Join(orParts, " OR ")))
+	}
+	return nil, nil
+}
+
+func (c *ScalarPgQueryCompiler) VisitAnyElement(op domainquery.AnyElementOperator) (any, error) {
+	return nil, fmt.Errorf("$any is not supported in scalar predicate context")
+}
+
+func (c *ScalarPgQueryCompiler) VisitAllElements(op domainquery.AllElementsOperator) (any, error) {
+	return nil, fmt.Errorf("$all is not supported in scalar predicate context")
+}
+
+func (c *ScalarPgQueryCompiler) VisitLen(op domainquery.LenOperator) (any, error) {
+	return nil, fmt.Errorf("$len is not supported in scalar predicate context")
+}
+
+func (c *ScalarPgQueryCompiler) VisitRel(op domainquery.RelOperator) (any, error) {
+	return nil, fmt.Errorf("$rel is not supported in scalar predicate context")
+}
+
+func (c *ScalarPgQueryCompiler) VisitComposite(op domainquery.CompositeQuery) (any, error) {
+	return nil, fmt.Errorf("CompositeQuery is not supported in scalar predicate context")
 }

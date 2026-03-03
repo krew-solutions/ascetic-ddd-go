@@ -1260,3 +1260,350 @@ func TestEvaluateVisitor_Struct(t *testing.T) {
 		assert.True(t, result.(bool))
 	})
 }
+
+// =============================================================================
+// EvaluateWalker - $not, $any, $all, $len
+// =============================================================================
+
+func TestEvaluateWalkerNot(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("not eq true", func(t *testing.T) {
+		result, err := walker.Evaluate(sess, NotOperator{Operand: EqOperator{Value: "deleted"}}, "active")
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("not eq false", func(t *testing.T) {
+		result, err := walker.Evaluate(sess, NotOperator{Operand: EqOperator{Value: "deleted"}}, "deleted")
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+	t.Run("not gt", func(t *testing.T) {
+		result, err := walker.Evaluate(sess, NotOperator{Operand: ComparisonOperator{Op: "$gt", Value: 65}}, 30)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("not in composite", func(t *testing.T) {
+		state := map[string]any{"status": "active"}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": NotOperator{Operand: EqOperator{Value: "deleted"}},
+		}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+}
+
+func TestEvaluateWalkerNotSync(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("not eq true sync", func(t *testing.T) {
+		result, err := walker.EvaluateSync(NotOperator{Operand: EqOperator{Value: "deleted"}}, "active")
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("not eq false sync", func(t *testing.T) {
+		result, err := walker.EvaluateSync(NotOperator{Operand: EqOperator{Value: "deleted"}}, "deleted")
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+}
+
+func TestEvaluateWalkerAnyElement(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("any match", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "pending"},
+			map[string]any{"status": "shipped"},
+		}
+		query := AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "shipped"},
+		}}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("any no match", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "pending"},
+			map[string]any{"status": "cancelled"},
+		}
+		query := AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "shipped"},
+		}}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+	t.Run("any empty list", func(t *testing.T) {
+		state := []any{}
+		query := AnyElementOperator{Query: EqOperator{Value: 1}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+	t.Run("any non list", func(t *testing.T) {
+		query := AnyElementOperator{Query: EqOperator{Value: 1}}
+		result, err := walker.Evaluate(sess, query, "not a list")
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+	t.Run("any in composite", func(t *testing.T) {
+		state := map[string]any{
+			"items": []any{
+				map[string]any{"status": "shipped"},
+			},
+		}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"items": AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"status": EqOperator{Value: "shipped"},
+			}}},
+		}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+}
+
+func TestEvaluateWalkerAnyElementSync(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("any match sync", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "shipped"},
+		}
+		query := AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "shipped"},
+		}}}
+		result, err := walker.EvaluateSync(query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+}
+
+func TestEvaluateWalkerAllElements(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("all match", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "active"},
+			map[string]any{"status": "active"},
+		}
+		query := AllElementsOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "active"},
+		}}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("all some fail", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "active"},
+			map[string]any{"status": "inactive"},
+		}
+		query := AllElementsOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "active"},
+		}}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+	t.Run("all empty list vacuous truth", func(t *testing.T) {
+		state := []any{}
+		query := AllElementsOperator{Query: EqOperator{Value: 1}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("all non list", func(t *testing.T) {
+		query := AllElementsOperator{Query: EqOperator{Value: 1}}
+		result, err := walker.Evaluate(sess, query, "not a list")
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+}
+
+func TestEvaluateWalkerAllElementsSync(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("all match sync", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "active"},
+			map[string]any{"status": "active"},
+		}
+		query := AllElementsOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "active"},
+		}}}
+		result, err := walker.EvaluateSync(query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+}
+
+func TestEvaluateWalkerLen(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("len gt match", func(t *testing.T) {
+		state := []any{1, 2, 3}
+		query := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("len gt no match", func(t *testing.T) {
+		state := []any{1}
+		query := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+	t.Run("len eq zero", func(t *testing.T) {
+		state := []any{}
+		query := LenOperator{Query: EqOperator{Value: 0}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("len non list", func(t *testing.T) {
+		query := LenOperator{Query: EqOperator{Value: 0}}
+		result, err := walker.Evaluate(sess, query, "not a list")
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+	t.Run("len in composite", func(t *testing.T) {
+		state := map[string]any{
+			"items": []any{1, 2, 3},
+		}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"items": LenOperator{Query: ComparisonOperator{Op: "$gte", Value: 1}},
+		}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+}
+
+func TestEvaluateWalkerLenSync(t *testing.T) {
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("len gt match sync", func(t *testing.T) {
+		state := []any{1, 2, 3}
+		query := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		result, err := walker.EvaluateSync(query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+}
+
+// =============================================================================
+// EvaluateVisitor - $not, $any, $all, $len
+// =============================================================================
+
+func TestEvaluateVisitorNot(t *testing.T) {
+	t.Run("not eq true", func(t *testing.T) {
+		v := NewEvaluateVisitor("active", sess, nil)
+		result, err := NotOperator{Operand: EqOperator{Value: "deleted"}}.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+	t.Run("not eq false", func(t *testing.T) {
+		v := NewEvaluateVisitor("deleted", sess, nil)
+		result, err := NotOperator{Operand: EqOperator{Value: "deleted"}}.Accept(v)
+		assert.NoError(t, err)
+		assert.False(t, result.(bool))
+	})
+}
+
+func TestEvaluateVisitorAnyElement(t *testing.T) {
+	t.Run("any match", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "pending"},
+			map[string]any{"status": "shipped"},
+		}
+		v := NewEvaluateVisitor(state, sess, nil)
+		query := AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "shipped"},
+		}}}
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+	t.Run("any no match", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "pending"},
+		}
+		v := NewEvaluateVisitor(state, sess, nil)
+		query := AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "shipped"},
+		}}}
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.False(t, result.(bool))
+	})
+	t.Run("any empty", func(t *testing.T) {
+		v := NewEvaluateVisitor([]any{}, sess, nil)
+		result, err := AnyElementOperator{Query: EqOperator{Value: 1}}.Accept(v)
+		assert.NoError(t, err)
+		assert.False(t, result.(bool))
+	})
+}
+
+func TestEvaluateVisitorAllElements(t *testing.T) {
+	t.Run("all match", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "active"},
+			map[string]any{"status": "active"},
+		}
+		v := NewEvaluateVisitor(state, sess, nil)
+		query := AllElementsOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "active"},
+		}}}
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+	t.Run("all some fail", func(t *testing.T) {
+		state := []any{
+			map[string]any{"status": "active"},
+			map[string]any{"status": "inactive"},
+		}
+		v := NewEvaluateVisitor(state, sess, nil)
+		query := AllElementsOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"status": EqOperator{Value: "active"},
+		}}}
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.False(t, result.(bool))
+	})
+	t.Run("all empty vacuous truth", func(t *testing.T) {
+		v := NewEvaluateVisitor([]any{}, sess, nil)
+		result, err := AllElementsOperator{Query: EqOperator{Value: 1}}.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+}
+
+func TestEvaluateVisitorLen(t *testing.T) {
+	t.Run("len gt match", func(t *testing.T) {
+		v := NewEvaluateVisitor([]any{1, 2, 3}, sess, nil)
+		query := LenOperator{Query: ComparisonOperator{Op: "$gt", Value: 2}}
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+	t.Run("len eq zero", func(t *testing.T) {
+		v := NewEvaluateVisitor([]any{}, sess, nil)
+		query := LenOperator{Query: EqOperator{Value: 0}}
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+	t.Run("len non list", func(t *testing.T) {
+		v := NewEvaluateVisitor("not a list", sess, nil)
+		query := LenOperator{Query: EqOperator{Value: 0}}
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.False(t, result.(bool))
+	})
+}
