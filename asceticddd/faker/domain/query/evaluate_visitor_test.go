@@ -1364,6 +1364,38 @@ func TestEvaluateWalkerAnyElement(t *testing.T) {
 		assert.NoError(t, err)
 		assert.True(t, result)
 	})
+	t.Run("nested any matches", func(t *testing.T) {
+		state := map[string]any{
+			"items": []any{
+				map[string]any{"tags": []any{"normal", "low"}},
+				map[string]any{"tags": []any{"normal", "urgent"}},
+			},
+		}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"items": AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"tags": AnyElementOperator{Query: EqOperator{Value: "urgent"}},
+			}}},
+		}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("nested any not matches", func(t *testing.T) {
+		state := map[string]any{
+			"items": []any{
+				map[string]any{"tags": []any{"normal", "low"}},
+				map[string]any{"tags": []any{"normal", "medium"}},
+			},
+		}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"items": AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"tags": AnyElementOperator{Query: EqOperator{Value: "urgent"}},
+			}}},
+		}}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
 }
 
 func TestEvaluateWalkerAnyElementSync(t *testing.T) {
@@ -1376,6 +1408,22 @@ func TestEvaluateWalkerAnyElementSync(t *testing.T) {
 		query := AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
 			"status": EqOperator{Value: "shipped"},
 		}}}
+		result, err := walker.EvaluateSync(query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+	t.Run("nested any sync", func(t *testing.T) {
+		state := map[string]any{
+			"items": []any{
+				map[string]any{"tags": []any{"normal", "low"}},
+				map[string]any{"tags": []any{"normal", "urgent"}},
+			},
+		}
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"items": AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"tags": AnyElementOperator{Query: EqOperator{Value: "urgent"}},
+			}}},
+		}}
 		result, err := walker.EvaluateSync(query, state)
 		assert.NoError(t, err)
 		assert.True(t, result)
@@ -1544,6 +1592,40 @@ func TestEvaluateVisitorAnyElement(t *testing.T) {
 	t.Run("any empty", func(t *testing.T) {
 		v := NewEvaluateVisitor([]any{}, sess, nil)
 		result, err := AnyElementOperator{Query: EqOperator{Value: 1}}.Accept(v)
+		assert.NoError(t, err)
+		assert.False(t, result.(bool))
+	})
+	t.Run("nested any matches", func(t *testing.T) {
+		state := map[string]any{
+			"items": []any{
+				map[string]any{"tags": []any{"normal", "low"}},
+				map[string]any{"tags": []any{"normal", "urgent"}},
+			},
+		}
+		v := NewEvaluateVisitor(state, sess, nil)
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"items": AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"tags": AnyElementOperator{Query: EqOperator{Value: "urgent"}},
+			}}},
+		}}
+		result, err := query.Accept(v)
+		assert.NoError(t, err)
+		assert.True(t, result.(bool))
+	})
+	t.Run("nested any not matches", func(t *testing.T) {
+		state := map[string]any{
+			"items": []any{
+				map[string]any{"tags": []any{"normal", "low"}},
+				map[string]any{"tags": []any{"normal", "medium"}},
+			},
+		}
+		v := NewEvaluateVisitor(state, sess, nil)
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"items": AnyElementOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"tags": AnyElementOperator{Query: EqOperator{Value: "urgent"}},
+			}}},
+		}}
+		result, err := query.Accept(v)
 		assert.NoError(t, err)
 		assert.False(t, result.(bool))
 	})

@@ -725,6 +725,30 @@ func TestVisitAnyElement(t *testing.T) {
 		assert.Contains(t, sql, "rt1->'price' > $")
 		assert.Equal(t, []any{100}, params)
 	})
+
+	t.Run("nested any", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+		sql, params, err := compiler.Compile(domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"items": domainquery.AnyElementOperator{
+					Query: domainquery.CompositeQuery{
+						Fields: map[string]domainquery.IQueryOperator{
+							"tags": domainquery.AnyElementOperator{
+								Query: domainquery.EqOperator{Value: "urgent"},
+							},
+						},
+					},
+				},
+			},
+		})
+		require.NoError(t, err)
+		assert.Contains(t, sql, "jsonb_array_elements(value->'items')")
+		assert.Contains(t, sql, "rt1")
+		assert.Contains(t, sql, "jsonb_array_elements(rt1->'tags')")
+		assert.Contains(t, sql, "rt2")
+		assert.Equal(t, 2, countOccurrences(sql, "EXISTS"))
+		assert.Equal(t, "urgent", params[0].(Jsonb).Obj)
+	})
 }
 
 func TestVisitAllElements(t *testing.T) {
