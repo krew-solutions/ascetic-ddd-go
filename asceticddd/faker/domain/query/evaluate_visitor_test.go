@@ -21,27 +21,33 @@ func (m *mockSession) Atomic(cb session.SessionCallback) error                  
 func (m *mockSession) OnAtomicStarted() signals.Signal[session.SessionScopeStartedEvent] { return nil }
 func (m *mockSession) OnAtomicEnded() signals.Signal[session.SessionScopeEndedEvent]     { return nil }
 
-type stubObjectResolver struct {
-	relations map[string]struct {
-		storage  map[any]map[string]any
-		resolver IObjectResolver
-	}
-}
-
-func newStubObjectResolver(relations map[string]struct {
+type relInfo struct {
 	storage  map[any]map[string]any
 	resolver IObjectResolver
-}) *stubObjectResolver {
-	return &stubObjectResolver{relations: relations}
+}
+
+type stubObjectResolver struct {
+	relations    map[string]relInfo
+	rootRelation *relInfo
+}
+
+func newStubObjectResolver(relations map[string]relInfo, rootRelation *relInfo) *stubObjectResolver {
+	return &stubObjectResolver{relations: relations, rootRelation: rootRelation}
 }
 
 func (r *stubObjectResolver) Resolve(s session.Session, field *string, fkValue any) (map[string]any, IObjectResolver, error) {
+	var info relInfo
+	var ok bool
 	if field == nil {
-		return nil, nil, nil
-	}
-	info, ok := r.relations[*field]
-	if !ok {
-		return nil, nil, nil
+		if r.rootRelation == nil {
+			return nil, nil, nil
+		}
+		info = *r.rootRelation
+	} else {
+		info, ok = r.relations[*field]
+		if !ok {
+			return nil, nil, nil
+		}
 	}
 	state, ok := info.storage[fkValue]
 	if !ok {
@@ -50,23 +56,8 @@ func (r *stubObjectResolver) Resolve(s session.Session, field *string, fkValue a
 	return state, info.resolver, nil
 }
 
-type relInfo struct {
-	storage  map[any]map[string]any
-	resolver IObjectResolver
-}
-
 func makeResolver(relations map[string]relInfo) *stubObjectResolver {
-	m := make(map[string]struct {
-		storage  map[any]map[string]any
-		resolver IObjectResolver
-	}, len(relations))
-	for k, v := range relations {
-		m[k] = struct {
-			storage  map[any]map[string]any
-			resolver IObjectResolver
-		}{storage: v.storage, resolver: v.resolver}
-	}
-	return newStubObjectResolver(m)
+	return newStubObjectResolver(relations, nil)
 }
 
 var sess session.Session = &mockSession{}
@@ -1690,5 +1681,182 @@ func TestEvaluateVisitorLen(t *testing.T) {
 		result, err := query.Accept(v)
 		assert.NoError(t, err)
 		assert.False(t, result.(bool))
+	})
+}
+
+// =============================================================================
+// Root-level $rel + Three-table cascade: ID -> Employee -> Company -> Country
+// =============================================================================
+
+func makeRootCascadeFixtures() (
+	*stubObjectResolver,
+	map[any]map[string]any,
+) {
+	countryStorage := map[any]map[string]any{
+		"US": {"id": "US", "code": "US", "continent": "America"},
+		"UK": {"id": "UK", "code": "UK", "continent": "Europe"},
+		"JP": {"id": "JP", "code": "JP", "continent": "Asia"},
+	}
+
+	companyStorage := map[any]map[string]any{
+		1: {"id": 1, "country_id": "US", "name": "Acme", "type": "tech", "revenue": 2000000},
+		2: {"id": 2, "country_id": "UK", "name": "BritCo", "type": "finance", "revenue": 500000},
+		3: {"id": 3, "country_id": "JP", "name": "TokyoTech", "type": "tech", "revenue": 800000},
+	}
+
+	employeeStorage := map[any]map[string]any{
+		1: {"id": 1, "company_id": 1, "name": "John", "age": 30, "status": "active"},
+		2: {"id": 2, "company_id": 2, "name": "Jane", "age": 25, "status": "active"},
+		3: {"id": 3, "company_id": 3, "name": "Yuki", "age": 28, "status": "active"},
+		5: {"id": 5, "company_id": 999, "name": "Ghost", "age": 0, "status": "unknown"},
+	}
+
+	countryResolver := newStubObjectResolver(map[string]relInfo{}, nil)
+	companyResolver := newStubObjectResolver(map[string]relInfo{
+		"country_id": {storage: countryStorage, resolver: countryResolver},
+	}, nil)
+	employeeResolver := newStubObjectResolver(map[string]relInfo{
+		"company_id": {storage: companyStorage, resolver: companyResolver},
+	}, nil)
+	rootResolver := newStubObjectResolver(map[string]relInfo{}, &relInfo{
+		storage: employeeStorage, resolver: employeeResolver,
+	})
+
+	return rootResolver, employeeStorage
+}
+
+func TestEvaluateWalkerRootRelCascade(t *testing.T) {
+	resolver, _ := makeRootCascadeFixtures()
+	walker := NewEvaluateWalker(resolver)
+
+	t.Run("root rel matches", func(t *testing.T) {
+		query := RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"name":   EqOperator{Value: "John"},
+			"status": EqOperator{Value: "active"},
+		}}}
+		result, err := walker.Evaluate(sess, query, 1)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("root rel not matches", func(t *testing.T) {
+		query := RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"name": EqOperator{Value: "John"},
+		}}}
+		result, err := walker.Evaluate(sess, query, 2)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("root rel not found", func(t *testing.T) {
+		query := RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"name": EqOperator{Value: "John"},
+		}}}
+		result, err := walker.Evaluate(sess, query, 999)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("root rel with nested cascade", func(t *testing.T) {
+		query := RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"name": EqOperator{Value: "John"},
+			"company_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"type": EqOperator{Value: "tech"},
+				"country_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"code": EqOperator{Value: "US"},
+				}}},
+			}}},
+		}}}
+		result, err := walker.Evaluate(sess, query, 1)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("root rel cascade not matches middle", func(t *testing.T) {
+		query := RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"company_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"type": EqOperator{Value: "tech"},
+			}}},
+		}}}
+		result, err := walker.Evaluate(sess, query, 2)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("root rel cascade not matches deepest", func(t *testing.T) {
+		query := RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"company_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"country_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"code": EqOperator{Value: "UK"},
+				}}},
+			}}},
+		}}}
+		// ID 1 -> John -> Acme -> US — query asks for UK
+		result, err := walker.Evaluate(sess, query, 1)
+		assert.NoError(t, err)
+		assert.False(t, result)
+
+		// ID 2 -> Jane -> BritCo -> UK — matches
+		result, err = walker.Evaluate(sess, query, 2)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("root rel or in cascade", func(t *testing.T) {
+		query := RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"company_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"country_id": OrOperator{Operands: []IQueryOperator{
+					RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+						"code": EqOperator{Value: "US"},
+					}}},
+					RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+						"code": EqOperator{Value: "UK"},
+					}}},
+				}},
+			}}},
+		}}}
+		// ID 1 -> Acme -> US — matches
+		result, err := walker.Evaluate(sess, query, 1)
+		assert.NoError(t, err)
+		assert.True(t, result)
+
+		// ID 2 -> BritCo -> UK — matches
+		result, err = walker.Evaluate(sess, query, 2)
+		assert.NoError(t, err)
+		assert.True(t, result)
+
+		// ID 3 -> TokyoTech -> JP — doesn't match
+		result, err = walker.Evaluate(sess, query, 3)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("root rel with mixed operators", func(t *testing.T) {
+		query := RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"name": EqOperator{Value: "John"},
+			"age":  ComparisonOperator{Op: "$gt", Value: 25},
+			"company_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"type":    EqOperator{Value: "tech"},
+				"revenue": ComparisonOperator{Op: "$gte", Value: 1000000},
+				"country_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"code": EqOperator{Value: "US"},
+				}}},
+			}}},
+		}}}
+		result, err := walker.Evaluate(sess, query, 1)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("root rel cascade company not found", func(t *testing.T) {
+		query := RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+			"company_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+				"type": EqOperator{Value: "tech"},
+			}}},
+		}}}
+		// ID 5 -> Ghost -> company_id=999 (not found)
+		result, err := walker.Evaluate(sess, query, 5)
+		assert.NoError(t, err)
+		assert.False(t, result)
 	})
 }

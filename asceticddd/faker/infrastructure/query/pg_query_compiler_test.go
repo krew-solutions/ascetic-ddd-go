@@ -10,12 +10,13 @@ import (
 )
 
 type StubRelationResolver struct {
-	relations map[string]*RelationInfo
+	relations    map[string]*RelationInfo
+	rootRelation *RelationInfo
 }
 
 func (r *StubRelationResolver) Resolve(field *string) *RelationInfo {
 	if field == nil {
-		return nil
+		return r.rootRelation
 	}
 	return r.relations[*field]
 }
@@ -1204,4 +1205,150 @@ func countOccurrences(s, substr string) int {
 		}
 	}
 	return count
+}
+
+// =============================================================================
+// Root-level $rel + Three-table cascade
+// =============================================================================
+
+func makeRootCascadeResolvers() *StubRelationResolver {
+	countryResolver := &StubRelationResolver{relations: map[string]*RelationInfo{}}
+	companyResolver := &StubRelationResolver{
+		relations: map[string]*RelationInfo{
+			"country_id": {Table: "countries", PkField: "value_id", NestedResolver: countryResolver},
+		},
+	}
+	employeeResolver := &StubRelationResolver{
+		relations: map[string]*RelationInfo{
+			"company_id": {Table: "companies", PkField: "value_id", NestedResolver: companyResolver},
+		},
+	}
+	return &StubRelationResolver{
+		relations:    map[string]*RelationInfo{},
+		rootRelation: &RelationInfo{Table: "employees", PkField: "value_id", NestedResolver: employeeResolver},
+	}
+}
+
+func TestRootWithCascadingRelations(t *testing.T) {
+	t.Run("root rel simple", func(t *testing.T) {
+		resolver := makeRootCascadeResolvers()
+		compiler := NewPgQueryCompiler("", resolver, nil)
+
+		query := domainquery.RelOperator{Query: domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"name":   domainquery.EqOperator{Value: "John"},
+				"status": domainquery.EqOperator{Value: "active"},
+			},
+		}}
+
+		sql, _, err := compiler.Compile(query)
+		require.NoError(t, err)
+
+		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM employees")
+		assert.Contains(t, sql, "rt1.value_id = value)")
+	})
+
+	t.Run("root rel three table cascade", func(t *testing.T) {
+		resolver := makeRootCascadeResolvers()
+		compiler := NewPgQueryCompiler("", resolver, nil)
+
+		query := domainquery.RelOperator{Query: domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"name":   domainquery.EqOperator{Value: "John"},
+				"status": domainquery.EqOperator{Value: "active"},
+				"age":    domainquery.ComparisonOperator{Op: "$gt", Value: 25},
+				"company_id": domainquery.RelOperator{Query: domainquery.CompositeQuery{
+					Fields: map[string]domainquery.IQueryOperator{
+						"type":    domainquery.EqOperator{Value: "tech"},
+						"size":    domainquery.EqOperator{Value: "large"},
+						"revenue": domainquery.ComparisonOperator{Op: "$gte", Value: 1000000},
+						"country_id": domainquery.OrOperator{Operands: []domainquery.IQueryOperator{
+							domainquery.RelOperator{Query: domainquery.CompositeQuery{
+								Fields: map[string]domainquery.IQueryOperator{
+									"code": domainquery.EqOperator{Value: "US"},
+								},
+							}},
+							domainquery.RelOperator{Query: domainquery.CompositeQuery{
+								Fields: map[string]domainquery.IQueryOperator{
+									"code": domainquery.EqOperator{Value: "UK"},
+								},
+							}},
+						}},
+					},
+				}},
+			},
+		}}
+
+		sql, _, err := compiler.Compile(query)
+		require.NoError(t, err)
+
+		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM employees")
+		assert.Contains(t, sql, "rt1.value_id = value)")
+		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM companies")
+		assert.Equal(t, 2, countOccurrences(sql, "EXISTS (SELECT 1 FROM countries"))
+		assert.Contains(t, sql, "rt1")
+		assert.Contains(t, sql, "rt2")
+		assert.Contains(t, sql, "rt3")
+		assert.Contains(t, sql, "rt4")
+	})
+
+	t.Run("root rel unique aliases", func(t *testing.T) {
+		resolver := makeRootCascadeResolvers()
+		compiler := NewPgQueryCompiler("", resolver, nil)
+
+		query := domainquery.RelOperator{Query: domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"company_id": domainquery.RelOperator{Query: domainquery.CompositeQuery{
+					Fields: map[string]domainquery.IQueryOperator{
+						"name": domainquery.EqOperator{Value: "Acme"},
+						"country_id": domainquery.RelOperator{Query: domainquery.CompositeQuery{
+							Fields: map[string]domainquery.IQueryOperator{
+								"code": domainquery.EqOperator{Value: "US"},
+							},
+						}},
+					},
+				}},
+			},
+		}}
+
+		sql, _, err := compiler.Compile(query)
+		require.NoError(t, err)
+
+		assert.Regexp(t, `FROM employees rt1`, sql)
+		assert.Regexp(t, `FROM companies rt2`, sql)
+		assert.Regexp(t, `FROM countries rt3`, sql)
+	})
+
+	t.Run("root rel or both branches reference same table", func(t *testing.T) {
+		resolver := makeRootCascadeResolvers()
+		compiler := NewPgQueryCompiler("", resolver, nil)
+
+		query := domainquery.RelOperator{Query: domainquery.CompositeQuery{
+			Fields: map[string]domainquery.IQueryOperator{
+				"company_id": domainquery.RelOperator{Query: domainquery.CompositeQuery{
+					Fields: map[string]domainquery.IQueryOperator{
+						"country_id": domainquery.OrOperator{Operands: []domainquery.IQueryOperator{
+							domainquery.RelOperator{Query: domainquery.CompositeQuery{
+								Fields: map[string]domainquery.IQueryOperator{
+									"code": domainquery.EqOperator{Value: "US"},
+								},
+							}},
+							domainquery.RelOperator{Query: domainquery.CompositeQuery{
+								Fields: map[string]domainquery.IQueryOperator{
+									"code": domainquery.EqOperator{Value: "UK"},
+								},
+							}},
+						}},
+					},
+				}},
+			},
+		}}
+
+		sql, _, err := compiler.Compile(query)
+		require.NoError(t, err)
+
+		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM employees")
+		assert.Equal(t, 2, countOccurrences(sql, "FROM countries"))
+		assert.Contains(t, sql, " OR ")
+	})
 }
