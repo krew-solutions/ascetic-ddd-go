@@ -35,8 +35,11 @@ func newStubObjectResolver(relations map[string]struct {
 	return &stubObjectResolver{relations: relations}
 }
 
-func (r *stubObjectResolver) Resolve(s session.Session, field string, fkValue any) (map[string]any, IObjectResolver, error) {
-	info, ok := r.relations[field]
+func (r *stubObjectResolver) Resolve(s session.Session, field *string, fkValue any) (map[string]any, IObjectResolver, error) {
+	if field == nil {
+		return nil, nil, nil
+	}
+	info, ok := r.relations[*field]
 	if !ok {
 		return nil, nil, nil
 	}

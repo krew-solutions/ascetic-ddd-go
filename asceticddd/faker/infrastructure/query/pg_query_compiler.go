@@ -18,7 +18,7 @@ type RelationInfo struct {
 }
 
 type IRelationResolver interface {
-	Resolve(field string) *RelationInfo
+	Resolve(field *string) *RelationInfo
 }
 
 var sqlOps = map[string]string{
@@ -261,7 +261,8 @@ func (c *PgQueryCompiler) VisitLen(op domainquery.LenOperator) (any, error) {
 func (c *PgQueryCompiler) VisitComposite(op domainquery.CompositeQuery) (any, error) {
 	for field, fieldOp := range op.Fields {
 		if _, ok := fieldOp.(domainquery.RelOperator); ok {
-			err := c.compileRelField(field, fieldOp.(domainquery.RelOperator))
+			f := field
+			err := c.compileRelField(&f, fieldOp.(domainquery.RelOperator))
 			if err != nil {
 				return nil, err
 			}
@@ -281,18 +282,15 @@ func (c *PgQueryCompiler) VisitRel(op domainquery.RelOperator) (any, error) {
 	if c.relationResolver == nil {
 		return nil, fmt.Errorf("cannot compile $rel without relation_resolver")
 	}
+	var field *string
 	if len(c.fieldPath) > 0 {
-		field := c.fieldPath[len(c.fieldPath)-1]
+		f := c.fieldPath[len(c.fieldPath)-1]
 		c.fieldPath = c.fieldPath[:len(c.fieldPath)-1]
-		err := c.compileRelField(field, op)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		_, err := op.Query.Accept(c)
-		if err != nil {
-			return nil, err
-		}
+		field = &f
+	}
+	err := c.compileRelField(field, op)
+	if err != nil {
+		return nil, err
 	}
 	return nil, nil
 }
@@ -319,7 +317,7 @@ func (c *PgQueryCompiler) flushEq() {
 
 // --- $rel compilation ---
 
-func (c *PgQueryCompiler) compileRelField(field string, op domainquery.RelOperator) error {
+func (c *PgQueryCompiler) compileRelField(field *string, op domainquery.RelOperator) error {
 	if c.relationResolver == nil {
 		return fmt.Errorf("cannot compile $rel without relation_resolver")
 	}
@@ -328,17 +326,17 @@ func (c *PgQueryCompiler) compileRelField(field string, op domainquery.RelOperat
 
 	if ri != nil {
 		c.buildExistsSubquery(field, op, ri)
-	} else {
+	} else if field != nil {
 		nested := toDict(op.Query)
 		if nested != nil {
 			c.sqlParts = append(c.sqlParts, fmt.Sprintf("%s @> ?", c.targetValueExpr))
-			c.params = append(c.params, encode(map[string]any{field: nested}))
+			c.params = append(c.params, encode(map[string]any{*field: nested}))
 		}
 	}
 	return nil
 }
 
-func (c *PgQueryCompiler) buildExistsSubquery(field string, op domainquery.RelOperator, ri *RelationInfo) {
+func (c *PgQueryCompiler) buildExistsSubquery(field *string, op domainquery.RelOperator, ri *RelationInfo) {
 	alias := c.nextAlias()
 
 	nested := NewPgQueryCompiler(
@@ -350,9 +348,15 @@ func (c *PgQueryCompiler) buildExistsSubquery(field string, op domainquery.RelOp
 	nested.flushEq()
 
 	if nestedSql := nested.sql(); nestedSql != "" {
+		var joinExpr string
+		if field != nil {
+			joinExpr = fmt.Sprintf("%s->'%s'", c.targetValueExpr, *field)
+		} else {
+			joinExpr = c.targetValueExpr
+		}
 		sql := fmt.Sprintf(
-			"EXISTS (SELECT 1 FROM %s %s WHERE %s AND %s.%s = %s->'%s')",
-			ri.Table, alias, nestedSql, alias, ri.PkField, c.targetValueExpr, field,
+			"EXISTS (SELECT 1 FROM %s %s WHERE %s AND %s.%s = %s)",
+			ri.Table, alias, nestedSql, alias, ri.PkField, joinExpr,
 		)
 		c.sqlParts = append(c.sqlParts, sql)
 		c.params = append(c.params, nested.params...)

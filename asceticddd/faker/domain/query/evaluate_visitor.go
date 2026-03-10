@@ -11,7 +11,7 @@ import (
 
 // IObjectResolver resolves a relation field to foreign object state for evaluation.
 type IObjectResolver interface {
-	Resolve(s session.Session, field string, fkValue any) (map[string]any, IObjectResolver, error)
+	Resolve(s session.Session, field *string, fkValue any) (map[string]any, IObjectResolver, error)
 }
 
 type fieldContext struct {
@@ -134,8 +134,17 @@ func (w *EvaluateWalker) evaluate(
 		return w.evaluateComposite(s, q, state)
 
 	case RelOperator:
-		if fc != nil && w.objectResolver != nil {
-			foreignState, nestedResolver, err := w.objectResolver.Resolve(s, fc.field, fc.fkValue)
+		if w.objectResolver != nil {
+			var field *string
+			var fkValue any
+			if fc != nil {
+				field = &fc.field
+				fkValue = fc.fkValue
+			} else {
+				field = nil
+				fkValue = state
+			}
+			foreignState, nestedResolver, err := w.objectResolver.Resolve(s, field, fkValue)
 			if err != nil {
 				return false, err
 			}
@@ -179,7 +188,7 @@ func (w *EvaluateWalker) evaluateField(
 	fieldValue any,
 ) (bool, error) {
 	if relOp, ok := fieldOp.(RelOperator); ok && w.objectResolver != nil {
-		foreignState, nestedResolver, err := w.objectResolver.Resolve(s, field, fieldValue)
+		foreignState, nestedResolver, err := w.objectResolver.Resolve(s, &field, fieldValue)
 		if err != nil {
 			return false, err
 		}
@@ -601,8 +610,17 @@ func (v *EvaluateVisitor) VisitOr(op OrOperator) (any, error) {
 }
 
 func (v *EvaluateVisitor) VisitRel(op RelOperator) (any, error) {
-	if v.fieldCtx != nil && v.objectResolver != nil {
-		foreignState, nestedResolver, err := v.objectResolver.Resolve(v.sess, v.fieldCtx.field, v.fieldCtx.fkValue)
+	if v.objectResolver != nil {
+		var field *string
+		var fkValue any
+		if v.fieldCtx != nil {
+			field = &v.fieldCtx.field
+			fkValue = v.fieldCtx.fkValue
+		} else {
+			field = nil
+			fkValue = v.state
+		}
+		foreignState, nestedResolver, err := v.objectResolver.Resolve(v.sess, field, fkValue)
 		if err != nil {
 			return false, err
 		}
@@ -622,7 +640,8 @@ func (v *EvaluateVisitor) VisitComposite(op CompositeQuery) (any, error) {
 	for field, fieldOp := range op.Fields {
 		fieldValue, _ := getFieldValue(v.state, field)
 		if relOp, isRel := fieldOp.(RelOperator); isRel && v.objectResolver != nil {
-			foreignState, nestedResolver, err := v.objectResolver.Resolve(v.sess, field, fieldValue)
+			f := field
+			foreignState, nestedResolver, err := v.objectResolver.Resolve(v.sess, &f, fieldValue)
 			if err != nil {
 				return false, err
 			}

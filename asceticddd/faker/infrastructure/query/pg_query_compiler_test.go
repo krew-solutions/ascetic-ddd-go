@@ -13,8 +13,11 @@ type StubRelationResolver struct {
 	relations map[string]*RelationInfo
 }
 
-func (r *StubRelationResolver) Resolve(field string) *RelationInfo {
-	return r.relations[field]
+func (r *StubRelationResolver) Resolve(field *string) *RelationInfo {
+	if field == nil {
+		return nil
+	}
+	return r.relations[*field]
 }
 
 func TestVisitEq(t *testing.T) {
