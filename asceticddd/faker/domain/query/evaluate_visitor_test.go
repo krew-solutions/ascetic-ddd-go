@@ -56,6 +56,56 @@ func (r *stubObjectResolver) Resolve(s session.Session, field *string, fkValue a
 	return state, info.resolver, nil
 }
 
+func (r *stubObjectResolver) Descend(field string) IObjectResolver {
+	return nil
+}
+
+// descendableStubObjectResolver is a test stub with descend support for nested composite resolution.
+type descendableStubObjectResolver struct {
+	relations    map[string]relInfo
+	rootRelation *relInfo
+	children     map[string]IObjectResolver
+}
+
+func newDescendableStubObjectResolver(
+	relations map[string]relInfo,
+	children map[string]IObjectResolver,
+) *descendableStubObjectResolver {
+	if children == nil {
+		children = map[string]IObjectResolver{}
+	}
+	return &descendableStubObjectResolver{relations: relations, children: children}
+}
+
+func (r *descendableStubObjectResolver) Resolve(s session.Session, field *string, fkValue any) (map[string]any, IObjectResolver, error) {
+	var info relInfo
+	var ok bool
+	if field == nil {
+		if r.rootRelation == nil {
+			return nil, nil, nil
+		}
+		info = *r.rootRelation
+	} else {
+		info, ok = r.relations[*field]
+		if !ok {
+			return nil, nil, nil
+		}
+	}
+	state, ok := info.storage[fkValue]
+	if !ok {
+		return nil, nil, nil
+	}
+	return state, info.resolver, nil
+}
+
+func (r *descendableStubObjectResolver) Descend(field string) IObjectResolver {
+	child, ok := r.children[field]
+	if !ok {
+		return nil
+	}
+	return child
+}
+
 func makeResolver(relations map[string]relInfo) *stubObjectResolver {
 	return newStubObjectResolver(relations, nil)
 }
@@ -1856,6 +1906,306 @@ func TestEvaluateWalkerRootRelCascade(t *testing.T) {
 		}}}
 		// ID 5 -> Ghost -> company_id=999 (not found)
 		result, err := walker.Evaluate(sess, query, 5)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+}
+
+// =============================================================================
+// EvaluateWalker - Nested Composite Descend
+// =============================================================================
+
+func makeNestedDescendFixtures() (IObjectResolver, map[int]map[string]any) {
+	// Tenant storage
+	tenantStorage := map[int]map[string]any{
+		5:  {"id": 5, "name": "TenantA"},
+		10: {"id": 10, "name": "TenantB"},
+	}
+	tenantStorageAny := map[any]map[string]any{}
+	for k, v := range tenantStorage {
+		tenantStorageAny[k] = v
+	}
+
+	// UserIdProvider-level resolver: tenant_id resolves to tenant storage
+	tenantResolver := newStubObjectResolver(map[string]relInfo{}, nil)
+	userIDResolver := newDescendableStubObjectResolver(
+		map[string]relInfo{
+			"tenant_id": {storage: tenantStorageAny, resolver: tenantResolver},
+		},
+		nil,
+	)
+
+	// ResumeIdProvider-level resolver: descend('user_id') -> userIDResolver
+	resolver := newDescendableStubObjectResolver(
+		map[string]relInfo{},
+		map[string]IObjectResolver{"user_id": userIDResolver},
+	)
+	return resolver, tenantStorage
+}
+
+func TestEvaluateWalkerNestedCompositeDescend(t *testing.T) {
+	resolver, tenantStorage := makeNestedDescendFixtures()
+	walker := NewEvaluateWalker(resolver)
+
+	t.Run("nested descend matches", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		state := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("nested descend not matches", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		// tenant_id=10 -> TenantB, not TenantA
+		state := map[string]any{"user_id": map[string]any{"tenant_id": 10, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("nested descend fk not found", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		state := map[string]any{"user_id": map[string]any{"tenant_id": 999, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("nested descend with eq constraint", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"local_user_id": EqOperator{Value: 42},
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		state := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+
+		// Wrong local_user_id
+		stateWrong := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 99}, "local_resume_id": 7}
+		result, err = walker.Evaluate(sess, query, stateWrong)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("nested descend with comparison", func(t *testing.T) {
+		tenantStorage[5] = map[string]any{"id": 5, "name": "TenantA", "priority": 10}
+		tenantStorage[10] = map[string]any{"id": 10, "name": "TenantB", "priority": 1}
+		// Re-sync tenantStorageAny - we need to recreate the fixtures
+		resolver2, _ := makeNestedDescendFixtures()
+		// Patch tenant storage directly
+		r := resolver2.(*descendableStubObjectResolver)
+		userR := r.children["user_id"].(*descendableStubObjectResolver)
+		userR.relations["tenant_id"] = relInfo{
+			storage:  map[any]map[string]any{5: {"id": 5, "name": "TenantA", "priority": 10}, 10: {"id": 10, "name": "TenantB", "priority": 1}},
+			resolver: newStubObjectResolver(map[string]relInfo{}, nil),
+		}
+		walker2 := NewEvaluateWalker(resolver2)
+
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"priority": ComparisonOperator{Op: "$gte", Value: 5},
+				}}},
+			}},
+		}}
+		// tenant_id=5 -> priority=10 >= 5
+		stateHigh := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := walker2.Evaluate(sess, query, stateHigh)
+		assert.NoError(t, err)
+		assert.True(t, result)
+
+		// tenant_id=10 -> priority=1 < 5
+		stateLow := map[string]any{"user_id": map[string]any{"tenant_id": 10, "local_user_id": 42}, "local_resume_id": 7}
+		result, err = walker2.Evaluate(sess, query, stateLow)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("nested descend with top level eq", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"local_resume_id": EqOperator{Value: 7},
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		state := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := walker.Evaluate(sess, query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+
+		stateWrongID := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 42}, "local_resume_id": 99}
+		result, err = walker.Evaluate(sess, query, stateWrongID)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+}
+
+// =============================================================================
+// EvaluateWalker Sync - Nested Composite Descend
+// =============================================================================
+
+func TestEvaluateWalkerSyncNestedCompositeDescend(t *testing.T) {
+	// No resolver for sync — $rel delegates to inner query
+	walker := NewEvaluateWalker(nil)
+
+	t.Run("sync nested composite rel delegates", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		// Without resolver, $rel delegates to inner query against field value
+		state := map[string]any{"user_id": map[string]any{"tenant_id": map[string]any{"name": "TenantA"}, "local_user_id": 42}}
+		result, err := walker.EvaluateSync(query, state)
+		assert.NoError(t, err)
+		assert.True(t, result)
+
+		stateWrong := map[string]any{"user_id": map[string]any{"tenant_id": map[string]any{"name": "TenantB"}, "local_user_id": 42}}
+		result, err = walker.EvaluateSync(query, stateWrong)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+}
+
+// =============================================================================
+// EvaluateVisitor - Nested Composite Descend
+// =============================================================================
+
+func TestEvaluateVisitorNestedCompositeDescend(t *testing.T) {
+	tenantStorageAny := map[any]map[string]any{
+		5:  {"id": 5, "name": "TenantA"},
+		10: {"id": 10, "name": "TenantB"},
+	}
+
+	tenantResolver := newStubObjectResolver(map[string]relInfo{}, nil)
+	userIDResolver := newDescendableStubObjectResolver(
+		map[string]relInfo{
+			"tenant_id": {storage: tenantStorageAny, resolver: tenantResolver},
+		},
+		nil,
+	)
+	resolver := newDescendableStubObjectResolver(
+		map[string]relInfo{},
+		map[string]IObjectResolver{"user_id": userIDResolver},
+	)
+
+	eval := func(state any, query IQueryOperator) (bool, error) {
+		v := NewEvaluateVisitor(state, sess, resolver)
+		result, err := query.Accept(v)
+		if err != nil {
+			return false, err
+		}
+		return result.(bool), nil
+	}
+
+	t.Run("nested descend matches", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		state := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := eval(state, query)
+		assert.NoError(t, err)
+		assert.True(t, result)
+	})
+
+	t.Run("nested descend not matches", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		state := map[string]any{"user_id": map[string]any{"tenant_id": 10, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := eval(state, query)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("nested descend fk not found", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		state := map[string]any{"user_id": map[string]any{"tenant_id": 999, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := eval(state, query)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("nested descend with eq constraint", func(t *testing.T) {
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"local_user_id": EqOperator{Value: 42},
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"name": EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+		state := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := eval(state, query)
+		assert.NoError(t, err)
+		assert.True(t, result)
+
+		stateWrong := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 99}, "local_resume_id": 7}
+		result, err = eval(stateWrong, query)
+		assert.NoError(t, err)
+		assert.False(t, result)
+	})
+
+	t.Run("nested descend with comparison", func(t *testing.T) {
+		tenantStorageAny[5] = map[string]any{"id": 5, "name": "TenantA", "priority": 10}
+		tenantStorageAny[10] = map[string]any{"id": 10, "name": "TenantB", "priority": 1}
+
+		query := CompositeQuery{Fields: map[string]IQueryOperator{
+			"user_id": CompositeQuery{Fields: map[string]IQueryOperator{
+				"tenant_id": RelOperator{Query: CompositeQuery{Fields: map[string]IQueryOperator{
+					"priority": ComparisonOperator{Op: "$gte", Value: 5},
+				}}},
+			}},
+		}}
+		stateHigh := map[string]any{"user_id": map[string]any{"tenant_id": 5, "local_user_id": 42}, "local_resume_id": 7}
+		result, err := eval(stateHigh, query)
+		assert.NoError(t, err)
+		assert.True(t, result)
+
+		stateLow := map[string]any{"user_id": map[string]any{"tenant_id": 10, "local_user_id": 42}, "local_resume_id": 7}
+		result, err = eval(stateLow, query)
 		assert.NoError(t, err)
 		assert.False(t, result)
 	})

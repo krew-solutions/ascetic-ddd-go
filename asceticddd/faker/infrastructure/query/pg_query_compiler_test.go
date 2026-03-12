@@ -21,6 +21,32 @@ func (r *StubRelationResolver) Resolve(field *string) *RelationInfo {
 	return r.relations[*field]
 }
 
+func (r *StubRelationResolver) Descend(field string) IRelationResolver {
+	return nil
+}
+
+// DescendableStubRelationResolver is a test stub with descend support for nested composite resolution.
+type DescendableStubRelationResolver struct {
+	relations    map[string]*RelationInfo
+	rootRelation *RelationInfo
+	children     map[string]IRelationResolver
+}
+
+func (r *DescendableStubRelationResolver) Resolve(field *string) *RelationInfo {
+	if field == nil {
+		return r.rootRelation
+	}
+	return r.relations[*field]
+}
+
+func (r *DescendableStubRelationResolver) Descend(field string) IRelationResolver {
+	child, ok := r.children[field]
+	if !ok {
+		return nil
+	}
+	return child
+}
+
 func TestVisitEq(t *testing.T) {
 	t.Run("scalar", func(t *testing.T) {
 		compiler := NewPgQueryCompiler("", nil, nil)
@@ -1350,5 +1376,175 @@ func TestRootWithCascadingRelations(t *testing.T) {
 		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM employees")
 		assert.Equal(t, 2, countOccurrences(sql, "FROM countries"))
 		assert.Contains(t, sql, " OR ")
+	})
+}
+
+// =============================================================================
+// Nested Composite Descend
+// =============================================================================
+
+func makeNestedDescendResolvers() IRelationResolver {
+	tenantResolver := &StubRelationResolver{relations: map[string]*RelationInfo{}}
+
+	// UserIdProvider level: tenant_id -> tenants table
+	userIDResolver := &DescendableStubRelationResolver{
+		relations: map[string]*RelationInfo{
+			"tenant_id": {Table: "tenants", PkField: "value_id", NestedResolver: tenantResolver},
+		},
+		children: map[string]IRelationResolver{},
+	}
+
+	// ResumeIdProvider level: descend('user_id') -> userIDResolver
+	return &DescendableStubRelationResolver{
+		relations: map[string]*RelationInfo{},
+		children:  map[string]IRelationResolver{"user_id": userIDResolver},
+	}
+}
+
+func TestNestedCompositeDescend(t *testing.T) {
+	t.Run("nested descend rel", func(t *testing.T) {
+		resolver := makeNestedDescendResolvers()
+		compiler := NewPgQueryCompiler("", resolver, nil)
+
+		query := domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+			"user_id": domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+				"tenant_id": domainquery.RelOperator{Query: domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+					"name": domainquery.EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+
+		sql, _, err := compiler.Compile(query)
+		require.NoError(t, err)
+
+		// Should generate EXISTS subquery against tenants table
+		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM tenants")
+		// Join expression should use nested path value->'user_id'->'tenant_id'
+		assert.Contains(t, sql, "value->'user_id'->'tenant_id'")
+	})
+
+	t.Run("nested descend rel with eq", func(t *testing.T) {
+		resolver := makeNestedDescendResolvers()
+		compiler := NewPgQueryCompiler("", resolver, nil)
+
+		query := domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+			"user_id": domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+				"local_user_id": domainquery.EqOperator{Value: 42},
+				"tenant_id": domainquery.RelOperator{Query: domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+					"name": domainquery.EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+
+		sql, params, err := compiler.Compile(query)
+		require.NoError(t, err)
+
+		// Both @> for collapsed eq and EXISTS for $rel
+		assert.Contains(t, sql, "@>")
+		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM tenants")
+		// Collapsed eq should contain nested path
+		found := false
+		for _, p := range params {
+			if j, ok := p.(Jsonb); ok {
+				if m, ok := j.Obj.(map[string]any); ok {
+					if userID, ok := m["user_id"]; ok {
+						if um, ok := userID.(map[string]any); ok {
+							if um["local_user_id"] == 42 {
+								found = true
+							}
+						}
+					}
+				}
+			}
+		}
+		assert.True(t, found, "expected collapsed eq param {user_id: {local_user_id: 42}}")
+	})
+
+	t.Run("nested descend rel with top level eq", func(t *testing.T) {
+		resolver := makeNestedDescendResolvers()
+		compiler := NewPgQueryCompiler("", resolver, nil)
+
+		query := domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+			"local_resume_id": domainquery.EqOperator{Value: 7},
+			"user_id": domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+				"tenant_id": domainquery.RelOperator{Query: domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+					"name": domainquery.EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+
+		sql, params, err := compiler.Compile(query)
+		require.NoError(t, err)
+
+		assert.Contains(t, sql, "@>")
+		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM tenants")
+		found := false
+		for _, p := range params {
+			if j, ok := p.(Jsonb); ok {
+				if m, ok := j.Obj.(map[string]any); ok {
+					if m["local_resume_id"] == 7 {
+						found = true
+					}
+				}
+			}
+		}
+		assert.True(t, found, "expected collapsed eq param {local_resume_id: 7}")
+	})
+
+	t.Run("nested descend rel with comparison", func(t *testing.T) {
+		resolver := makeNestedDescendResolvers()
+		compiler := NewPgQueryCompiler("", resolver, nil)
+
+		query := domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+			"user_id": domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+				"tenant_id": domainquery.RelOperator{Query: domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+					"priority": domainquery.ComparisonOperator{Op: "$gte", Value: 5},
+				}}},
+			}},
+		}}
+
+		sql, _, err := compiler.Compile(query)
+		require.NoError(t, err)
+
+		assert.Contains(t, sql, "EXISTS (SELECT 1 FROM tenants")
+		assert.Contains(t, sql, ">= $")
+	})
+
+	t.Run("no descend without resolver", func(t *testing.T) {
+		compiler := NewPgQueryCompiler("", nil, nil)
+
+		query := domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+			"user_id": domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+				"tenant_id": domainquery.RelOperator{Query: domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+					"name": domainquery.EqOperator{Value: "TenantA"},
+				}}},
+			}},
+		}}
+
+		_, _, err := compiler.Compile(query)
+		assert.Error(t, err)
+	})
+
+	t.Run("nested descend no child", func(t *testing.T) {
+		// Resolver with no children for 'other_field'
+		resolver := &DescendableStubRelationResolver{
+			relations: map[string]*RelationInfo{},
+			children:  map[string]IRelationResolver{},
+		}
+		compiler := NewPgQueryCompiler("", resolver, nil)
+
+		query := domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+			"other_field": domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+				"fk": domainquery.RelOperator{Query: domainquery.CompositeQuery{Fields: map[string]domainquery.IQueryOperator{
+					"name": domainquery.EqOperator{Value: "X"},
+				}}},
+			}},
+		}}
+
+		// descend returns nil, so resolver stays at top level
+		// top-level resolver can't resolve 'fk' -> fallback to toDict
+		sql, _, err := compiler.Compile(query)
+		require.NoError(t, err)
+		assert.Contains(t, sql, "@>")
 	})
 }

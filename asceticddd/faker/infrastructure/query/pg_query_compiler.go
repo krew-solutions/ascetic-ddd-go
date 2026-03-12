@@ -19,6 +19,10 @@ type RelationInfo struct {
 
 type IRelationResolver interface {
 	Resolve(field *string) *RelationInfo
+	// Descend returns a resolver scoped to the child provider for the given field.
+	// Used when entering nested CompositeQuery fields to ensure
+	// the resolver navigates the correct level of the provider tree.
+	Descend(field string) IRelationResolver
 }
 
 var sqlOps = map[string]string{
@@ -268,10 +272,18 @@ func (c *PgQueryCompiler) VisitComposite(op domainquery.CompositeQuery) (any, er
 			}
 		} else {
 			c.fieldPath = append(c.fieldPath, field)
+			oldResolver := c.relationResolver
+			if c.relationResolver != nil {
+				descended := c.relationResolver.Descend(field)
+				if descended != nil {
+					c.relationResolver = descended
+				}
+			}
 			_, err := fieldOp.Accept(c)
 			if err != nil {
 				return nil, err
 			}
+			c.relationResolver = oldResolver
 			c.fieldPath = c.fieldPath[:len(c.fieldPath)-1]
 		}
 	}
@@ -350,7 +362,7 @@ func (c *PgQueryCompiler) buildExistsSubquery(field *string, op domainquery.RelO
 	if nestedSql := nested.sql(); nestedSql != "" {
 		var joinExpr string
 		if field != nil {
-			joinExpr = fmt.Sprintf("%s->'%s'", c.targetValueExpr, *field)
+			joinExpr = fmt.Sprintf("%s->'%s'", c.jsonPathExpr(), *field)
 		} else {
 			joinExpr = c.targetValueExpr
 		}

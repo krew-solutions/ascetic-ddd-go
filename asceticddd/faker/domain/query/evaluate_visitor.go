@@ -12,6 +12,10 @@ import (
 // IObjectResolver resolves a relation field to foreign object state for evaluation.
 type IObjectResolver interface {
 	Resolve(s session.Session, field *string, fkValue any) (map[string]any, IObjectResolver, error)
+	// Descend returns a resolver scoped to the child provider for the given field.
+	// Used when entering nested CompositeQuery fields to ensure
+	// the resolver navigates the correct level of the provider tree.
+	Descend(field string) IObjectResolver
 }
 
 type fieldContext struct {
@@ -198,7 +202,14 @@ func (w *EvaluateWalker) evaluateField(
 		nested := &EvaluateWalker{registry: w.registry, objectResolver: nestedResolver}
 		return nested.evaluate(s, relOp.Query, foreignState, nil)
 	}
-	return w.evaluate(s, fieldOp, fieldValue, &fieldContext{field: field, fkValue: fieldValue})
+	walker := w
+	if w.objectResolver != nil {
+		descended := w.objectResolver.Descend(field)
+		if descended != nil {
+			walker = &EvaluateWalker{registry: w.registry, objectResolver: descended}
+		}
+	}
+	return walker.evaluate(s, fieldOp, fieldValue, &fieldContext{field: field, fkValue: fieldValue})
 }
 
 // EvaluateSync checks if state matches query without session or resolver support.
@@ -335,7 +346,14 @@ func (w *EvaluateWalker) evaluateFieldSync(
 	if relOp, ok := fieldOp.(RelOperator); ok {
 		return w.evaluateSync(relOp.Query, fieldValue, nil)
 	}
-	return w.evaluateSync(fieldOp, fieldValue, &fieldContext{field: field, fkValue: fieldValue})
+	walker := w
+	if w.objectResolver != nil {
+		descended := w.objectResolver.Descend(field)
+		if descended != nil {
+			walker = &EvaluateWalker{registry: w.registry, objectResolver: descended}
+		}
+	}
+	return walker.evaluateSync(fieldOp, fieldValue, &fieldContext{field: field, fkValue: fieldValue})
 }
 
 func (w *EvaluateWalker) compare(op string, actual, expected any) (bool, error) {
@@ -657,7 +675,11 @@ func (v *EvaluateVisitor) VisitComposite(op CompositeQuery) (any, error) {
 				return false, nil
 			}
 		} else {
-			evaluator := v.withState(fieldValue, nil, &fieldContext{field: field, fkValue: fieldValue})
+			var descended IObjectResolver
+			if v.objectResolver != nil {
+				descended = v.objectResolver.Descend(field)
+			}
+			evaluator := v.withState(fieldValue, descended, &fieldContext{field: field, fkValue: fieldValue})
 			result, err := fieldOp.Accept(evaluator)
 			if err != nil {
 				return false, err
