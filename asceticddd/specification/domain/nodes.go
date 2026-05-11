@@ -1,6 +1,10 @@
 package specification
 
-import "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
+import (
+	"fmt"
+
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
+)
 
 type Associativity string
 
@@ -15,20 +19,67 @@ type Operable interface {
 	Operator() operators.Operator
 }
 
+// Visitable is a sealed marker for AST nodes.
+//
+// Dispatch happens through the free function Accept[T] rather than a method
+// on Visitable because Go does not allow generic methods on interfaces.
+//
+// Types in other packages satisfy this interface by embedding VisitableMarker.
 type Visitable interface {
-	Accept(Visitor) error
+	visitableNode()
 }
 
-type Visitor interface {
-	VisitGlobalScope(GlobalScopeNode) error
-	VisitObject(ObjectNode) error
-	VisitCollection(CollectionNode) error
-	VisitItem(ItemNode) error
-	VisitField(FieldNode) error
-	VisitValue(ValueNode) error
-	VisitPrefix(PrefixNode) error
-	VisitInfix(InfixNode) error
-	VisitPostfix(PostfixNode) error
+// VisitableMarker is embedded in node types defined outside the domain
+// package to satisfy the Visitable marker. The private method makes the
+// marker effectively sealed against accidental implementations while still
+// allowing intentional ones via explicit embedding.
+type VisitableMarker struct{}
+
+func (VisitableMarker) visitableNode() {}
+
+// Visitor is the parameterised visitor interface for AST traversal.
+// T is the result type produced by each visit method.
+type Visitor[T any] interface {
+	VisitGlobalScope(GlobalScopeNode) (T, error)
+	VisitObject(ObjectNode) (T, error)
+	VisitCollection(CollectionNode) (T, error)
+	VisitItem(ItemNode) (T, error)
+	VisitField(FieldNode) (T, error)
+	VisitValue(ValueNode) (T, error)
+	VisitPrefix(PrefixNode) (T, error)
+	VisitInfix(InfixNode) (T, error)
+	VisitPostfix(PostfixNode) (T, error)
+}
+
+// Accept dispatches a Visitable node to the matching visit method on v.
+//
+// This is a free function (not a method on Visitable) because Go interface
+// methods cannot be generic. Type inference recovers T from the visitor
+// argument, so call sites usually omit the explicit type parameter.
+func Accept[T any](node Visitable, v Visitor[T]) (T, error) {
+	switch n := node.(type) {
+	case ValueNode:
+		return v.VisitValue(n)
+	case FieldNode:
+		return v.VisitField(n)
+	case ObjectNode:
+		return v.VisitObject(n)
+	case ItemNode:
+		return v.VisitItem(n)
+	case GlobalScopeNode:
+		return v.VisitGlobalScope(n)
+	case CollectionNode:
+		return v.VisitCollection(n)
+	case PrefixNode:
+		return v.VisitPrefix(n)
+	case InfixNode:
+		return v.VisitInfix(n)
+	case PostfixNode:
+		return v.VisitPostfix(n)
+	default:
+		var zero T
+		return zero, fmt.Errorf("unknown visitable node type: %T", node)
+	}
 }
 
 func Value(value any) ValueNode {
@@ -45,9 +96,7 @@ func (n ValueNode) Value() any {
 	return n.value
 }
 
-func (n ValueNode) Accept(v Visitor) error {
-	return v.VisitValue(n)
-}
+func (ValueNode) visitableNode() {}
 
 func Not(operand Visitable) PrefixNode {
 	return PrefixNode{
@@ -80,9 +129,7 @@ func (n PrefixNode) Operator() operators.Operator {
 func (n PrefixNode) Associativity() Associativity {
 	return n.associativity
 }
-func (n PrefixNode) Accept(v Visitor) error {
-	return v.VisitPrefix(n)
-}
+func (PrefixNode) visitableNode() {}
 
 func Equal(left, right Visitable) InfixNode {
 	return InfixNode{
@@ -274,9 +321,7 @@ func (n InfixNode) Associativity() Associativity {
 	return n.associativity
 }
 
-func (n InfixNode) Accept(v Visitor) error {
-	return v.VisitInfix(n)
-}
+func (InfixNode) visitableNode() {}
 
 func IsNull(operand Visitable) PostfixNode {
 	return PostfixNode{
@@ -320,9 +365,7 @@ func (n PostfixNode) Associativity() Associativity {
 	return n.associativity
 }
 
-func (n PostfixNode) Accept(v Visitor) error {
-	return v.VisitPostfix(n)
-}
+func (PostfixNode) visitableNode() {}
 
 // TODO: Rename me to Scope?
 type EmptiableObject interface {
@@ -349,9 +392,8 @@ func (n GlobalScopeNode) Name() string {
 func (n GlobalScopeNode) IsRoot() bool {
 	return true
 }
-func (n GlobalScopeNode) Accept(v Visitor) error {
-	return v.VisitGlobalScope(n)
-}
+
+func (GlobalScopeNode) visitableNode() {}
 
 func Object(parent EmptiableObject, name string) ObjectNode {
 	return ObjectNode{
@@ -377,9 +419,7 @@ func (n ObjectNode) IsRoot() bool {
 	return false
 }
 
-func (n ObjectNode) Accept(v Visitor) error {
-	return v.VisitObject(n)
-}
+func (ObjectNode) visitableNode() {}
 
 func Wildcard(parent EmptiableObject, predicate Visitable) CollectionNode {
 	return CollectionNode{
@@ -418,9 +458,7 @@ func (n CollectionNode) Predicate() Visitable {
 	return n.predicate
 }
 
-func (n CollectionNode) Accept(v Visitor) error {
-	return v.VisitCollection(n)
-}
+func (CollectionNode) visitableNode() {}
 
 func Item() ItemNode {
 	return ItemNode{}
@@ -440,9 +478,7 @@ func (n ItemNode) IsRoot() bool {
 	return true
 }
 
-func (n ItemNode) Accept(v Visitor) error {
-	return v.VisitItem(n)
-}
+func (ItemNode) visitableNode() {}
 
 func Field(object EmptiableObject, name string) FieldNode {
 	return FieldNode{
@@ -464,6 +500,4 @@ func (n FieldNode) Object() EmptiableObject {
 	return n.object
 }
 
-func (n FieldNode) Accept(v Visitor) error {
-	return v.VisitField(n)
-}
+func (FieldNode) visitableNode() {}

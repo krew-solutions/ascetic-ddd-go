@@ -9,165 +9,145 @@ import (
 
 var ErrKeyNotFound = errors.New("key not found")
 
+// Context retrieves values by key during evaluation.
+type Context interface {
+	Get(string) (any, error)
+}
+
+// EvaluateVisitor evaluates a specification AST against a Context.
+//
+// Fields are immutable per call; collection iteration creates a sub-visitor
+// via withItem() rather than mutating in place.
+type EvaluateVisitor struct {
+	context     Context
+	currentItem Context
+	registry    *operators.OperatorRegistry
+}
+
 func NewEvaluateVisitor(context Context, registry *operators.OperatorRegistry) *EvaluateVisitor {
 	return &EvaluateVisitor{
-		Context:  context,
+		context:  context,
 		registry: registry,
 	}
 }
 
-type EvaluateVisitor struct {
-	currentValue any
-	currentItem  Context
-	stack        []Context
-	registry     *operators.OperatorRegistry
-	Context
+// withItem returns a sub-visitor bound to a new current item.
+// Used during wildcard iteration to scope @ to the current collection element.
+func (v *EvaluateVisitor) withItem(item Context) *EvaluateVisitor {
+	return &EvaluateVisitor{
+		context:     v.context,
+		currentItem: item,
+		registry:    v.registry,
+	}
 }
 
-func (v *EvaluateVisitor) push(ctx Context) {
-	v.stack = append(v.stack, v.Context)
-	v.Context = ctx
-}
-
-func (v *EvaluateVisitor) pop() {
-	v.Context = v.stack[len(v.stack)-1]
-	v.stack = v.stack[:len(v.stack)-1]
-}
-
-func (v EvaluateVisitor) CurrentValue() any {
-	return v.currentValue
-}
-
-func (v *EvaluateVisitor) SetCurrentValue(val any) {
-	v.currentValue = val
-}
-
-func (v *EvaluateVisitor) VisitGlobalScope(n GlobalScopeNode) error {
-	v.push(v.Context)
-	return nil
-}
-
-func (v *EvaluateVisitor) VisitObject(n ObjectNode) error {
-	err := n.Parent().Accept(v)
+// Evaluate is the typed entry point. It runs the visitor and asserts the
+// final result to bool — top-level specifications must yield a boolean.
+func (v *EvaluateVisitor) Evaluate(node Visitable) (bool, error) {
+	result, err := Accept[any](node, v)
 	if err != nil {
-		return err
+		return false, err
 	}
-	obj, err := v.Context.Get(n.Name())
-	v.pop()
-	if err != nil {
-		return err
-	}
-	v.push(obj.(Context))
-	return nil
-}
-
-func (v *EvaluateVisitor) VisitCollection(n CollectionNode) error {
-	err := n.Parent().Accept(v)
-	if err != nil {
-		return err
-	}
-	items, err := v.Context.Get(n.Name())
-	v.pop()
-	if err != nil {
-		return err
-	}
-	itemsTyped, ok := items.([]Context)
-	if !ok {
-		return errors.New("currentValue is not a collection of Contexts")
-	}
-	result := false
-	for i := range itemsTyped {
-		v.currentItem = itemsTyped[i]
-		err := n.Predicate().Accept(v)
-		if err != nil {
-			return err
-		}
-		result = result || v.CurrentValue().(bool)
-	}
-	v.SetCurrentValue(result)
-	return nil
-}
-
-func (v *EvaluateVisitor) VisitItem(n ItemNode) error {
-	v.push(v.currentItem)
-	return nil
-}
-
-func (v *EvaluateVisitor) VisitField(n FieldNode) error {
-	err := n.Object().Accept(v)
-	if err != nil {
-		return err
-	}
-	value, err := v.Context.Get(n.Name())
-	v.pop()
-	if err != nil {
-		return err
-	}
-	v.SetCurrentValue(value)
-	return nil
-}
-
-func (v *EvaluateVisitor) VisitValue(n ValueNode) error {
-	v.SetCurrentValue(n.Value())
-	return nil
-}
-
-func (v *EvaluateVisitor) VisitPrefix(n PrefixNode) error {
-	err := n.Operand().Accept(v)
-	if err != nil {
-		return err
-	}
-	result, err := v.registry.ExecUnary(n.Operator(), v.CurrentValue())
-	if err != nil {
-		return err
-	}
-	v.SetCurrentValue(result)
-	return nil
-}
-
-func (v *EvaluateVisitor) VisitPostfix(n PostfixNode) error {
-	err := n.Operand().Accept(v)
-	if err != nil {
-		return err
-	}
-	result, err := v.registry.ExecUnary(n.Operator(), v.CurrentValue())
-	if err != nil {
-		return err
-	}
-	v.SetCurrentValue(result)
-	return nil
-}
-
-func (v *EvaluateVisitor) VisitInfix(n InfixNode) error {
-	err := n.Left().Accept(v)
-	if err != nil {
-		return err
-	}
-	left := v.CurrentValue()
-	err = n.Right().Accept(v)
-	if err != nil {
-		return err
-	}
-	right := v.CurrentValue()
-	result, err := v.registry.ExecBinary(left, n.Operator(), right)
-	if err != nil {
-		return err
-	}
-	v.SetCurrentValue(result)
-	return nil
-}
-
-func (v EvaluateVisitor) Result() (bool, error) {
-	result := v.CurrentValue()
-	resultTyped, ok := result.(bool)
+	b, ok := result.(bool)
 	if !ok {
 		return false, errors.New("the result is not a bool")
 	}
-	return resultTyped, nil
+	return b, nil
 }
 
-type Context interface {
-	Get(string) (any, error)
+func (v *EvaluateVisitor) VisitGlobalScope(_ GlobalScopeNode) (any, error) {
+	return v.context, nil
+}
+
+func (v *EvaluateVisitor) VisitObject(n ObjectNode) (any, error) {
+	parentCtx, err := Accept[any](n.Parent(), v)
+	if err != nil {
+		return nil, err
+	}
+	obj, err := parentCtx.(Context).Get(n.Name())
+	if err != nil {
+		return nil, err
+	}
+	ctx, ok := obj.(Context)
+	if !ok {
+		return nil, fmt.Errorf("object %s is not a Context", n.Name())
+	}
+	return ctx, nil
+}
+
+func (v *EvaluateVisitor) VisitItem(_ ItemNode) (any, error) {
+	if v.currentItem == nil {
+		return nil, errors.New("no current item in context")
+	}
+	return v.currentItem, nil
+}
+
+func (v *EvaluateVisitor) VisitField(n FieldNode) (any, error) {
+	objCtx, err := Accept[any](n.Object(), v)
+	if err != nil {
+		return nil, err
+	}
+	return objCtx.(Context).Get(n.Name())
+}
+
+func (v *EvaluateVisitor) VisitValue(n ValueNode) (any, error) {
+	return n.Value(), nil
+}
+
+func (v *EvaluateVisitor) VisitCollection(n CollectionNode) (any, error) {
+	parentCtx, err := Accept[any](n.Parent(), v)
+	if err != nil {
+		return nil, err
+	}
+	items, err := parentCtx.(Context).Get(n.Name())
+	if err != nil {
+		return nil, err
+	}
+	itemsTyped, ok := items.([]Context)
+	if !ok {
+		return nil, errors.New("value is not a collection of Contexts")
+	}
+	result := false
+	for i := range itemsTyped {
+		value, err := Accept[any](n.Predicate(), v.withItem(itemsTyped[i]))
+		if err != nil {
+			return nil, err
+		}
+		b, ok := value.(bool)
+		if !ok {
+			return nil, errors.New("predicate did not yield a boolean")
+		}
+		result = result || b
+	}
+	return result, nil
+}
+
+func (v *EvaluateVisitor) VisitPrefix(n PrefixNode) (any, error) {
+	operand, err := Accept[any](n.Operand(), v)
+	if err != nil {
+		return nil, err
+	}
+	return v.registry.ExecUnary(n.Operator(), operand)
+}
+
+func (v *EvaluateVisitor) VisitPostfix(n PostfixNode) (any, error) {
+	operand, err := Accept[any](n.Operand(), v)
+	if err != nil {
+		return nil, err
+	}
+	return v.registry.ExecUnary(n.Operator(), operand)
+}
+
+func (v *EvaluateVisitor) VisitInfix(n InfixNode) (any, error) {
+	left, err := Accept[any](n.Left(), v)
+	if err != nil {
+		return nil, err
+	}
+	right, err := Accept[any](n.Right(), v)
+	if err != nil {
+		return nil, err
+	}
+	return v.registry.ExecBinary(left, n.Operator(), right)
 }
 
 func ExtractFieldPath(n FieldNode) []string {

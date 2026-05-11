@@ -832,12 +832,7 @@ func (p *NativeParametrizedSpecification) matchInternal(data spec.Context, param
 
 	// Evaluate using EvaluateVisitor
 	visitor := spec.NewEvaluateVisitor(data, operators.NewDefaultRegistry())
-	err := boundAST.Accept(visitor)
-	if err != nil {
-		return false, err
-	}
-
-	return visitor.Result()
+	return visitor.Evaluate(boundAST)
 }
 
 // DictContext is a dictionary-based context for testing.

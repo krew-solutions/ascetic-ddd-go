@@ -17,6 +17,7 @@ func CompositeExpression(nodes ...s.Visitable) CompositeExpressionNode {
 }
 
 type CompositeExpressionNode struct {
+	s.VisitableMarker
 	nodes []s.Visitable
 }
 
@@ -70,6 +71,3 @@ func (n CompositeExpressionNode) NotEqual(other CompositeExpressionNode) (s.Visi
 	return s.Not(s.And(operands[0], operands[1:]...)), nil
 }
 
-func (n CompositeExpressionNode) Accept(v s.Visitor) error {
-	return nil
-}

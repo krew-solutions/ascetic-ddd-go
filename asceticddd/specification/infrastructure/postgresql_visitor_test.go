@@ -14,15 +14,11 @@ func TestSimpleFieldRendering(t *testing.T) {
 	expr := s.Field(obj, "name")
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	if sql != "users.name" {
 		t.Errorf("Expected 'users.name', got %s", sql)
@@ -37,15 +33,11 @@ func TestValueParameterization(t *testing.T) {
 	expr := s.Value(42)
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	if sql != "$1" {
 		t.Errorf("Expected '$1', got %s", sql)
@@ -65,15 +57,11 @@ func TestInfixOperatorAnd(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	// Check SQL contains expected parts
 	if !strings.Contains(sql, "AND") {
@@ -96,15 +84,11 @@ func TestPrefixNotOperator(t *testing.T) {
 	expr := s.Not(s.Equal(s.Field(obj, "active"), s.Value(true)))
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	if !strings.Contains(sql, "NOT") {
 		t.Errorf("Expected SQL to contain 'NOT', got %s", sql)
@@ -126,15 +110,11 @@ func TestOrOperator(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	if !strings.Contains(sql, "OR") {
 		t.Errorf("Expected SQL to contain 'OR', got %s", sql)
@@ -150,15 +130,11 @@ func TestLessThanOperator(t *testing.T) {
 	expr := s.LessThan(s.Field(obj, "age"), s.Value(30))
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	if !strings.Contains(sql, "<") {
 		t.Errorf("Expected SQL to contain '<', got %s", sql)
@@ -193,15 +169,11 @@ func TestArithmeticOperators(t *testing.T) {
 			expr := s.GreaterThan(tt.expr, s.Value(0))
 
 			visitor := NewPostgresqlVisitor()
-			err := expr.Accept(visitor)
+			fragment, err := visitor.Compile(expr)
 			if err != nil {
 				t.Fatalf("Accept failed: %v", err)
 			}
-
-			sql, _, err := visitor.Result()
-			if err != nil {
-				t.Fatalf("Result failed: %v", err)
-			}
+			sql := fragment.SQL
 
 			if !strings.Contains(sql, tt.operator) {
 				t.Errorf("Expected SQL to contain '%s', got %s", tt.operator, sql)
@@ -218,15 +190,11 @@ func TestNestedFields(t *testing.T) {
 	expr := s.Field(profile, "age")
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expected := "user.profile.age"
 	if sql != expected {
@@ -250,15 +218,11 @@ func TestComplexExpression(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	// Check all operators are present
 	for _, op := range []string{"AND", "OR", ">="} {

@@ -169,15 +169,11 @@ func TestPostgresqlVisitorIsNull(t *testing.T) {
 	expr := s.IsNull(s.Field(s.GlobalScope(), "deleted_at"))
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expected := "deleted_at IS NULL"
 	if sql != expected {
@@ -193,15 +189,11 @@ func TestPostgresqlVisitorIsNotNull(t *testing.T) {
 	expr := s.IsNotNull(s.Field(s.GlobalScope(), "created_at"))
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expected := "created_at IS NOT NULL"
 	if sql != expected {
@@ -221,15 +213,11 @@ func TestPostgresqlVisitorIsNullWithAnd(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := expr.Accept(visitor)
+	fragment, err := visitor.Compile(expr)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	if !strings.Contains(sql, "IS NULL") {
 		t.Errorf("Expected SQL to contain IS NULL, got: %s", sql)

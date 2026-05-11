@@ -32,8 +32,7 @@ func BenchmarkAdultUserSpec_ManualAST(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		visitor := spec.NewEvaluateVisitor(&userContext{testUser}, operators.NewDefaultRegistry())
-		_ = ast.Accept(visitor)
-		_, _ = visitor.Result()
+		_, _ = visitor.Evaluate(ast)
 	}
 }
 

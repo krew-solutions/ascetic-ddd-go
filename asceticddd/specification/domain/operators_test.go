@@ -13,14 +13,9 @@ func TestNotEqualOperator(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := NotEqual(Value(5), Value(10))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -33,14 +28,9 @@ func TestNotEqualOperatorFalse(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := NotEqual(Value(5), Value(5))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != false {
@@ -53,14 +43,9 @@ func TestLessThanOperator(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := LessThan(Value(5), Value(10))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -73,14 +58,9 @@ func TestLessThanOperatorFalse(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := LessThan(Value(10), Value(5))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != false {
@@ -106,14 +86,9 @@ func TestLessThanEqualOperator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 			expression := LessThanEqual(Value(tt.left), Value(tt.right))
-			err := expression.Accept(visitor)
+			result, err := visitor.Evaluate(expression)
 			if err != nil {
-				t.Fatalf("Accept failed: %v", err)
-			}
-
-			result, err := visitor.Result()
-			if err != nil {
-				t.Fatalf("Result failed: %v", err)
+				t.Fatalf("Evaluate failed: %v", err)
 			}
 
 			if result != tt.expected {
@@ -141,14 +116,9 @@ func TestGreaterThanEqualOperator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 			expression := GreaterThanEqual(Value(tt.left), Value(tt.right))
-			err := expression.Accept(visitor)
+			result, err := visitor.Evaluate(expression)
 			if err != nil {
-				t.Fatalf("Accept failed: %v", err)
-			}
-
-			result, err := visitor.Result()
-			if err != nil {
-				t.Fatalf("Result failed: %v", err)
+				t.Fatalf("Evaluate failed: %v", err)
 			}
 
 			if result != tt.expected {
@@ -177,14 +147,9 @@ func TestOrOperator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 			expression := Or(Value(tt.left), Value(tt.right))
-			err := expression.Accept(visitor)
+			result, err := visitor.Evaluate(expression)
 			if err != nil {
-				t.Fatalf("Accept failed: %v", err)
-			}
-
-			result, err := visitor.Result()
-			if err != nil {
-				t.Fatalf("Result failed: %v", err)
+				t.Fatalf("Evaluate failed: %v", err)
 			}
 
 			if result != tt.expected {
@@ -219,14 +184,9 @@ func TestAddOperator(t *testing.T) {
 		Value(7),
 	)
 
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -247,14 +207,9 @@ func TestSubOperator(t *testing.T) {
 		Value(5),
 	)
 
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -275,14 +230,9 @@ func TestMulOperator(t *testing.T) {
 		Value(10),
 	)
 
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -303,14 +253,9 @@ func TestDivOperator(t *testing.T) {
 		Value(5),
 	)
 
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -331,14 +276,9 @@ func TestModOperator(t *testing.T) {
 		Value(1),
 	)
 
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -374,14 +314,9 @@ func TestIsNullOperator(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := IsNull(Field(GlobalScope(), "value"))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -396,14 +331,9 @@ func TestIsNullOperatorFalse(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := IsNull(Field(GlobalScope(), "value"))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != false {
@@ -418,14 +348,9 @@ func TestIsNotNullOperator(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := IsNotNull(Field(GlobalScope(), "value"))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -440,14 +365,9 @@ func TestIsNotNullOperatorFalse(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := IsNotNull(Field(GlobalScope(), "value"))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != false {

@@ -19,15 +19,11 @@ func TestSchemaRegistry_RelationalSimpleFK(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM items AS item_1 WHERE item_1.store_id = s.id AND item_1.Price > $1)"
 	if sql != expectedSQL {
@@ -56,15 +52,11 @@ func TestSchemaRegistry_RelationalCompositeFK(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM items AS item_1 WHERE item_1.tenant_id = s.tenant_id AND item_1.store_id = s.id AND item_1.Price > $1)"
 	if sql != expectedSQL {
@@ -93,15 +85,11 @@ func TestSchemaRegistry_RelationalTripleCompositeFK(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, _, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql := fragment.SQL
 
 	expectedSQL := "EXISTS (SELECT 1 FROM items AS item_1 WHERE item_1.tenant_id = s.tenant_id AND item_1.region_id = s.region_id AND item_1.store_id = s.id AND item_1.Active = $1)"
 	if sql != expectedSQL {
@@ -121,15 +109,11 @@ func TestSchemaRegistry_EmbeddedCollection(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, _, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql := fragment.SQL
 
 	// Should use unnest for embedded collections
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price > $1)"
@@ -148,15 +132,11 @@ func TestSchemaRegistry_DefaultToEmbedded(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, _, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql := fragment.SQL
 
 	// Should default to unnest
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price > $1)"
@@ -173,15 +153,11 @@ func TestSchemaRegistry_NoSchema(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor() // No schema
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, _, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql := fragment.SQL
 
 	// Should default to unnest
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price > $1)"
@@ -205,15 +181,11 @@ func TestSchemaRegistry_RelationalWithComplexPredicate(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM items AS item_1 WHERE item_1.store_id = s.id AND item_1.Price > $1 AND item_1.Active = $2)"
 	if sql != expectedSQL {
@@ -239,8 +211,8 @@ func TestSchemaRegistry_MixedCollections(t *testing.T) {
 	)
 
 	visitor1 := NewPostgresqlVisitor(WithSchema(schema))
-	_ = ast1.Accept(visitor1)
-	sql1, _, _ := visitor1.Result()
+	fragment1, _ := visitor1.Compile(ast1)
+	sql1 := fragment1.SQL
 
 	if sql1 != "EXISTS (SELECT 1 FROM items AS item_1 WHERE item_1.store_id = s.id AND item_1.Price > $1)" {
 		t.Errorf("unexpected SQL for Items: %s", sql1)
@@ -253,8 +225,8 @@ func TestSchemaRegistry_MixedCollections(t *testing.T) {
 	)
 
 	visitor2 := NewPostgresqlVisitor(WithSchema(schema))
-	_ = ast2.Accept(visitor2)
-	sql2, _, _ := visitor2.Result()
+	fragment2, _ := visitor2.Compile(ast2)
+	sql2 := fragment2.SQL
 
 	if sql2 != "EXISTS (SELECT 1 FROM unnest(Tags) AS tag_1 WHERE tag_1.Name = $1)" {
 		t.Errorf("unexpected SQL for Tags: %s", sql2)
@@ -287,15 +259,11 @@ func TestSchemaRegistry_NestedRelationalCollections(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	// Expected:
 	// EXISTS (SELECT 1 FROM categories AS category_1
@@ -336,15 +304,11 @@ func TestSchemaRegistry_NestedRelationalWithCompositeFK(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, _, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql := fragment.SQL
 
 	expectedSQL := "EXISTS (SELECT 1 FROM categories AS category_1 WHERE category_1.tenant_id = s.tenant_id AND category_1.store_id = s.id AND EXISTS (SELECT 1 FROM items AS item_2 WHERE item_2.tenant_id = category_1.tenant_id AND item_2.category_id = category_1.id AND item_2.Active = $1))"
 	if sql != expectedSQL {
@@ -371,15 +335,11 @@ func TestSchemaRegistry_CustomAlias(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
-	sql, _, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	sql := fragment.SQL
 
 	expectedSQL := "EXISTS (SELECT 1 FROM store_items AS si_1 WHERE si_1.store_id = s.id AND si_1.Price > $1)"
 	if sql != expectedSQL {

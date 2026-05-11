@@ -17,15 +17,11 @@ func TestPostgresqlVisitor_Wildcard_Any(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price > $1)"
 	if sql != expectedSQL {
@@ -45,15 +41,11 @@ func TestPostgresqlVisitor_Wildcard_All(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Active)"
 	if sql != expectedSQL {
@@ -81,15 +73,11 @@ func TestPostgresqlVisitor_Wildcard_ComplexPredicate(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price > $1 AND item_1.Active AND item_1.Stock > $2)"
 	if sql != expectedSQL {
@@ -112,15 +100,11 @@ func TestPostgresqlVisitor_Wildcard_WithRootCondition(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "Active AND EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price > $1)"
 	if sql != expectedSQL {
@@ -142,15 +126,11 @@ func TestPostgresqlVisitor_Wildcard_Negated(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "NOT EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price > $1)"
 	if sql != expectedSQL {
@@ -173,15 +153,11 @@ func TestPostgresqlVisitor_Wildcard_Arithmetic(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price - $1 > $2)"
 	if sql != expectedSQL {
@@ -210,15 +186,11 @@ func TestPostgresqlVisitor_Wildcard_MultipleWildcards(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "Active AND EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price > $1) AND EXISTS (SELECT 1 FROM unnest(Items) AS item_2 WHERE item_2.Price < $2)"
 	if sql != expectedSQL {
@@ -238,15 +210,11 @@ func TestPostgresqlVisitor_Wildcard_LessThan(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := ast.Accept(visitor)
+	fragment, err := visitor.Compile(ast)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Price < $1)"
 	if sql != expectedSQL {
@@ -286,15 +254,11 @@ func TestPostgresqlVisitor_Wildcard_Nested(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := outerWildcard.Accept(visitor)
+	fragment, err := visitor.Compile(outerWildcard)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Categories) AS category_1 WHERE EXISTS (SELECT 1 FROM unnest(category_1.Items) AS item_2 WHERE item_2.Price > $1))"
 	if sql != expectedSQL {
@@ -328,15 +292,11 @@ func TestPostgresqlVisitor_Wildcard_NestedWithCondition(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := outerWildcard.Accept(visitor)
+	fragment, err := visitor.Compile(outerWildcard)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Categories) AS category_1 WHERE category_1.Active AND EXISTS (SELECT 1 FROM unnest(category_1.Items) AS item_2 WHERE item_2.Price > $1))"
 	if sql != expectedSQL {
@@ -377,15 +337,11 @@ func TestPostgresqlVisitor_Wildcard_DoubleNested(t *testing.T) {
 	)
 
 	visitor := NewPostgresqlVisitor()
-	err := outerWildcard.Accept(visitor)
+	fragment, err := visitor.Compile(outerWildcard)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
+		t.Fatalf("Compile failed: %v", err)
 	}
-
-	sql, params, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
-	}
+	sql, params := fragment.SQL, fragment.Params
 
 	expectedSQL := "EXISTS (SELECT 1 FROM unnest(Regions) AS region_1 WHERE EXISTS (SELECT 1 FROM unnest(region_1.Categories) AS category_2 WHERE EXISTS (SELECT 1 FROM unnest(category_2.Items) AS item_3 WHERE item_3.Price > $1)))"
 	if sql != expectedSQL {

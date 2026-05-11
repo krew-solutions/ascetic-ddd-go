@@ -92,14 +92,9 @@ func TestSimpleValue(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	valNode := Value(true)
-	err := valNode.Accept(visitor)
+	result, err := visitor.Evaluate(valNode)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -112,14 +107,9 @@ func TestNotOperator(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := Not(Value(true))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != false {
@@ -132,14 +122,9 @@ func TestAndOperator(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := And(Value(true), Value(true))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -152,14 +137,9 @@ func TestAndOperatorFalse(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := And(Value(true), Value(false))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != false {
@@ -172,14 +152,9 @@ func TestEqualOperator(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := Equal(Value(5), Value(5))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -192,14 +167,9 @@ func TestEqualOperatorNotEqual(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := Equal(Value(5), Value(10))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != false {
@@ -212,14 +182,9 @@ func TestGreaterThanOperator(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := GreaterThan(Value(10), Value(5))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -232,14 +197,9 @@ func TestGreaterThanOperatorFalse(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := GreaterThan(Value(5), Value(10))
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != false {
@@ -252,12 +212,10 @@ func TestFieldAccess(t *testing.T) {
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	fieldNode := Field(GlobalScope(), "age")
-	err := fieldNode.Accept(visitor)
+	result, err := Accept[any](fieldNode, visitor)
 	if err != nil {
 		t.Fatalf("Accept failed: %v", err)
 	}
-
-	result := visitor.CurrentValue()
 	if result != 25 {
 		t.Errorf("Expected 25, got %v", result)
 	}
@@ -270,12 +228,10 @@ func TestObjectNavigation(t *testing.T) {
 
 	obj := Object(GlobalScope(), "user")
 	fieldNode := Field(obj, "name")
-	err := fieldNode.Accept(visitor)
+	result, err := Accept[any](fieldNode, visitor)
 	if err != nil {
 		t.Fatalf("Accept failed: %v", err)
 	}
-
-	result := visitor.CurrentValue()
 	if result != "Alice" {
 		t.Errorf("Expected 'Alice', got %v", result)
 	}
@@ -291,14 +247,9 @@ func TestComplexExpression(t *testing.T) {
 	activeField := Field(GlobalScope(), "active")
 	expression := And(ageCheck, activeField)
 
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	if result != true {
@@ -322,14 +273,9 @@ func TestCollectionWildcard(t *testing.T) {
 	predicate := GreaterThan(scoreField, Value(80))
 	wildcardNode := Wildcard(itemsObj, predicate)
 
-	err := wildcardNode.Accept(visitor)
+	result, err := visitor.Evaluate(wildcardNode)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	// Should be true because at least one item has score > 80
@@ -353,14 +299,9 @@ func TestCollectionAllFalse(t *testing.T) {
 	predicate := GreaterThan(scoreField, Value(80))
 	wildcardNode := Wildcard(itemsObj, predicate)
 
-	err := wildcardNode.Accept(visitor)
+	result, err := visitor.Evaluate(wildcardNode)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	// Should be false because no items have score > 80
@@ -377,7 +318,7 @@ func TestMissingKey(t *testing.T) {
 
 	fieldNode := Field(GlobalScope(), "nonexistent")
 
-	err := fieldNode.Accept(visitor)
+	_, err := Accept[any](fieldNode, visitor)
 	if err == nil {
 		t.Error("Expected error for missing key, got nil")
 	}
@@ -390,14 +331,9 @@ func TestTypeCheckingInComparison(t *testing.T) {
 	// Strings should work with Equal
 	expression := Equal(Value("hello"), Value("world"))
 
-	err := expression.Accept(visitor)
+	result, err := visitor.Evaluate(expression)
 	if err != nil {
-		t.Fatalf("Accept failed: %v", err)
-	}
-
-	result, err := visitor.Result()
-	if err != nil {
-		t.Fatalf("Result failed: %v", err)
+		t.Fatalf("Evaluate failed: %v", err)
 	}
 
 	// Result should be false since strings are different
