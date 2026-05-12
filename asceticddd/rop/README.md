@@ -69,3 +69,8 @@ Applicative phase accumulates; monadic phase short-circuits. Mix freely:
 order := rop.Map3(validateSymbol(s), validateSide(side), validateQuantity(q), buildOrder)
 saved := rop.AndThen(order, persistToDb)    // skipped entirely if any validation failed
 ```
+
+## See also
+
+- [samber/mo](https://github.com/samber/mo) -- Monads and popular FP abstractions, powered by Go 1.18+ Generics (Option, Result, Either...)
+- [Railway Oriented Programming in Golang](https://github.com/samber/cc-skills-golang/blob/main/skills/golang-samber-mo/references/monads-guide.md)
