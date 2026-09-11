@@ -73,4 +73,5 @@ saved := rop.AndThen(order, persistToDb)    // skipped entirely if any validatio
 ## See also
 
 - [samber/mo](https://github.com/samber/mo) -- Monads and popular FP abstractions, powered by Go 1.18+ Generics (Option, Result, Either...)
+- [IBM/fp-go](https://github.com/IBM/fp-go) -- Functional programming library for Go 1.24+, inspired by fp-ts. Uses generic type aliases for a clean, composable API. Provides Option, Either, Result, IO, IOResult, Reader, and ReaderIOResult monads, plus optics (Lens, Prism, Traversal) for immutable data manipulation. Supports Functor, Applicative, and Monad abstractions with do-notation-style
 - [Railway Oriented Programming in Golang](https://github.com/samber/cc-skills-golang/blob/main/skills/golang-samber-mo/references/monads-guide.md)
