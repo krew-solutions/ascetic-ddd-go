@@ -283,7 +283,9 @@ func (o *PgOutbox) fetchMessages(s session.Session, consumerGroup string, uri st
 
 	partitionFilter := ""
 	if numWorkers > 1 {
-		partitionFilter = fmt.Sprintf("AND hashtext(uri) %% $%d = $%d", paramNum, paramNum+1)
+		// hashtext() is signed and % keeps the sign of the dividend, so a
+		// negative hash would match no worker; the sign bit is cleared.
+		partitionFilter = fmt.Sprintf("AND (hashtext(uri) & 2147483647) %% $%d = $%d", paramNum, paramNum+1)
 		args = append(args, numWorkers, workerID)
 	}
 

@@ -10,10 +10,10 @@ import (
 )
 
 type PgInbox struct {
-	sessionPool           session.SessionPool
-	table                 string
-	sequence              string
-	partitionKeyStrategy  PartitionKeyStrategy
+	sessionPool          session.SessionPool
+	table                string
+	sequence             string
+	partitionKeyStrategy PartitionKeyStrategy
 }
 
 func NewInbox(
@@ -255,15 +255,17 @@ func (i *PgInbox) fetchUnprocessedMessage(
 	workerID int,
 	numWorkers int,
 ) (*InboxMessage, error) {
+	args := []any{offset}
 	partitionFilter := ""
 	if numWorkers > 1 {
+		// hashtext() is signed and % keeps the sign of the dividend, so a
+		// negative hash would match no worker; the sign bit is cleared.
 		partitionExpr := i.partitionKeyStrategy.GetSqlExpression()
 		partitionFilter = fmt.Sprintf(
-			"AND hashtext(%s) %% %d = %d",
+			"AND (hashtext(%s) & 2147483647) %% $2 = $3",
 			partitionExpr,
-			numWorkers,
-			workerID,
 		)
+		args = append(args, numWorkers, workerID)
 	}
 
 	sql := fmt.Sprintf(`
@@ -279,7 +281,7 @@ func (i *PgInbox) fetchUnprocessedMessage(
 		FOR UPDATE SKIP LOCKED
 	`, i.table, partitionFilter)
 
-	row := s.(session.DbSession).Connection().QueryRow(sql, offset)
+	row := s.(session.DbSession).Connection().QueryRow(sql, args...)
 
 	var tenantID string
 	var streamType string

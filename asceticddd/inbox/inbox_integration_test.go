@@ -2,6 +2,7 @@ package inbox
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -483,5 +484,68 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 	// All messages should be processed
 	if len(handled) != 10 {
 		t.Errorf("Expected 10 messages, got %d", len(handled))
+	}
+}
+
+func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
+	inbox, pool, cleanup := setupInboxIntegrationTest(t)
+	defer cleanup()
+
+	const total = 40
+	const numWorkers = 3
+
+	for i := 0; i < total; i++ {
+		if err := inbox.Publish(&InboxMessage{
+			TenantId:       "tenant1",
+			StreamType:     "Order",
+			StreamId:       map[string]any{"id": fmt.Sprintf("order-%d", i)},
+			StreamPosition: 1,
+			Uri:            fmt.Sprintf("kafka://orders/order-%d", i),
+			Payload:        map[string]any{"type": "OrderCreated", "order": i},
+		}); err != nil {
+			t.Fatalf("Failed to publish: %v", err)
+		}
+	}
+
+	// The set must contain URIs with a negative hashtext(), otherwise the
+	// test would pass with a partition filter that ignores the sign.
+	var negatives int
+	err := pool.Session(context.Background(), func(s session.Session) error {
+		return s.(session.DbSession).Connection().
+			QueryRow("SELECT count(*) FROM inbox_test WHERE hashtext(uri) < 0").
+			Scan(&negatives)
+	})
+	if err != nil {
+		t.Fatalf("Failed to count negative hashes: %v", err)
+	}
+	if negatives == 0 {
+		t.Fatal("Expected at least one URI with a negative hashtext()")
+	}
+
+	handledByUri := map[string]int{}
+	subscriber := func(s session.Session, msg *InboxMessage) error {
+		handledByUri[msg.Uri]++
+		return nil
+	}
+
+	for workerId := 0; workerId < numWorkers; workerId++ {
+		for {
+			processed, err := inbox.Dispatch(subscriber, workerId, numWorkers)
+			if err != nil {
+				t.Fatalf("Dispatch failed for worker %d: %v", workerId, err)
+			}
+			if !processed {
+				break
+			}
+		}
+	}
+
+	if len(handledByUri) != total {
+		t.Errorf("Expected %d distinct URIs handled, got %d", total, len(handledByUri))
+	}
+	for uri, n := range handledByUri {
+		if n != 1 {
+			t.Errorf("URI %s handled %d times, expected exactly once", uri, n)
+		}
 	}
 }

@@ -769,3 +769,63 @@ func TestMessagesChannelAPI(t *testing.T) {
 		assert.Equal(t, float64(i), msg.Payload["order"])
 	}
 }
+
+func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
+	outbox, pool := setupOutbox(t)
+	defer dropTables(t, pool)
+
+	const total = 40
+	const numWorkers = 3
+
+	ctx := context.Background()
+	err := pool.Session(ctx, func(s session.Session) error {
+		return s.Atomic(func(txSession session.Session) error {
+			for i := 0; i < total; i++ {
+				message := &OutboxMessage{
+					URI:     fmt.Sprintf("kafka://orders/order-%d", i),
+					Payload: map[string]any{"type": "OrderCreated", "order": i},
+					Metadata: map[string]any{
+						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-4466554407%02d", i),
+					},
+				}
+				if err := outbox.Publish(txSession, message); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	})
+	require.NoError(t, err)
+
+	// The set must contain URIs with a negative hashtext(), otherwise the
+	// test would pass with a partition filter that ignores the sign.
+	var negatives int
+	err = pool.Session(ctx, func(s session.Session) error {
+		return s.(session.DbSession).Connection().
+			QueryRow("SELECT count(*) FROM " + testOutboxTable + " WHERE hashtext(uri) < 0").
+			Scan(&negatives)
+	})
+	require.NoError(t, err)
+	require.Greater(t, negatives, 0, "expected at least one URI with a negative hashtext()")
+
+	deliveredByUri := map[string]int{}
+	subscriber := func(msg *OutboxMessage) error {
+		deliveredByUri[msg.URI]++
+		return nil
+	}
+
+	for workerId := 0; workerId < numWorkers; workerId++ {
+		for {
+			hasMessages, err := outbox.Dispatch(subscriber, "group", "", workerId, numWorkers)
+			require.NoError(t, err)
+			if !hasMessages {
+				break
+			}
+		}
+	}
+
+	assert.Len(t, deliveredByUri, total)
+	for uri, n := range deliveredByUri {
+		assert.Equalf(t, 1, n, "URI %s delivered %d times, expected exactly once", uri, n)
+	}
+}
