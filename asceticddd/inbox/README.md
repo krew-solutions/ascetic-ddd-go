@@ -9,7 +9,7 @@ For general documentation and pattern description, see [documentation of Python 
 The Inbox pattern ensures:
 - **Idempotency**: Duplicate messages are automatically ignored
 - **Causal consistency**: Messages wait for their dependencies before processing
-- **Reliable processing**: At-least-once delivery with ordered processing
+- **Reliable processing**: Each message is processed in the transaction that marks it processed, so the subscriber's writes and the mark commit together or not at all
 
 ## Usage
 
@@ -27,7 +27,11 @@ pool := pgsession.NewSessionPool(pgxPool)
 
 // Create inbox with default URI-based partitioning
 inb := inbox.NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
-inb.Setup()
+
+// Create the sequence and the table if they do not exist
+err := pool.Session(ctx, func(s session.Session) error {
+    return inb.Setup(s)
+})
 ```
 
 ### Publishing Messages
@@ -48,143 +52,44 @@ message := &inbox.InboxMessage{
 err := inb.Publish(message)
 ```
 
-### Consuming Messages (Channel API)
+A message with the same `(tenant_id, stream_type, stream_id, stream_position)` as one already stored is ignored. A `message_id` in the metadata is unique in the table as well.
 
-The idiomatic Go way using channels:
+### Processing Messages
 
-```go
-ctx := context.Background()
-
-// Simple iteration over messages
-for sessionMsg := range inb.Messages(ctx, 0, 1, 0.1) {
-    // Process message within transaction
-    handleMessage(sessionMsg.Session, sessionMsg.Message)
-    // Message is automatically marked as processed
-}
-```
-
-### Callback API (Alternative)
+The subscriber runs inside the transaction that marks the message processed, and is given that transaction. Writes made through the session it receives commit with the mark, or not at all. If the subscriber returns an error, the transaction is rolled back, the message stays unprocessed, and `Run` returns the error.
 
 ```go
 subscriber := func(s session.Session, msg *inbox.InboxMessage) error {
-    fmt.Printf("Processing: %s\n", msg.Uri)
+    // writes through s land in the transaction that marks msg processed
     return processMessage(s, msg)
 }
 
-ctx := context.Background()
+// Processes messages until ctx is cancelled or the subscriber fails.
+// Waits 0.1 seconds when there is nothing to process.
 err := inb.Run(ctx, subscriber, 0, 1, 1, 0.1)
 ```
 
-## Complete Examples
-
-### Kafka Consumer Integration
+`Dispatch` processes a single message and reports whether there was one:
 
 ```go
-package main
-
-import (
-    "context"
-    "log"
-    "os"
-    "os/signal"
-    "syscall"
-
-    "github.com/confluentinc/confluent-kafka-go/v2/kafka"
-    "github.com/krew-solutions/ascetic-ddd-go/asceticddd/inbox"
-    pgsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pg"
-)
-
-func main() {
-    // Setup inbox
-    pool := pgsession.NewSessionPool(pgxPool)
-    inb := inbox.NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
-    if err := inb.Setup(); err != nil {
-        log.Fatal(err)
-    }
-
-    // Setup Kafka consumer
-    consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
-        "bootstrap.servers": "localhost:9092",
-        "group.id":          "my-group",
-        "auto.offset.reset": "earliest",
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer consumer.Close()
-
-    consumer.Subscribe("orders", nil)
-
-    // Process Kafka messages
-    ctx, cancel := context.WithCancel(context.Background())
-    sigChan := make(chan os.Signal, 1)
-    signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-
-    go func() {
-        <-sigChan
-        cancel()
-    }()
-
-    // Read from Kafka and publish to inbox
-    go func() {
-        for {
-            select {
-            case <-ctx.Done():
-                return
-            default:
-            }
-
-            msg := consumer.ReadMessage(100)
-            if msg == nil {
-                continue
-            }
-
-            inboxMsg := &inbox.InboxMessage{
-                TenantId:       "default",
-                StreamType:     *msg.TopicPartition.Topic,
-                StreamId:       map[string]any{"partition": msg.TopicPartition.Partition},
-                StreamPosition: int(msg.TopicPartition.Offset),
-                Uri:            "kafka://" + *msg.TopicPartition.Topic,
-                Payload:        msg.Value,
-            }
-
-            if err := inb.Publish(inboxMsg); err != nil {
-                log.Printf("Failed to publish: %v", err)
-            }
-
-            consumer.CommitMessage(msg)
-        }
-    }()
-
-    // Process from inbox
-    for sessionMsg := range inb.Messages(ctx, 0, 1, 0.1) {
-        log.Printf("Processing: %s", sessionMsg.Message.Uri)
-        // Process message within transaction
-        processOrder(sessionMsg.Session, sessionMsg.Message)
-    }
-}
-
-func processOrder(s session.Session, msg *inbox.InboxMessage) {
-    // Your business logic here
-    log.Printf("Order processed: %s", msg.Payload)
-}
+processed, err := inb.Dispatch(subscriber, 0, 1)
 ```
 
 ### Multiple Workers (Partitioning)
 
-```go
-numWorkers := 3
+Workers share the messages by the hash of a partition key. Each loop of `Run` takes the messages whose key hashes to its worker:
 
-for workerID := 0; workerID < numWorkers; workerID++ {
-    go func(id int) {
-        // Each worker gets its partition of messages
-        for sessionMsg := range inb.Messages(ctx, id, numWorkers, 0.1) {
-            fmt.Printf("Worker %d: %s\n", id, sessionMsg.Message.Uri)
-            processMessage(sessionMsg.Session, sessionMsg.Message)
-        }
-    }(workerID)
-}
 ```
+effectiveId    = processId * concurrency + localId
+effectiveTotal = numProcesses * concurrency
+```
+
+```go
+// Process 0 of 2, three loops in this process: workers 0, 1 and 2 of 6
+err := inb.Run(ctx, subscriber, 0, 2, 3, 0.1)
+```
+
+With causal dependencies, partition by stream (see [Partition Strategies](#partition-strategies)) so that a message and what it depends on land with one worker.
 
 ### Causal Dependencies
 
@@ -228,75 +133,115 @@ inb.Publish(orderShipped)
 
 ### Graceful Shutdown
 
+`Run` checks the context between messages and returns `ctx.Err()` once it is cancelled:
+
 ```go
-ctx, cancel := context.WithCancel(context.Background())
+ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+defer cancel()
 
-sigChan := make(chan os.Signal, 1)
-signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-go func() {
-    <-sigChan
-    cancel() // Closes the channel automatically
-}()
-
-processed := 0
-for sessionMsg := range inb.Messages(ctx, 0, 1, 0.1) {
-    processMessage(sessionMsg.Session, sessionMsg.Message)
-    processed++
+err := inb.Run(ctx, subscriber, 0, 1, 1, 0.1)
+if err != nil && !errors.Is(err, context.Canceled) {
+    log.Fatal(err)
 }
-
-log.Printf("Gracefully stopped after processing %d messages", processed)
 ```
 
 ### Retry Logic
 
-```go
-for sessionMsg := range inb.Messages(ctx, 0, 1, 0.1) {
-    maxRetries := 3
-    for attempt := 0; attempt < maxRetries; attempt++ {
-        err := processMessage(sessionMsg.Session, sessionMsg.Message)
-        if err == nil {
-            break
-        }
+A subscriber error rolls its transaction back and `Run` returns the error. The message is still unprocessed and is picked up again by the next `Run`:
 
-        if attempt < maxRetries-1 {
-            log.Printf("Retry %d/%d", attempt+1, maxRetries)
-            time.Sleep(time.Duration(attempt+1) * time.Second)
-        } else {
-            log.Printf("Failed after %d retries", maxRetries)
-        }
+```go
+for ctx.Err() == nil {
+    err := inb.Run(ctx, subscriber, 0, 1, 1, 0.1)
+    if err != nil && ctx.Err() == nil {
+        log.Printf("inbox: processing failed, retrying: %v", err)
+        time.Sleep(time.Second)
     }
 }
 ```
 
-### Select with Multiple Sources
+## Complete Example: Kafka Consumer Integration
 
 ```go
-ch1 := inb1.Messages(ctx, 0, 1, 0.1)
-ch2 := inb2.Messages(ctx, 0, 1, 0.1)
+package main
 
-for {
-    select {
-    case sessionMsg, ok := <-ch1:
-        if !ok {
-            ch1 = nil
-            continue
-        }
-        processOrders(sessionMsg.Session, sessionMsg.Message)
+import (
+    "context"
+    "errors"
+    "log"
+    "os"
+    "os/signal"
+    "syscall"
 
-    case sessionMsg, ok := <-ch2:
-        if !ok {
-            ch2 = nil
-            continue
-        }
-        processUsers(sessionMsg.Session, sessionMsg.Message)
+    "github.com/confluentinc/confluent-kafka-go/v2/kafka"
+    "github.com/krew-solutions/ascetic-ddd-go/asceticddd/inbox"
+    "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
+    pgsession "github.com/krew-solutions/ascetic-ddd-go/asceticddd/session/pg"
+)
 
-    case <-time.After(5 * time.Second):
-        return
+func main() {
+    ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+    defer cancel()
+
+    // Setup inbox
+    pool := pgsession.NewSessionPool(pgxPool)
+    inb := inbox.NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
+    err := pool.Session(ctx, func(s session.Session) error {
+        return inb.Setup(s)
+    })
+    if err != nil {
+        log.Fatal(err)
     }
 
-    if ch1 == nil && ch2 == nil {
-        break
+    // Setup Kafka consumer
+    consumer, err := kafka.NewConsumer(&kafka.ConfigMap{
+        "bootstrap.servers": "localhost:9092",
+        "group.id":          "my-group",
+        "auto.offset.reset": "earliest",
+    })
+    if err != nil {
+        log.Fatal(err)
     }
+    defer consumer.Close()
+
+    consumer.Subscribe("orders", nil)
+
+    // Intake: read from Kafka and store in the inbox
+    go func() {
+        for ctx.Err() == nil {
+            msg := consumer.ReadMessage(100)
+            if msg == nil {
+                continue
+            }
+
+            inboxMsg := &inbox.InboxMessage{
+                TenantId:       "default",
+                StreamType:     *msg.TopicPartition.Topic,
+                StreamId:       map[string]any{"partition": msg.TopicPartition.Partition},
+                StreamPosition: int(msg.TopicPartition.Offset),
+                Uri:            "kafka://" + *msg.TopicPartition.Topic,
+                Payload:        msg.Value,
+            }
+
+            if err := inb.Publish(inboxMsg); err != nil {
+                log.Printf("Failed to publish: %v", err)
+                continue
+            }
+
+            consumer.CommitMessage(msg)
+        }
+    }()
+
+    // Processing: each message in the transaction that marks it processed
+    err = inb.Run(ctx, processOrder, 0, 1, 1, 0.1)
+    if err != nil && !errors.Is(err, context.Canceled) {
+        log.Fatal(err)
+    }
+}
+
+func processOrder(s session.Session, msg *inbox.InboxMessage) error {
+    // Your business logic here; writes through s commit with the mark
+    log.Printf("Order processed: %s", msg.Payload)
+    return nil
 }
 ```
 
@@ -325,36 +270,6 @@ inb := inbox.NewInbox(
 )
 ```
 
-## API Comparison
-
-### Channel API (Recommended)
-
-```go
-// ✅ Idiomatic Go - like Kafka consumer
-for sessionMsg := range inb.Messages(ctx, 0, 1, 0.1) {
-    processMessage(sessionMsg.Session, sessionMsg.Message)
-}
-```
-
-**Advantages:**
-- Idiomatic Go pattern
-- Works with `select` for multiple sources
-- Automatic cleanup via context cancellation
-- Easier error handling and retry logic
-
-### Callback API
-
-```go
-subscriber := func(s session.Session, msg *inbox.InboxMessage) error {
-    return processMessage(s, msg)
-}
-inb.Run(ctx, subscriber, 0, 1, 1, 0.1)
-```
-
-**Advantages:**
-- Similar to Python async version
-- Slightly less boilerplate for simple cases
-
 ## Testing
 
 Run tests:
@@ -368,6 +283,8 @@ Integration tests require PostgreSQL with environment variables:
 - `DB_HOST` (default: "localhost")
 - `DB_PORT` (default: "5432")
 - `DB_DATABASE` (default: "devel_grade")
+
+The inbox and outbox integration tests share one database. When running both packages, pass `-p 1`: the outbox reads only rows whose transaction is older than every open one, so a transaction held by an inbox test hides the outbox test's own rows.
 
 ## Database Schema
 

@@ -119,66 +119,6 @@ func (i *PgInbox) Run(ctx context.Context, subscriber Subscriber, processID int,
 	return <-errCh
 }
 
-func (i *PgInbox) Messages(ctx context.Context, workerID int, numWorkers int, pollInterval float64) <-chan *SessionMessage {
-	messageCh := make(chan *SessionMessage)
-
-	go func() {
-		defer close(messageCh)
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-
-			var message *InboxMessage
-
-			bgCtx := context.Background()
-			err := i.sessionPool.Session(bgCtx, func(s session.Session) error {
-				return s.Atomic(func(txSession session.Session) error {
-					var err error
-					message, err = i.fetchNextProcessable(txSession, 0, workerID, numWorkers)
-					if err != nil {
-						return err
-					}
-
-					if message == nil {
-						return nil
-					}
-
-					// Yield message to caller
-					select {
-					case <-ctx.Done():
-						return ctx.Err()
-					case messageCh <- &SessionMessage{Session: txSession, Message: message}:
-					}
-
-					// Mark as processed after yield
-					return i.markProcessed(txSession, message)
-				})
-			})
-
-			if err != nil {
-				if err == context.Canceled || err == context.DeadlineExceeded {
-					return
-				}
-				continue
-			}
-
-			if message == nil {
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(time.Duration(pollInterval * float64(time.Second))):
-				}
-			}
-		}
-	}()
-
-	return messageCh
-}
-
 func (i *PgInbox) insertMessage(s session.Session, message *InboxMessage) error {
 	sql := fmt.Sprintf(`
 		INSERT INTO %s (

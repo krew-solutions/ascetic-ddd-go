@@ -379,44 +379,6 @@ func TestRunWithSingleWorker(t *testing.T) {
 	}
 }
 
-func TestMessagesChannelAPI(t *testing.T) {
-	inbox, _, cleanup := setupInboxIntegrationTest(t)
-	defer cleanup()
-
-	// Publish 2 messages
-	for i := 0; i < 2; i++ {
-		if err := inbox.Publish(&InboxMessage{
-			TenantId:       "tenant1",
-			StreamType:     "Order",
-			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
-			StreamPosition: 1,
-			Uri:            "kafka://orders",
-			Payload:        jsonPayload(map[string]any{"type": "OrderCreated", "order": i}),
-		}); err != nil {
-			t.Fatalf("Failed to publish: %v", err)
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-
-	var receivedMessages []*InboxMessage
-	for sessionMsg := range inbox.Messages(ctx, 0, 1, 0.01) {
-		receivedMessages = append(receivedMessages, sessionMsg.Message)
-	}
-
-	if len(receivedMessages) != 2 {
-		t.Errorf("Expected 2 messages, got %d", len(receivedMessages))
-	}
-
-	for i, msg := range receivedMessages {
-		order := int(decodePayload(t, msg.Payload)["order"].(float64))
-		if order != i {
-			t.Errorf("Expected message %d to have order=%d, got %d", i, i, order)
-		}
-	}
-}
-
 func TestForUpdateSkipLocked(t *testing.T) {
 	inbox, _, cleanup := setupInboxIntegrationTest(t)
 	defer cleanup()

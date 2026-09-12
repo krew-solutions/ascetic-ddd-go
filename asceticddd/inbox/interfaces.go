@@ -57,28 +57,9 @@ type Inbox interface {
 	//   pollInterval: Seconds to wait when no messages available.
 	Run(ctx context.Context, subscriber Subscriber, processID int, numProcesses int, concurrency int, pollInterval float64) error
 
-	// Messages returns a channel for continuous message processing.
-	//
-	// Usage:
-	//   for msg := range inbox.Messages(ctx, 0, 1, 1.0) {
-	//       // Process message
-	//       handleMessage(msg.Session, msg.Message)
-	//   }
-	//
-	// Returns channel that yields SessionMessage pairs for each processable message.
-	// The channel is automatically closed when context is cancelled.
-	Messages(ctx context.Context, workerID int, numWorkers int, pollInterval float64) <-chan *SessionMessage
-
 	// Setup initializes the inbox (creates tables and sequences if needed).
 	Setup(s session.Session) error
 
 	// Cleanup releases resources.
 	Cleanup(s session.Session) error
-}
-
-// SessionMessage pairs a database session with an inbox message.
-// Used by Messages() channel API.
-type SessionMessage struct {
-	Session session.Session
-	Message *InboxMessage
 }

@@ -726,50 +726,6 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 	assert.Len(t, publishedMessages, 10)
 }
 
-func TestMessagesChannelAPI(t *testing.T) {
-	outbox, pool := setupOutbox(t)
-	defer dropTables(t, pool)
-
-	ctx := context.Background()
-
-	for i := 0; i < 5; i++ {
-		err := pool.Session(ctx, func(s session.Session) error {
-			return s.Atomic(func(txSession session.Session) error {
-				message := &OutboxMessage{
-					URI: "kafka://orders",
-					Payload: jsonPayload(map[string]any{
-						"type":  "OrderCreated",
-						"order": i,
-					}),
-					Metadata: map[string]any{
-						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544050%d", i),
-					},
-				}
-				return outbox.Publish(txSession, message)
-			})
-		})
-		require.NoError(t, err)
-	}
-
-	messageCtx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-
-	var receivedMessages []*OutboxMessage
-
-	for message := range outbox.Messages(messageCtx, "", "", 0, 1, 0.01) {
-		receivedMessages = append(receivedMessages, message)
-		if len(receivedMessages) >= 5 {
-			cancel()
-		}
-	}
-
-	assert.Len(t, receivedMessages, 5)
-	for i, msg := range receivedMessages {
-		assert.Equal(t, "kafka://orders", msg.URI)
-		assert.Equal(t, float64(i), decodePayload(t, msg.Payload)["order"])
-	}
-}
-
 func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 	outbox, pool := setupOutbox(t)
 	defer dropTables(t, pool)

@@ -3,7 +3,6 @@ package inbox
 import (
 	"context"
 	"encoding/json"
-	"strings"
 	"testing"
 	"time"
 
@@ -432,131 +431,6 @@ func TestSetupCreatesSequenceAndTable(t *testing.T) {
 	// Second should create table
 	if executedSQLs[1] == "" {
 		t.Error("Second SQL should create table")
-	}
-}
-
-func TestMessagesChannelYieldsMessages(t *testing.T) {
-	streamID := map[string]any{"id": "order-123"}
-	streamIDBytes, _ := json.Marshal(streamID)
-
-	payload := map[string]any{"type": "OrderCreated", "amount": 100}
-	payloadBytes, _ := json.Marshal(payload)
-
-	receivedPos := int64(1)
-
-	callCount := 0
-	conn := &mockConnection{
-		queryRowFunc: func(query string, args ...any) session.Row {
-			callCount++
-			if callCount == 1 {
-				return &mockRow{
-					values: []any{
-						"tenant1",
-						"Order",
-						streamIDBytes,
-						1,
-						"kafka://orders",
-						payloadBytes,
-						[]byte{},
-						receivedPos,
-						nil,
-					},
-				}
-			}
-			// After first message, return no rows
-			return &mockRow{err: &noRowsError{}}
-		},
-		execFunc: func(query string, args ...any) (session.Result, error) {
-			return &mockResult{}, nil
-		},
-	}
-
-	sess := &mockDbSession{connection: conn}
-	pool := &mockSessionPool{session: sess}
-
-	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	var received []*InboxMessage
-	for sessionMsg := range inbox.Messages(ctx, 0, 1, 0.01) {
-		received = append(received, sessionMsg.Message)
-	}
-
-	if len(received) != 1 {
-		t.Errorf("Expected 1 message, got %d", len(received))
-	}
-
-	if len(received) > 0 && received[0].TenantId != "tenant1" {
-		t.Errorf("Expected tenant_id=tenant1, got %s", received[0].TenantId)
-	}
-}
-
-func TestMessagesMarksAsProcessed(t *testing.T) {
-	streamID := map[string]any{"id": "order-123"}
-	streamIDBytes, _ := json.Marshal(streamID)
-
-	payload := map[string]any{"type": "OrderCreated", "amount": 100}
-	payloadBytes, _ := json.Marshal(payload)
-
-	receivedPos := int64(1)
-
-	var executedSQLs []string
-	callCount := 0
-
-	conn := &mockConnection{
-		queryRowFunc: func(query string, args ...any) session.Row {
-			callCount++
-			if callCount == 1 {
-				return &mockRow{
-					values: []any{
-						"tenant1",
-						"Order",
-						streamIDBytes,
-						1,
-						"kafka://orders",
-						payloadBytes,
-						[]byte{},
-						receivedPos,
-						nil,
-					},
-				}
-			}
-			return &mockRow{err: &noRowsError{}}
-		},
-		execFunc: func(query string, args ...any) (session.Result, error) {
-			executedSQLs = append(executedSQLs, query)
-			return &mockResult{}, nil
-		},
-	}
-
-	sess := &mockDbSession{connection: conn}
-	pool := &mockSessionPool{session: sess}
-
-	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	count := 0
-	for range inbox.Messages(ctx, 0, 1, 0.01) {
-		count++
-		break // Get one message and stop
-	}
-
-	// Check that UPDATE was executed to mark as processed
-	updateCount := 0
-	for _, sql := range executedSQLs {
-		// Trim whitespace and check if it starts with UPDATE
-		trimmed := strings.TrimSpace(sql)
-		if strings.HasPrefix(trimmed, "UPDATE") {
-			updateCount++
-		}
-	}
-
-	if updateCount == 0 {
-		t.Errorf("Expected UPDATE statement to be executed, got %d SQLs: %v", len(executedSQLs), executedSQLs)
 	}
 }
 
