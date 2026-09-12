@@ -55,6 +55,9 @@ type Inbox interface {
 	//   numProcesses: Total number of processes.
 	//   concurrency: Number of goroutines within this process.
 	//   pollInterval: Seconds to wait when no messages available.
+	//
+	// Returns when ctx is cancelled or a worker fails. A failing worker stops
+	// the others between messages, and the first error is returned.
 	Run(ctx context.Context, subscriber Subscriber, processID int, numProcesses int, concurrency int, pollInterval float64) error
 
 	// Setup initializes the inbox (creates tables and sequences if needed).

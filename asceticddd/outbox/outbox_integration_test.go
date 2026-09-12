@@ -3,6 +3,7 @@ package outbox
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -709,8 +710,13 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	var publishedMessages []*OutboxMessage
+	var (
+		mu                sync.Mutex // the workers append concurrently
+		publishedMessages []*OutboxMessage
+	)
 	subscriber := func(msg *OutboxMessage) error {
+		mu.Lock()
+		defer mu.Unlock()
 		publishedMessages = append(publishedMessages, msg)
 		return nil
 	}

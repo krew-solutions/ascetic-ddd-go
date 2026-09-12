@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
@@ -80,43 +81,56 @@ func (i *PgInbox) Dispatch(subscriber Subscriber, workerID int, numWorkers int) 
 }
 
 func (i *PgInbox) Run(ctx context.Context, subscriber Subscriber, processID int, numProcesses int, concurrency int, pollInterval float64) error {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if numProcesses < 1 {
+		numProcesses = 1
+	}
 	effectiveTotal := numProcesses * concurrency
 
-	workerLoop := func(localID int) error {
-		effectiveID := processID*concurrency + localID
-		for {
+	// A failing worker stops the others cooperatively, between messages.
+	loopCtx, stop := context.WithCancel(ctx)
+	defer stop()
+
+	var (
+		wg       sync.WaitGroup
+		once     sync.Once
+		firstErr error
+	)
+	for localID := 0; localID < concurrency; localID++ {
+		wg.Add(1)
+		go func(effectiveID int) {
+			defer wg.Done()
+			if err := i.workerLoop(loopCtx, subscriber, effectiveID, effectiveTotal, pollInterval); err != nil {
+				once.Do(func() { firstErr = err })
+				stop()
+			}
+		}(processID*concurrency + localID)
+	}
+	wg.Wait()
+
+	if firstErr != nil {
+		return firstErr
+	}
+	return ctx.Err()
+}
+
+// workerLoop dispatches as one worker until ctx is cancelled or a dispatch fails.
+func (i *PgInbox) workerLoop(ctx context.Context, subscriber Subscriber, workerID int, numWorkers int, pollInterval float64) error {
+	for ctx.Err() == nil {
+		hasMessages, err := i.Dispatch(subscriber, workerID, numWorkers)
+		if err != nil {
+			return err
+		}
+		if !hasMessages {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			hasMessages, err := i.Dispatch(subscriber, effectiveID, effectiveTotal)
-			if err != nil {
-				return err
-			}
-			if !hasMessages {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(time.Duration(pollInterval * float64(time.Second))):
-				}
+			case <-time.After(time.Duration(pollInterval * float64(time.Second))):
 			}
 		}
 	}
-
-	if concurrency == 1 {
-		return workerLoop(0)
-	}
-
-	errCh := make(chan error, concurrency)
-	for id := 0; id < concurrency; id++ {
-		go func(workerID int) {
-			errCh <- workerLoop(workerID)
-		}(id)
-	}
-
-	return <-errCh
+	return nil
 }
 
 func (i *PgInbox) insertMessage(s session.Session, message *InboxMessage) error {

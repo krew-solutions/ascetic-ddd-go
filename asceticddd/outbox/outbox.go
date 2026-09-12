@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
@@ -101,43 +102,56 @@ func (o *PgOutbox) Dispatch(subscriber Subscriber, consumerGroup string, uri str
 }
 
 func (o *PgOutbox) Run(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, processID int, numProcesses int, concurrency int, pollInterval float64) error {
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	if numProcesses < 1 {
+		numProcesses = 1
+	}
 	effectiveTotal := numProcesses * concurrency
 
-	workerLoop := func(localID int) error {
-		effectiveID := processID*concurrency + localID
-		for {
+	// A failing worker stops the others cooperatively, between batches.
+	loopCtx, stop := context.WithCancel(ctx)
+	defer stop()
+
+	var (
+		wg       sync.WaitGroup
+		once     sync.Once
+		firstErr error
+	)
+	for localID := 0; localID < concurrency; localID++ {
+		wg.Add(1)
+		go func(effectiveID int) {
+			defer wg.Done()
+			if err := o.workerLoop(loopCtx, subscriber, consumerGroup, uri, effectiveID, effectiveTotal, pollInterval); err != nil {
+				once.Do(func() { firstErr = err })
+				stop()
+			}
+		}(processID*concurrency + localID)
+	}
+	wg.Wait()
+
+	if firstErr != nil {
+		return firstErr
+	}
+	return ctx.Err()
+}
+
+// workerLoop dispatches as one worker until ctx is cancelled or a dispatch fails.
+func (o *PgOutbox) workerLoop(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, workerID int, numWorkers int, pollInterval float64) error {
+	for ctx.Err() == nil {
+		hasMessages, err := o.Dispatch(subscriber, consumerGroup, uri, workerID, numWorkers)
+		if err != nil {
+			return err
+		}
+		if !hasMessages {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
-
-			hasMessages, err := o.Dispatch(subscriber, consumerGroup, uri, effectiveID, effectiveTotal)
-			if err != nil {
-				return err
-			}
-			if !hasMessages {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(time.Duration(pollInterval * float64(time.Second))):
-				}
+			case <-time.After(time.Duration(pollInterval * float64(time.Second))):
 			}
 		}
 	}
-
-	if concurrency == 1 {
-		return workerLoop(0)
-	}
-
-	errCh := make(chan error, concurrency)
-	for i := 0; i < concurrency; i++ {
-		go func(id int) {
-			errCh <- workerLoop(id)
-		}(i)
-	}
-
-	return <-errCh
+	return nil
 }
 
 func (o *PgOutbox) GetPosition(s session.Session, consumerGroup string, uri string) (int64, int64, error) {

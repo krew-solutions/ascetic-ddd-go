@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,11 +94,14 @@ type mockConnection struct {
 	execFunc     func(query string, args ...any) (session.Result, error)
 	queryFunc    func(query string, args ...any) (session.Rows, error)
 	queryRowFunc func(query string, args ...any) session.Row
+	mu           sync.Mutex // Run's workers share one connection
 	lastQuery    string
 	lastArgs     []any
 }
 
 func (m *mockConnection) Exec(query string, args ...any) (session.Result, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.lastQuery = query
 	m.lastArgs = args
 	if m.execFunc != nil {
@@ -105,6 +111,8 @@ func (m *mockConnection) Exec(query string, args ...any) (session.Result, error)
 }
 
 func (m *mockConnection) Query(query string, args ...any) (session.Rows, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.lastQuery = query
 	m.lastArgs = args
 	if m.queryFunc != nil {
@@ -114,6 +122,8 @@ func (m *mockConnection) Query(query string, args ...any) (session.Rows, error) 
 }
 
 func (m *mockConnection) QueryRow(query string, args ...any) session.Row {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.lastQuery = query
 	m.lastArgs = args
 	if m.queryRowFunc != nil {
@@ -568,4 +578,36 @@ func TestMessageWithAllFields(t *testing.T) {
 	assert.Equal(t, "2024-01-01 00:00:00", *message.CreatedAt)
 	assert.Equal(t, int64(5), *message.Position)
 	assert.Equal(t, int64(100), *message.TransactionID)
+}
+
+func TestRunFailingWorkerStopsTheOthers(t *testing.T) {
+	boom := errors.New("worker 1 fails")
+	var fetches atomic.Int64
+
+	conn := &mockConnection{
+		queryFunc: func(query string, args ...any) (session.Rows, error) {
+			fetches.Add(1)
+			// args: consumer group, uri, numWorkers, workerId
+			if args[len(args)-1] == 1 {
+				return nil, boom
+			}
+			return &mockRows{}, nil
+		},
+	}
+	pool := &mockSessionPool{session: &mockDbSession{conn: conn}}
+	outbox := NewOutbox(pool, "outbox", "outbox_offsets", 100)
+
+	subscriber := func(msg *OutboxMessage) error { return nil }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := outbox.Run(ctx, subscriber, "group", "", 0, 1, 3, 0.001)
+	require.ErrorIs(t, err, boom)
+	require.NoError(t, ctx.Err(), "Run should have returned before the context deadline")
+
+	// Every worker has stopped: nothing is fetched after Run returned.
+	settled := fetches.Load()
+	time.Sleep(50 * time.Millisecond)
+	assert.Equal(t, settled, fetches.Load(), "no fetch may happen after Run returned")
 }

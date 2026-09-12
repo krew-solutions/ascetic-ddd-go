@@ -3,6 +3,7 @@ package inbox
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -395,8 +396,13 @@ func TestForUpdateSkipLocked(t *testing.T) {
 		t.Fatalf("Failed to publish: %v", err)
 	}
 
-	var handled []*InboxMessage
+	var (
+		mu      sync.Mutex // the workers append concurrently
+		handled []*InboxMessage
+	)
 	subscriber := func(s session.Session, msg *InboxMessage) error {
+		mu.Lock()
+		defer mu.Unlock()
 		handled = append(handled, msg)
 		return nil
 	}
@@ -431,8 +437,13 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 		}
 	}
 
-	var handled []*InboxMessage
+	var (
+		mu      sync.Mutex // the workers append concurrently
+		handled []*InboxMessage
+	)
 	subscriber := func(s session.Session, msg *InboxMessage) error {
+		mu.Lock()
+		defer mu.Unlock()
 		handled = append(handled, msg)
 		return nil
 	}

@@ -3,6 +3,9 @@ package inbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -495,23 +498,23 @@ func TestRunMultipleWorkersSpawnsTasks(t *testing.T) {
 		return map[string]any{"id": "order-" + string(rune('0'+i))}
 	}
 
-	callCount := 0
+	var callCount atomic.Int64 // shared by the workers
 	conn := &mockConnection{
 		queryRowFunc: func(query string, args ...any) session.Row {
-			callCount++
-			if callCount <= 4 {
-				id := streamID(callCount - 1)
+			n := int(callCount.Add(1))
+			if n <= 4 {
+				id := streamID(n - 1)
 				streamIDBytes, _ := json.Marshal(id)
 				payload := map[string]any{"type": "OrderCreated", "amount": 100}
 				payloadBytes, _ := json.Marshal(payload)
-				receivedPos := int64(callCount - 1)
+				receivedPos := int64(n - 1)
 
 				return &mockRow{
 					values: []any{
 						"tenant1",
 						"Order",
 						streamIDBytes,
-						callCount - 1,
+						n - 1,
 						"kafka://orders",
 						payloadBytes,
 						[]byte{},
@@ -532,8 +535,13 @@ func TestRunMultipleWorkersSpawnsTasks(t *testing.T) {
 
 	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
 
-	var handled []*InboxMessage
+	var (
+		mu      sync.Mutex // the workers append concurrently
+		handled []*InboxMessage
+	)
 	subscriber := func(s session.Session, msg *InboxMessage) error {
+		mu.Lock()
+		defer mu.Unlock()
 		handled = append(handled, msg)
 		return nil
 	}
@@ -575,5 +583,43 @@ func TestRunWorkerSleepsWhenNoMessages(t *testing.T) {
 	// No messages processed
 	if len(handled) != 0 {
 		t.Errorf("Expected 0 messages, got %d", len(handled))
+	}
+}
+
+func TestRunFailingWorkerStopsTheOthers(t *testing.T) {
+	boom := errors.New("worker 1 fails")
+	var dispatches atomic.Int64
+
+	conn := &mockConnection{
+		queryRowFunc: func(query string, args ...any) session.Row {
+			dispatches.Add(1)
+			// args: offset, numWorkers, workerId
+			if len(args) == 3 && args[2] == 1 {
+				return &mockRow{err: boom}
+			}
+			return &mockRow{err: &noRowsError{}}
+		},
+	}
+	pool := &mockSessionPool{session: &mockDbSession{connection: conn}}
+	inbox := NewInbox(pool, "inbox", "inbox_received_position_seq", nil)
+
+	subscriber := func(s session.Session, msg *InboxMessage) error { return nil }
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := inbox.Run(ctx, subscriber, 0, 1, 3, 0.001)
+	if !errors.Is(err, boom) {
+		t.Fatalf("Expected the worker's error, got %v", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("Run should have returned before the context deadline")
+	}
+
+	// Every worker has stopped: nothing is dispatched after Run returned.
+	settled := dispatches.Load()
+	time.Sleep(50 * time.Millisecond)
+	if after := dispatches.Load(); after != settled {
+		t.Errorf("Expected no dispatches after Run returned, got %d more", after-settled)
 	}
 }
