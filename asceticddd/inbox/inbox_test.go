@@ -196,8 +196,8 @@ func TestPublishInsertsMessage(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{"type": "OrderCreated", "amount": 100},
-		Metadata:       map[string]any{"event_id": "uuid-123"},
+		Payload:        jsonPayload(map[string]any{"type": "OrderCreated", "amount": 100}),
+		Metadata:       map[string]any{"message_id": "uuid-123"},
 	}
 
 	err := inbox.Publish(message)
@@ -322,7 +322,7 @@ func TestDependenciesSatisfiedWhenEmpty(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{"type": "OrderCreated"},
+		Payload:        jsonPayload(map[string]any{"type": "OrderCreated"}),
 		Metadata:       nil,
 	}
 

@@ -24,13 +24,9 @@ err := pool.Session(ctx, func(s session.Session) error {
     return s.Atomic(func(txSession session.Session) error {
         message := &outbox.OutboxMessage{
             URI: "kafka://orders",
-            Payload: map[string]any{
-                "type":     "OrderCreated",
-                "order_id": "123",
-                "amount":   100,
-            },
+            Payload:  []byte(`{"type": "OrderCreated", "order_id": "123", "amount": 100}`),
             Metadata: map[string]any{
-                "event_id": "550e8400-e29b-41d4-a716-446655440001",
+                "message_id": "550e8400-e29b-41d4-a716-446655440001",
             },
         }
         return ob.Publish(txSession, message)
@@ -47,7 +43,7 @@ ctx := context.Background()
 
 // Simple iteration over messages
 for message := range ob.Messages(ctx, "my-consumer", "", 0, 1, 0.1) {
-    fmt.Printf("Received: %s - %v\n", message.URI, message.Payload)
+    fmt.Printf("Received: %s - %s\n", message.URI, message.Payload)
 }
 ```
 
@@ -55,7 +51,6 @@ for message := range ob.Messages(ctx, "my-consumer", "", 0, 1, 0.1) {
 
 ```go
 import (
-    "encoding/json"
     "strings"
     "github.com/confluentinc/confluent-kafka-go/v2/kafka"
 )
@@ -65,15 +60,13 @@ func publishToKafka(ob outbox.Outbox, producer *kafka.Producer) {
 
     for message := range ob.Messages(ctx, "kafka-publisher", "kafka://", 0, 1, 0.1) {
         topic := strings.TrimPrefix(message.URI, "kafka://")
-        value, _ := json.Marshal(message.Payload)
-
         producer.Produce(&kafka.Message{
             TopicPartition: kafka.TopicPartition{
                 Topic:     &topic,
                 Partition: kafka.PartitionAny,
             },
-            Key:   []byte(message.Metadata["event_id"].(string)),
-            Value: value,
+            Key:   []byte(message.Metadata["message_id"].(string)),
+            Value: message.Payload,
         }, nil)
 
         log.Printf("Published to Kafka: %s", topic)
@@ -238,7 +231,6 @@ package main
 
 import (
     "context"
-    "encoding/json"
     "log"
     "os"
     "os/signal"
@@ -290,15 +282,13 @@ func main() {
     // Process messages from outbox and publish to Kafka
     for message := range ob.Messages(ctx, "kafka-publisher", "kafka://", 0, 1, 0.1) {
         topic := strings.TrimPrefix(message.URI, "kafka://")
-        value, _ := json.Marshal(message.Payload)
-
         err := producer.Produce(&kafka.Message{
             TopicPartition: kafka.TopicPartition{
                 Topic:     &topic,
                 Partition: kafka.PartitionAny,
             },
-            Key:   []byte(message.Metadata["event_id"].(string)),
-            Value: value,
+            Key:   []byte(message.Metadata["message_id"].(string)),
+            Value: message.Payload,
         }, nil)
 
         if err != nil {
@@ -306,8 +296,8 @@ func main() {
             continue
         }
 
-        log.Printf("Published to Kafka topic=%s event_id=%s",
-            topic, message.Metadata["event_id"])
+        log.Printf("Published to Kafka topic=%s message_id=%s",
+            topic, message.Metadata["message_id"])
     }
 
     producer.Flush(1000)

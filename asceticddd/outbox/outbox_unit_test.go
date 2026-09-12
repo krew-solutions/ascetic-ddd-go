@@ -217,13 +217,13 @@ func TestPublishInsertsMessage(t *testing.T) {
 	outbox := NewOutbox(nil, "outbox", "outbox_offsets", 100)
 	message := &OutboxMessage{
 		URI: "kafka://orders",
-		Payload: map[string]any{
+		Payload: jsonPayload(map[string]any{
 			"type":     "OrderCreated",
 			"order_id": "123",
 			"amount":   100,
-		},
+		}),
 		Metadata: map[string]any{
-			"event_id":       "uuid-123",
+			"message_id":     "uuid-123",
 			"correlation_id": "corr-456",
 		},
 	}
@@ -246,12 +246,12 @@ func TestPublishUsesCustomTableName(t *testing.T) {
 	outbox := NewOutbox(nil, "custom_outbox", "custom_offsets", 100)
 	message := &OutboxMessage{
 		URI: "kafka://orders",
-		Payload: map[string]any{
+		Payload: jsonPayload(map[string]any{
 			"type":     "OrderCreated",
 			"order_id": "123",
-		},
+		}),
 		Metadata: map[string]any{
-			"event_id": "uuid-123",
+			"message_id": "uuid-123",
 		},
 	}
 
@@ -370,7 +370,7 @@ func TestSetPositionWithURI(t *testing.T) {
 
 func TestFetchMessagesWithURIFilter(t *testing.T) {
 	payload1, _ := json.Marshal(map[string]any{"type": "OrderCreated", "order_id": "123"})
-	metadata1, _ := json.Marshal(map[string]any{"event_id": "uuid-1"})
+	metadata1, _ := json.Marshal(map[string]any{"message_id": "uuid-1"})
 
 	conn := &mockConnection{
 		queryFunc: func(query string, args ...any) (session.Rows, error) {
@@ -453,9 +453,9 @@ func TestConsumerGroupNoModificationWithSingleWorker(t *testing.T) {
 
 func TestDispatchReturnsTrue(t *testing.T) {
 	payload1, _ := json.Marshal(map[string]any{"type": "OrderCreated", "order_id": "123"})
-	metadata1, _ := json.Marshal(map[string]any{"event_id": "uuid-1"})
+	metadata1, _ := json.Marshal(map[string]any{"message_id": "uuid-1"})
 	payload2, _ := json.Marshal(map[string]any{"type": "OrderShipped", "order_id": "123"})
-	metadata2, _ := json.Marshal(map[string]any{"event_id": "uuid-2"})
+	metadata2, _ := json.Marshal(map[string]any{"message_id": "uuid-2"})
 
 	conn := &mockConnection{
 		execFunc: func(query string, args ...any) (session.Result, error) {
@@ -487,13 +487,13 @@ func TestDispatchReturnsTrue(t *testing.T) {
 	assert.True(t, result)
 	assert.Len(t, published, 2)
 	assert.Equal(t, "kafka://orders", published[0].URI)
-	assert.Equal(t, "OrderCreated", published[0].Payload["type"])
-	assert.Equal(t, "OrderShipped", published[1].Payload["type"])
+	assert.Equal(t, "OrderCreated", decodePayload(t, published[0].Payload)["type"])
+	assert.Equal(t, "OrderShipped", decodePayload(t, published[1].Payload)["type"])
 }
 
 func TestDispatchAcknowledgesLastMessage(t *testing.T) {
 	payload1, _ := json.Marshal(map[string]any{"type": "OrderCreated", "order_id": "123"})
-	metadata1, _ := json.Marshal(map[string]any{"event_id": "uuid-1"})
+	metadata1, _ := json.Marshal(map[string]any{"message_id": "uuid-1"})
 
 	ackCalled := false
 	conn := &mockConnection{
@@ -529,19 +529,19 @@ func TestDispatchAcknowledgesLastMessage(t *testing.T) {
 func TestMessageCreation(t *testing.T) {
 	message := &OutboxMessage{
 		URI: "kafka://orders",
-		Payload: map[string]any{
+		Payload: jsonPayload(map[string]any{
 			"type":     "OrderCreated",
 			"order_id": "123",
-		},
+		}),
 		Metadata: map[string]any{
-			"event_id": "uuid-123",
+			"message_id": "uuid-123",
 		},
 	}
 
 	assert.Equal(t, "kafka://orders", message.URI)
-	assert.Equal(t, "OrderCreated", message.Payload["type"])
-	assert.Equal(t, "123", message.Payload["order_id"])
-	assert.Equal(t, "uuid-123", message.Metadata["event_id"])
+	assert.Equal(t, "OrderCreated", decodePayload(t, message.Payload)["type"])
+	assert.Equal(t, "123", decodePayload(t, message.Payload)["order_id"])
+	assert.Equal(t, "uuid-123", message.Metadata["message_id"])
 	assert.Nil(t, message.Position)
 	assert.Nil(t, message.TransactionID)
 }
@@ -553,12 +553,12 @@ func TestMessageWithAllFields(t *testing.T) {
 
 	message := &OutboxMessage{
 		URI: "kafka://orders",
-		Payload: map[string]any{
+		Payload: jsonPayload(map[string]any{
 			"type":     "OrderCreated",
 			"order_id": "123",
-		},
+		}),
 		Metadata: map[string]any{
-			"event_id": "uuid-123",
+			"message_id": "uuid-123",
 		},
 		CreatedAt:     &createdAt,
 		Position:      &position,

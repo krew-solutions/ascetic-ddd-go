@@ -18,8 +18,8 @@ package inbox
 //	Uri: Routing URI (e.g., 'kafka://orders', 'amqp://exchange/key'). Can be one of:
 //	    - bus_type://topic_or_channel_name
 //	    - bus_type://topic_or_channel_name/partition_key
-//	Payload: Event payload data (must contain 'type' for deserialization).
-//	Metadata: Optional event metadata (may contain event_id, causal_dependencies, etc.).
+//	Payload: The message as it came off the wire: serialized bytes.
+//	Metadata: Optional event metadata (may contain message_id, causal_dependencies, etc.).
 //	ReceivedPosition: Position when message was received (auto-assigned by DB).
 //	ProcessedPosition: Position when message was processed (nil if not processed).
 type InboxMessage struct {
@@ -28,7 +28,7 @@ type InboxMessage struct {
 	StreamId          map[string]any
 	StreamPosition    int
 	Uri               string
-	Payload           map[string]any
+	Payload           []byte
 	Metadata          map[string]any
 	ReceivedPosition  *int64
 	ProcessedPosition *int64
@@ -55,14 +55,14 @@ func (m *InboxMessage) CausalDependencies() []map[string]any {
 	return result
 }
 
-// EventId returns event_id from metadata if present.
-func (m *InboxMessage) EventId() *string {
+// MessageId returns message_id from metadata if present.
+func (m *InboxMessage) MessageId() *string {
 	if m.Metadata == nil {
 		return nil
 	}
-	eventId, ok := m.Metadata["event_id"].(string)
+	messageId, ok := m.Metadata["message_id"].(string)
 	if !ok {
 		return nil
 	}
-	return &eventId
+	return &messageId
 }

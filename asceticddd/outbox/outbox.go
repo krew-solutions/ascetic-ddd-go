@@ -45,17 +45,12 @@ func (o *PgOutbox) Publish(s session.Session, message *OutboxMessage) error {
 		VALUES ($1, $2, $3, pg_current_xact_id())
 	`, o.outboxTable)
 
-	payload, err := json.Marshal(message.Payload)
-	if err != nil {
-		return err
-	}
-
 	metadata, err := json.Marshal(message.Metadata)
 	if err != nil {
 		return err
 	}
 
-	_, err = s.(session.DbSession).Connection().Exec(sql, message.URI, payload, metadata)
+	_, err = s.(session.DbSession).Connection().Exec(sql, message.URI, message.Payload, metadata)
 	return err
 }
 
@@ -333,11 +328,6 @@ func (o *PgOutbox) fetchMessages(s session.Session, consumerGroup string, uri st
 			return nil, err
 		}
 
-		var payload map[string]any
-		if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-			return nil, err
-		}
-
 		var metadata map[string]any
 		if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
 			return nil, err
@@ -346,7 +336,7 @@ func (o *PgOutbox) fetchMessages(s session.Session, consumerGroup string, uri st
 		createdAtStr := createdAt.Format(time.RFC3339)
 		messages = append(messages, &OutboxMessage{
 			URI:           uri,
-			Payload:       payload,
+			Payload:       payloadBytes,
 			Metadata:      metadata,
 			CreatedAt:     &createdAtStr,
 			Position:      &position,
@@ -376,7 +366,7 @@ func (o *PgOutbox) createOutboxTable(s session.Session) error {
 		CREATE TABLE IF NOT EXISTS %s (
 			"position" BIGSERIAL,
 			"uri" VARCHAR(255) NOT NULL,
-			"payload" JSONB NOT NULL,
+			"payload" BYTEA NOT NULL,
 			"metadata" JSONB NOT NULL,
 			"created_at" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			"transaction_id" xid8 NOT NULL,
@@ -392,7 +382,7 @@ func (o *PgOutbox) createOutboxTable(s session.Session) error {
 	sqls := []string{
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_position_idx ON %s ("position")`, o.outboxTable, o.outboxTable),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS %s_uri_idx ON %s ("uri")`, o.outboxTable, o.outboxTable),
-		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS %s_event_id_uniq ON %s (((metadata->>'event_id')::uuid))`, o.outboxTable, o.outboxTable),
+		fmt.Sprintf(`CREATE UNIQUE INDEX IF NOT EXISTS %s_message_id_uniq ON %s (((metadata->>'message_id')::uuid))`, o.outboxTable, o.outboxTable),
 	}
 
 	for _, sql := range sqls {

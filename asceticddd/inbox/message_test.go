@@ -11,7 +11,7 @@ func TestCreateMessage(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{"amount": 100},
+		Payload:        jsonPayload(map[string]any{"amount": 100}),
 	}
 
 	if message.TenantId != "tenant1" {
@@ -29,8 +29,8 @@ func TestCreateMessage(t *testing.T) {
 	if message.Uri != "kafka://orders" {
 		t.Errorf("Expected uri=kafka://orders, got %s", message.Uri)
 	}
-	if message.Payload["amount"] != 100 {
-		t.Errorf("Expected payload.amount=100, got %v", message.Payload["amount"])
+	if string(message.Payload) != `{"amount":100}` {
+		t.Errorf(`Expected payload {"amount":100}, got %s`, message.Payload)
 	}
 	if message.Metadata != nil {
 		t.Error("Expected metadata to be nil")
@@ -50,15 +50,15 @@ func TestCreateMessageWithMetadata(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{"amount": 100},
+		Payload:        jsonPayload(map[string]any{"amount": 100}),
 		Metadata: map[string]any{
-			"event_id":  "uuid-123",
-			"timestamp": "2024-01-01T00:00:00Z",
+			"message_id": "uuid-123",
+			"timestamp":  "2024-01-01T00:00:00Z",
 		},
 	}
 
-	if message.Metadata["event_id"] != "uuid-123" {
-		t.Errorf("Expected event_id=uuid-123, got %v", message.Metadata["event_id"])
+	if message.Metadata["message_id"] != "uuid-123" {
+		t.Errorf("Expected message_id=uuid-123, got %v", message.Metadata["message_id"])
 	}
 }
 
@@ -69,7 +69,7 @@ func TestCausalDependenciesEmptyWhenNoMetadata(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{},
+		Payload:        jsonPayload(map[string]any{}),
 	}
 
 	deps := message.CausalDependencies()
@@ -85,8 +85,8 @@ func TestCausalDependenciesEmptyWhenNotPresent(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{},
-		Metadata:       map[string]any{"event_id": "uuid-123"},
+		Payload:        jsonPayload(map[string]any{}),
+		Metadata:       map[string]any{"message_id": "uuid-123"},
 	}
 
 	deps := message.CausalDependencies()
@@ -117,7 +117,7 @@ func TestCausalDependenciesReturnsList(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{},
+		Payload:        jsonPayload(map[string]any{}),
 		Metadata:       map[string]any{"causal_dependencies": deps},
 	}
 
@@ -141,12 +141,12 @@ func TestEventIDNoneWhenNoMetadata(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{},
+		Payload:        jsonPayload(map[string]any{}),
 	}
 
-	eventID := message.EventId()
-	if eventID != nil {
-		t.Errorf("Expected nil event_id, got %v", *eventID)
+	messageId := message.MessageId()
+	if messageId != nil {
+		t.Errorf("Expected nil message_id, got %v", *messageId)
 	}
 }
 
@@ -157,16 +157,16 @@ func TestEventIDReturnsValue(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{},
-		Metadata:       map[string]any{"event_id": "uuid-456"},
+		Payload:        jsonPayload(map[string]any{}),
+		Metadata:       map[string]any{"message_id": "uuid-456"},
 	}
 
-	eventID := message.EventId()
-	if eventID == nil {
-		t.Fatal("Expected event_id to be non-nil")
+	messageId := message.MessageId()
+	if messageId == nil {
+		t.Fatal("Expected message_id to be non-nil")
 	}
-	if *eventID != "uuid-456" {
-		t.Errorf("Expected event_id=uuid-456, got %s", *eventID)
+	if *messageId != "uuid-456" {
+		t.Errorf("Expected message_id=uuid-456, got %s", *messageId)
 	}
 }
 
@@ -180,7 +180,7 @@ func TestReceivedAndProcessedPositions(t *testing.T) {
 		StreamId:          map[string]any{"id": "order-123"},
 		StreamPosition:    1,
 		Uri:               "kafka://orders",
-		Payload:           map[string]any{},
+		Payload:           jsonPayload(map[string]any{}),
 		ReceivedPosition:  &receivedPos,
 		ProcessedPosition: &processedPos,
 	}

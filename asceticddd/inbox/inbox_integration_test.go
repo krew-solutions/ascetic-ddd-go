@@ -59,8 +59,8 @@ func TestPublishAndDispatch(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{"amount": 100},
-		Metadata:       map[string]any{"event_id": "uuid-123"},
+		Payload:        jsonPayload(map[string]any{"amount": 100}),
+		Metadata:       map[string]any{"message_id": "uuid-123"},
 	}
 
 	err := inbox.Publish(message)
@@ -106,7 +106,7 @@ func TestIdempotency(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{"amount": 100},
+		Payload:        jsonPayload(map[string]any{"amount": 100}),
 	}
 
 	// Publish same message twice
@@ -157,7 +157,7 @@ func TestCausalDependencies(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 2,
 		Uri:            "kafka://shipments",
-		Payload:        map[string]any{"tracking": "123"},
+		Payload:        jsonPayload(map[string]any{"tracking": "123"}),
 		Metadata: map[string]any{
 			"causal_dependencies": []any{
 				map[string]any{
@@ -197,7 +197,7 @@ func TestCausalDependencies(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-123"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{"amount": 100},
+		Payload:        jsonPayload(map[string]any{"amount": 100}),
 	}
 	if err := inbox.Publish(dependencyMessage); err != nil {
 		t.Fatalf("Failed to publish dependency: %v", err)
@@ -240,7 +240,7 @@ func TestOrderingByReceivedPosition(t *testing.T) {
 			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
 			StreamPosition: 1,
 			Uri:            "kafka://orders",
-			Payload:        map[string]any{"type": "OrderCreated", "order": i},
+			Payload:        jsonPayload(map[string]any{"type": "OrderCreated", "order": i}),
 		}
 		if err := inbox.Publish(message); err != nil {
 			t.Fatalf("Failed to publish: %v", err)
@@ -270,7 +270,7 @@ func TestOrderingByReceivedPosition(t *testing.T) {
 
 	// Check order
 	for i, msg := range handled {
-		order := int(msg.Payload["order"].(float64))
+		order := int(decodePayload(t, msg.Payload)["order"].(float64))
 		if order != i {
 			t.Errorf("Expected message %d to have order=%d, got %d", i, i, order)
 		}
@@ -288,7 +288,7 @@ func TestRoutingByUri(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-1"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{"type": "OrderCreated"},
+		Payload:        jsonPayload(map[string]any{"type": "OrderCreated"}),
 	}); err != nil {
 		t.Fatalf("Failed to publish: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestRoutingByUri(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-2"},
 		StreamPosition: 1,
 		Uri:            "kafka://shipments",
-		Payload:        map[string]any{"type": "OrderShipped"},
+		Payload:        jsonPayload(map[string]any{"type": "OrderShipped"}),
 	}); err != nil {
 		t.Fatalf("Failed to publish: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestRunWithSingleWorker(t *testing.T) {
 			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
 			StreamPosition: 1,
 			Uri:            "kafka://orders",
-			Payload:        map[string]any{"type": "OrderCreated", "order": i},
+			Payload:        jsonPayload(map[string]any{"type": "OrderCreated", "order": i}),
 		}); err != nil {
 			t.Fatalf("Failed to publish: %v", err)
 		}
@@ -391,7 +391,7 @@ func TestMessagesChannelAPI(t *testing.T) {
 			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
 			StreamPosition: 1,
 			Uri:            "kafka://orders",
-			Payload:        map[string]any{"type": "OrderCreated", "order": i},
+			Payload:        jsonPayload(map[string]any{"type": "OrderCreated", "order": i}),
 		}); err != nil {
 			t.Fatalf("Failed to publish: %v", err)
 		}
@@ -410,7 +410,7 @@ func TestMessagesChannelAPI(t *testing.T) {
 	}
 
 	for i, msg := range receivedMessages {
-		order := int(msg.Payload["order"].(float64))
+		order := int(decodePayload(t, msg.Payload)["order"].(float64))
 		if order != i {
 			t.Errorf("Expected message %d to have order=%d, got %d", i, i, order)
 		}
@@ -428,7 +428,7 @@ func TestForUpdateSkipLocked(t *testing.T) {
 		StreamId:       map[string]any{"id": "order-1"},
 		StreamPosition: 1,
 		Uri:            "kafka://orders",
-		Payload:        map[string]any{},
+		Payload:        jsonPayload(map[string]any{}),
 	}); err != nil {
 		t.Fatalf("Failed to publish: %v", err)
 	}
@@ -463,7 +463,7 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
 			StreamPosition: 1,
 			Uri:            "kafka://orders",
-			Payload:        map[string]any{"type": "OrderCreated", "order": i},
+			Payload:        jsonPayload(map[string]any{"type": "OrderCreated", "order": i}),
 		}); err != nil {
 			t.Fatalf("Failed to publish: %v", err)
 		}
@@ -501,7 +501,7 @@ func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 			StreamId:       map[string]any{"id": fmt.Sprintf("order-%d", i)},
 			StreamPosition: 1,
 			Uri:            fmt.Sprintf("kafka://orders/order-%d", i),
-			Payload:        map[string]any{"type": "OrderCreated", "order": i},
+			Payload:        jsonPayload(map[string]any{"type": "OrderCreated", "order": i}),
 		}); err != nil {
 			t.Fatalf("Failed to publish: %v", err)
 		}

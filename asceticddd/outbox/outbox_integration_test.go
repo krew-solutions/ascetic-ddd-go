@@ -71,13 +71,13 @@ func TestPublishAndDispatch(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
 				URI: "kafka://orders",
-				Payload: map[string]any{
+				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
 					"amount":   100,
-				},
+				}),
 				Metadata: map[string]any{
-					"event_id": "550e8400-e29b-41d4-a716-446655440001",
+					"message_id": "550e8400-e29b-41d4-a716-446655440001",
 				},
 			}
 			return outbox.Publish(txSession, message)
@@ -97,7 +97,7 @@ func TestPublishAndDispatch(t *testing.T) {
 	assert.True(t, result)
 	assert.Len(t, publishedMessages, 1)
 	assert.Equal(t, "kafka://orders", publishedMessages[0].URI)
-	assert.Equal(t, "123", publishedMessages[0].Payload["order_id"])
+	assert.Equal(t, "123", decodePayload(t, publishedMessages[0].Payload)["order_id"])
 }
 
 func TestDispatchReturnsFalseWhenEmpty(t *testing.T) {
@@ -127,12 +127,12 @@ func TestMultipleConsumerGroups(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
 				URI: "kafka://orders",
-				Payload: map[string]any{
+				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
-				},
+				}),
 				Metadata: map[string]any{
-					"event_id": "550e8400-e29b-41d4-a716-446655440003",
+					"message_id": "550e8400-e29b-41d4-a716-446655440003",
 				},
 			}
 			return outbox.Publish(txSession, message)
@@ -237,12 +237,12 @@ func TestDispatchUpdatesPosition(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
 				URI: "kafka://orders",
-				Payload: map[string]any{
+				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
-				},
+				}),
 				Metadata: map[string]any{
-					"event_id": "550e8400-e29b-41d4-a716-446655440002",
+					"message_id": "550e8400-e29b-41d4-a716-446655440002",
 				},
 			}
 			return outbox.Publish(txSession, message)
@@ -276,12 +276,12 @@ func TestOrderingByPosition(t *testing.T) {
 			return s.Atomic(func(txSession session.Session) error {
 				message := &OutboxMessage{
 					URI: "kafka://orders",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544000%d", i),
+						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544000%d", i),
 					},
 				}
 				return outbox.Publish(txSession, message)
@@ -306,7 +306,7 @@ func TestOrderingByPosition(t *testing.T) {
 
 	assert.Len(t, publishedMessages, 3)
 	for i, msg := range publishedMessages {
-		assert.Equal(t, float64(i), msg.Payload["order"])
+		assert.Equal(t, float64(i), decodePayload(t, msg.Payload)["order"])
 	}
 }
 
@@ -321,12 +321,12 @@ func TestBatchDispatch(t *testing.T) {
 			for i := 0; i < 5; i++ {
 				message := &OutboxMessage{
 					URI: "kafka://orders",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544010%d", i),
+						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544010%d", i),
 					},
 				}
 				err := outbox.Publish(txSession, message)
@@ -363,32 +363,32 @@ func TestDispatchWithURIFilter(t *testing.T) {
 			messages := []*OutboxMessage{
 				{
 					URI: "kafka://orders",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type":     "OrderCreated",
 						"order_id": "1",
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": "550e8400-e29b-41d4-a716-446655440080",
+						"message_id": "550e8400-e29b-41d4-a716-446655440080",
 					},
 				},
 				{
 					URI: "kafka://users",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type":    "UserCreated",
 						"user_id": "1",
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": "550e8400-e29b-41d4-a716-446655440081",
+						"message_id": "550e8400-e29b-41d4-a716-446655440081",
 					},
 				},
 				{
 					URI: "kafka://orders",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type":     "OrderShipped",
 						"order_id": "1",
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": "550e8400-e29b-41d4-a716-446655440082",
+						"message_id": "550e8400-e29b-41d4-a716-446655440082",
 					},
 				},
 			}
@@ -439,12 +439,12 @@ func TestMultipleURIsIndependentPositions(t *testing.T) {
 			return s.Atomic(func(txSession session.Session) error {
 				orderMsg := &OutboxMessage{
 					URI: "kafka://orders",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544009%d", i),
+						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544009%d", i),
 					},
 				}
 				if err := outbox.Publish(txSession, orderMsg); err != nil {
@@ -453,12 +453,12 @@ func TestMultipleURIsIndependentPositions(t *testing.T) {
 
 				userMsg := &OutboxMessage{
 					URI: "kafka://users",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type": "UserCreated",
 						"user": i,
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544019%d", i),
+						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544019%d", i),
 					},
 				}
 				return outbox.Publish(txSession, userMsg)
@@ -521,8 +521,8 @@ func TestVisibilityRule(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			_, err := txSession.(session.DbSession).Connection().Exec(fmt.Sprintf(`
 				INSERT INTO %s (uri, payload, metadata, transaction_id)
-				VALUES ('kafka://orders', '{"type": "OrderCreated", "order": 1}'::jsonb,
-						'{"event_id": "550e8400-e29b-41d4-a716-446655440050"}'::jsonb,
+				VALUES ('kafka://orders', '{"type": "OrderCreated", "order": 1}'::bytea,
+						'{"message_id": "550e8400-e29b-41d4-a716-446655440050"}'::jsonb,
 						pg_current_xact_id())
 			`, testOutboxTable))
 			if err != nil {
@@ -554,12 +554,12 @@ func TestIdempotencyViaEventID(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
 				URI: "kafka://orders",
-				Payload: map[string]any{
+				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
-				},
+				}),
 				Metadata: map[string]any{
-					"event_id": "550e8400-e29b-41d4-a716-446655440060",
+					"message_id": "550e8400-e29b-41d4-a716-446655440060",
 				},
 			}
 			return outbox.Publish(txSession, message)
@@ -571,12 +571,12 @@ func TestIdempotencyViaEventID(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
 				URI: "kafka://orders",
-				Payload: map[string]any{
+				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "456",
-				},
+				}),
 				Metadata: map[string]any{
-					"event_id": "550e8400-e29b-41d4-a716-446655440060",
+					"message_id": "550e8400-e29b-41d4-a716-446655440060",
 				},
 			}
 			return outbox.Publish(txSession, message)
@@ -596,12 +596,12 @@ func TestForUpdatePreventsDuplicateProcessing(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
 				URI: "kafka://orders",
-				Payload: map[string]any{
+				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
-				},
+				}),
 				Metadata: map[string]any{
-					"event_id": "550e8400-e29b-41d4-a716-446655440070",
+					"message_id": "550e8400-e29b-41d4-a716-446655440070",
 				},
 			}
 			return outbox.Publish(txSession, message)
@@ -653,12 +653,12 @@ func TestRunWithSingleWorker(t *testing.T) {
 			return s.Atomic(func(txSession session.Session) error {
 				message := &OutboxMessage{
 					URI: "kafka://orders",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544030%d", i),
+						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544030%d", i),
 					},
 				}
 				return outbox.Publish(txSession, message)
@@ -695,12 +695,12 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 			return s.Atomic(func(txSession session.Session) error {
 				message := &OutboxMessage{
 					URI: "kafka://orders",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544040%d", i),
+						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544040%d", i),
 					},
 				}
 				return outbox.Publish(txSession, message)
@@ -737,12 +737,12 @@ func TestMessagesChannelAPI(t *testing.T) {
 			return s.Atomic(func(txSession session.Session) error {
 				message := &OutboxMessage{
 					URI: "kafka://orders",
-					Payload: map[string]any{
+					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
-					},
+					}),
 					Metadata: map[string]any{
-						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544050%d", i),
+						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-44665544050%d", i),
 					},
 				}
 				return outbox.Publish(txSession, message)
@@ -766,7 +766,7 @@ func TestMessagesChannelAPI(t *testing.T) {
 	assert.Len(t, receivedMessages, 5)
 	for i, msg := range receivedMessages {
 		assert.Equal(t, "kafka://orders", msg.URI)
-		assert.Equal(t, float64(i), msg.Payload["order"])
+		assert.Equal(t, float64(i), decodePayload(t, msg.Payload)["order"])
 	}
 }
 
@@ -783,9 +783,9 @@ func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 			for i := 0; i < total; i++ {
 				message := &OutboxMessage{
 					URI:     fmt.Sprintf("kafka://orders/order-%d", i),
-					Payload: map[string]any{"type": "OrderCreated", "order": i},
+					Payload: jsonPayload(map[string]any{"type": "OrderCreated", "order": i}),
 					Metadata: map[string]any{
-						"event_id": fmt.Sprintf("550e8400-e29b-41d4-a716-4466554407%02d", i),
+						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-4466554407%02d", i),
 					},
 				}
 				if err := outbox.Publish(txSession, message); err != nil {

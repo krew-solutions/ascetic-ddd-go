@@ -2,7 +2,7 @@ package outbox
 
 type OutboxMessage struct {
 	URI           string
-	Payload       map[string]any
+	Payload       []byte
 	Metadata      map[string]any
 	CreatedAt     *string
 	Position      *int64

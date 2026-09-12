@@ -195,11 +195,6 @@ func (i *PgInbox) insertMessage(s session.Session, message *InboxMessage) error 
 		return err
 	}
 
-	payloadBytes, err := json.Marshal(message.Payload)
-	if err != nil {
-		return err
-	}
-
 	var metadataBytes []byte
 	if message.Metadata != nil {
 		metadataBytes, err = json.Marshal(message.Metadata)
@@ -215,7 +210,7 @@ func (i *PgInbox) insertMessage(s session.Session, message *InboxMessage) error 
 		streamIDBytes,
 		message.StreamPosition,
 		message.Uri,
-		payloadBytes,
+		message.Payload,
 		metadataBytes,
 	)
 	return err
@@ -318,11 +313,6 @@ func (i *PgInbox) fetchUnprocessedMessage(
 		return nil, err
 	}
 
-	var payload map[string]any
-	if err := json.Unmarshal(payloadBytes, &payload); err != nil {
-		return nil, err
-	}
-
 	var metadata map[string]any
 	if len(metadataBytes) > 0 {
 		if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
@@ -336,7 +326,7 @@ func (i *PgInbox) fetchUnprocessedMessage(
 		StreamId:          streamID,
 		StreamPosition:    streamPosition,
 		Uri:               uri,
-		Payload:           payload,
+		Payload:           payloadBytes,
 		Metadata:          metadata,
 		ReceivedPosition:  &receivedPosition,
 		ProcessedPosition: processedPosition,
@@ -444,8 +434,8 @@ func (i *PgInbox) createTable(s session.Session) error {
 			stream_type varchar(128) NOT NULL,
 			stream_id jsonb NOT NULL,
 			stream_position integer NOT NULL,
-			uri varchar(60) NOT NULL,
-			payload jsonb NOT NULL,
+			uri varchar(255) NOT NULL,
+			payload bytea NOT NULL,
 			metadata jsonb NULL,
 			received_position bigint NOT NULL UNIQUE DEFAULT nextval('%s'),
 			processed_position bigint NULL,

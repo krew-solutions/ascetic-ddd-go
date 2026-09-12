@@ -39,13 +39,9 @@ message := &inbox.InboxMessage{
     StreamId:       map[string]any{"id": "order-123"},
     StreamPosition: 1,
     Uri:            "kafka://orders",
-    Payload: map[string]any{
-        "type":     "OrderCreated",
-        "order_id": "123",
-        "amount":   100,
-    },
+    Payload:        []byte(`{"type": "OrderCreated", "order_id": "123", "amount": 100}`),
     Metadata: map[string]any{
-        "event_id": "550e8400-e29b-41d4-a716-446655440001",
+        "message_id": "550e8400-e29b-41d4-a716-446655440001",
     },
 }
 
@@ -88,7 +84,6 @@ package main
 
 import (
     "context"
-    "encoding/json"
     "log"
     "os"
     "os/signal"
@@ -144,16 +139,13 @@ func main() {
                 continue
             }
 
-            var payload map[string]any
-            json.Unmarshal(msg.Value, &payload)
-
             inboxMsg := &inbox.InboxMessage{
                 TenantId:       "default",
                 StreamType:     *msg.TopicPartition.Topic,
                 StreamId:       map[string]any{"partition": msg.TopicPartition.Partition},
                 StreamPosition: int(msg.TopicPartition.Offset),
                 Uri:            "kafka://" + *msg.TopicPartition.Topic,
-                Payload:        payload,
+                Payload:        msg.Value,
             }
 
             if err := inb.Publish(inboxMsg); err != nil {
@@ -174,7 +166,7 @@ func main() {
 
 func processOrder(s session.Session, msg *inbox.InboxMessage) {
     // Your business logic here
-    log.Printf("Order processed: %v", msg.Payload)
+    log.Printf("Order processed: %s", msg.Payload)
 }
 ```
 
@@ -206,7 +198,7 @@ orderCreated := &inbox.InboxMessage{
     StreamId:       map[string]any{"id": "order-123"},
     StreamPosition: 1,
     Uri:            "kafka://orders",
-    Payload:        map[string]any{"type": "OrderCreated"},
+    Payload:        []byte(`{"type": "OrderCreated"}`),
 }
 inb.Publish(orderCreated)
 
@@ -217,7 +209,7 @@ orderShipped := &inbox.InboxMessage{
     StreamId:       map[string]any{"id": "order-123"},
     StreamPosition: 2,
     Uri:            "kafka://shipments",
-    Payload:        map[string]any{"type": "OrderShipped"},
+    Payload:        []byte(`{"type": "OrderShipped"}`),
     Metadata: map[string]any{
         "causal_dependencies": []map[string]any{
             {
