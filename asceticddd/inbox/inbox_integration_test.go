@@ -2,6 +2,7 @@ package inbox
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -64,7 +65,7 @@ func TestPublishAndDispatch(t *testing.T) {
 		Metadata:       map[string]any{"message_id": "uuid-123"},
 	}
 
-	err := inbox.Publish(message)
+	err := inbox.Publish(context.Background(), message)
 	if err != nil {
 		t.Fatalf("Failed to publish: %v", err)
 	}
@@ -75,7 +76,7 @@ func TestPublishAndDispatch(t *testing.T) {
 		return nil
 	}
 
-	result, err := inbox.Dispatch(subscriber, 0, 1)
+	result, err := inbox.Dispatch(context.Background(), subscriber, 0, 1)
 	if err != nil {
 		t.Fatalf("Dispatch failed: %v", err)
 	}
@@ -111,10 +112,10 @@ func TestIdempotency(t *testing.T) {
 	}
 
 	// Publish same message twice
-	if err := inbox.Publish(message); err != nil {
+	if err := inbox.Publish(context.Background(), message); err != nil {
 		t.Fatalf("First publish failed: %v", err)
 	}
-	if err := inbox.Publish(message); err != nil {
+	if err := inbox.Publish(context.Background(), message); err != nil {
 		t.Fatalf("Second publish failed: %v", err)
 	}
 
@@ -125,7 +126,7 @@ func TestIdempotency(t *testing.T) {
 	}
 
 	// Process first message
-	result1, err := inbox.Dispatch(subscriber, 0, 1)
+	result1, err := inbox.Dispatch(context.Background(), subscriber, 0, 1)
 	if err != nil {
 		t.Fatalf("First dispatch failed: %v", err)
 	}
@@ -134,7 +135,7 @@ func TestIdempotency(t *testing.T) {
 	}
 
 	// Try to process second message (should not exist)
-	result2, err := inbox.Dispatch(subscriber, 0, 1)
+	result2, err := inbox.Dispatch(context.Background(), subscriber, 0, 1)
 	if err != nil {
 		t.Fatalf("Second dispatch failed: %v", err)
 	}
@@ -172,7 +173,7 @@ func TestCausalDependencies(t *testing.T) {
 	}
 
 	// Publish dependent message first
-	if err := inbox.Publish(dependentMessage); err != nil {
+	if err := inbox.Publish(context.Background(), dependentMessage); err != nil {
 		t.Fatalf("Failed to publish dependent message: %v", err)
 	}
 
@@ -183,7 +184,7 @@ func TestCausalDependencies(t *testing.T) {
 	}
 
 	// Should not process (dependency not met)
-	result, err := inbox.Dispatch(subscriber, 0, 1)
+	result, err := inbox.Dispatch(context.Background(), subscriber, 0, 1)
 	if err != nil {
 		t.Fatalf("Dispatch failed: %v", err)
 	}
@@ -200,12 +201,12 @@ func TestCausalDependencies(t *testing.T) {
 		Uri:            "kafka://orders",
 		Payload:        jsonPayload(map[string]any{"amount": 100}),
 	}
-	if err := inbox.Publish(dependencyMessage); err != nil {
+	if err := inbox.Publish(context.Background(), dependencyMessage); err != nil {
 		t.Fatalf("Failed to publish dependency: %v", err)
 	}
 
 	// Process dependency first
-	result, err = inbox.Dispatch(subscriber, 0, 1)
+	result, err = inbox.Dispatch(context.Background(), subscriber, 0, 1)
 	if err != nil {
 		t.Fatalf("Dispatch failed: %v", err)
 	}
@@ -217,7 +218,7 @@ func TestCausalDependencies(t *testing.T) {
 	}
 
 	// Now dependent message can be processed
-	result, err = inbox.Dispatch(subscriber, 0, 1)
+	result, err = inbox.Dispatch(context.Background(), subscriber, 0, 1)
 	if err != nil {
 		t.Fatalf("Dispatch failed: %v", err)
 	}
@@ -243,7 +244,7 @@ func TestOrderingByReceivedPosition(t *testing.T) {
 			Uri:            "kafka://orders",
 			Payload:        jsonPayload(map[string]any{"type": "OrderCreated", "order": i}),
 		}
-		if err := inbox.Publish(message); err != nil {
+		if err := inbox.Publish(context.Background(), message); err != nil {
 			t.Fatalf("Failed to publish: %v", err)
 		}
 	}
@@ -256,7 +257,7 @@ func TestOrderingByReceivedPosition(t *testing.T) {
 
 	// Process all messages
 	for {
-		result, err := inbox.Dispatch(subscriber, 0, 1)
+		result, err := inbox.Dispatch(context.Background(), subscriber, 0, 1)
 		if err != nil {
 			t.Fatalf("Dispatch failed: %v", err)
 		}
@@ -283,7 +284,7 @@ func TestRoutingByUri(t *testing.T) {
 	defer cleanup()
 
 	// Publish messages with different URIs
-	if err := inbox.Publish(&InboxMessage{
+	if err := inbox.Publish(context.Background(), &InboxMessage{
 		TenantId:       "tenant1",
 		StreamType:     "Order",
 		StreamId:       map[string]any{"id": "order-1"},
@@ -294,7 +295,7 @@ func TestRoutingByUri(t *testing.T) {
 		t.Fatalf("Failed to publish: %v", err)
 	}
 
-	if err := inbox.Publish(&InboxMessage{
+	if err := inbox.Publish(context.Background(), &InboxMessage{
 		TenantId:       "tenant1",
 		StreamType:     "Order",
 		StreamId:       map[string]any{"id": "order-2"},
@@ -326,10 +327,10 @@ func TestRoutingByUri(t *testing.T) {
 	}
 
 	// Process messages
-	if _, err := inbox.Dispatch(subscriber, 0, 1); err != nil {
+	if _, err := inbox.Dispatch(context.Background(), subscriber, 0, 1); err != nil {
 		t.Fatalf("First dispatch failed: %v", err)
 	}
-	if _, err := inbox.Dispatch(subscriber, 0, 1); err != nil {
+	if _, err := inbox.Dispatch(context.Background(), subscriber, 0, 1); err != nil {
 		t.Fatalf("Second dispatch failed: %v", err)
 	}
 
@@ -351,7 +352,7 @@ func TestRunWithSingleWorker(t *testing.T) {
 
 	// Publish 3 messages
 	for i := 0; i < 3; i++ {
-		if err := inbox.Publish(&InboxMessage{
+		if err := inbox.Publish(context.Background(), &InboxMessage{
 			TenantId:       "tenant1",
 			StreamType:     "Order",
 			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
@@ -385,7 +386,7 @@ func TestForUpdateSkipLocked(t *testing.T) {
 	defer cleanup()
 
 	// Publish a single message
-	if err := inbox.Publish(&InboxMessage{
+	if err := inbox.Publish(context.Background(), &InboxMessage{
 		TenantId:       "tenant1",
 		StreamType:     "Order",
 		StreamId:       map[string]any{"id": "order-1"},
@@ -425,7 +426,7 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 
 	// Publish 10 messages
 	for i := 0; i < 10; i++ {
-		if err := inbox.Publish(&InboxMessage{
+		if err := inbox.Publish(context.Background(), &InboxMessage{
 			TenantId:       "tenant1",
 			StreamType:     "Order",
 			StreamId:       map[string]any{"id": "order-" + string(rune('0'+i))},
@@ -468,7 +469,7 @@ func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 	const numWorkers = 3
 
 	for i := 0; i < total; i++ {
-		if err := inbox.Publish(&InboxMessage{
+		if err := inbox.Publish(context.Background(), &InboxMessage{
 			TenantId:       "tenant1",
 			StreamType:     "Order",
 			StreamId:       map[string]any{"id": fmt.Sprintf("order-%d", i)},
@@ -503,7 +504,7 @@ func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 
 	for workerId := 0; workerId < numWorkers; workerId++ {
 		for {
-			processed, err := inbox.Dispatch(subscriber, workerId, numWorkers)
+			processed, err := inbox.Dispatch(context.Background(), subscriber, workerId, numWorkers)
 			if err != nil {
 				t.Fatalf("Dispatch failed for worker %d: %v", workerId, err)
 			}
@@ -520,5 +521,50 @@ func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 		if n != 1 {
 			t.Errorf("URI %s handled %d times, expected exactly once", uri, n)
 		}
+	}
+}
+
+func TestRunCancellationFinishesTheMessageInFlight(t *testing.T) {
+	inbox, pool, cleanup := setupInboxIntegrationTest(t)
+	defer cleanup()
+
+	if err := inbox.Publish(context.Background(), &InboxMessage{
+		TenantId:       "tenant1",
+		StreamType:     "Order",
+		StreamId:       map[string]any{"id": "order-1"},
+		StreamPosition: 1,
+		Uri:            "kafka://orders",
+		Payload:        jsonPayload(map[string]any{"type": "OrderCreated"}),
+	}); err != nil {
+		t.Fatalf("Failed to publish: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	subscriber := func(s session.Session, msg *InboxMessage) error {
+		cancel() // shutdown arrives while the message is being processed
+
+		// The transaction is still usable: it does not see the cancellation.
+		var one int
+		return s.(session.DbSession).Connection().QueryRow("SELECT 1").Scan(&one)
+	}
+
+	err := inbox.Run(ctx, subscriber, 0, 1, 1, 0.01)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Expected context.Canceled from Run, got %v", err)
+	}
+
+	var processed int
+	err = pool.Session(context.Background(), func(s session.Session) error {
+		return s.(session.DbSession).Connection().
+			QueryRow("SELECT count(*) FROM inbox_test WHERE processed_position IS NOT NULL").
+			Scan(&processed)
+	})
+	if err != nil {
+		t.Fatalf("Failed to count processed messages: %v", err)
+	}
+	if processed != 1 {
+		t.Errorf("Expected the message in flight to be finished and marked, got %d marked", processed)
 	}
 }

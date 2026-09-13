@@ -49,7 +49,7 @@ message := &inbox.InboxMessage{
     },
 }
 
-err := inb.Publish(message)
+err := inb.Publish(ctx, message)
 ```
 
 A message with the same `(tenant_id, stream_type, stream_id, stream_position)` as one already stored is ignored. A `message_id` in the metadata is unique in the table as well.
@@ -72,7 +72,7 @@ err := inb.Run(ctx, subscriber, 0, 1, 1, 0.1)
 `Dispatch` processes a single message and reports whether there was one:
 
 ```go
-processed, err := inb.Dispatch(subscriber, 0, 1)
+processed, err := inb.Dispatch(ctx, subscriber, 0, 1)
 ```
 
 ### Multiple Workers (Partitioning)
@@ -105,7 +105,7 @@ orderCreated := &inbox.InboxMessage{
     Uri:            "kafka://orders",
     Payload:        []byte(`{"type": "OrderCreated"}`),
 }
-inb.Publish(orderCreated)
+inb.Publish(ctx, orderCreated)
 
 // Second message - depends on order creation
 orderShipped := &inbox.InboxMessage{
@@ -126,7 +126,7 @@ orderShipped := &inbox.InboxMessage{
         },
     },
 }
-inb.Publish(orderShipped)
+inb.Publish(ctx, orderShipped)
 
 // OrderShipped will wait until OrderCreated is processed
 ```
@@ -222,7 +222,7 @@ func main() {
                 Payload:        msg.Value,
             }
 
-            if err := inb.Publish(inboxMsg); err != nil {
+            if err := inb.Publish(ctx, inboxMsg); err != nil {
                 log.Printf("Failed to publish: %v", err)
                 continue
             }

@@ -491,7 +491,7 @@ func TestDispatchReturnsTrue(t *testing.T) {
 		return nil
 	}
 
-	result, err := outbox.Dispatch(subscriber, "", "", 0, 1)
+	result, err := outbox.Dispatch(context.Background(), subscriber, "", "", 0, 1)
 	require.NoError(t, err)
 
 	assert.True(t, result)
@@ -530,7 +530,7 @@ func TestDispatchAcknowledgesLastMessage(t *testing.T) {
 		return nil
 	}
 
-	_, err := outbox.Dispatch(subscriber, "test-group", "", 0, 1)
+	_, err := outbox.Dispatch(context.Background(), subscriber, "test-group", "", 0, 1)
 	require.NoError(t, err)
 
 	assert.True(t, ackCalled)

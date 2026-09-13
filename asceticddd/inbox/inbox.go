@@ -40,8 +40,7 @@ func NewInbox(
 	}
 }
 
-func (i *PgInbox) Publish(message *InboxMessage) error {
-	ctx := context.Background()
+func (i *PgInbox) Publish(ctx context.Context, message *InboxMessage) error {
 	return i.sessionPool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			return i.insertMessage(txSession, message)
@@ -49,9 +48,7 @@ func (i *PgInbox) Publish(message *InboxMessage) error {
 	})
 }
 
-func (i *PgInbox) Dispatch(subscriber Subscriber, workerID int, numWorkers int) (bool, error) {
-	ctx := context.Background()
-
+func (i *PgInbox) Dispatch(ctx context.Context, subscriber Subscriber, workerID int, numWorkers int) (bool, error) {
 	var message *InboxMessage
 	err := i.sessionPool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
@@ -118,8 +115,11 @@ func (i *PgInbox) Run(ctx context.Context, subscriber Subscriber, processID int,
 
 // workerLoop dispatches as one worker until ctx is cancelled or a dispatch fails.
 func (i *PgInbox) workerLoop(ctx context.Context, subscriber Subscriber, workerID int, numWorkers int, pollInterval float64) error {
+	// Shutdown is cooperative: the transaction carries ctx's values but not
+	// its cancellation, so a message being processed is finished and committed.
+	dispatchCtx := context.WithoutCancel(ctx)
 	for ctx.Err() == nil {
-		hasMessages, err := i.Dispatch(subscriber, workerID, numWorkers)
+		hasMessages, err := i.Dispatch(dispatchCtx, subscriber, workerID, numWorkers)
 		if err != nil {
 			return err
 		}

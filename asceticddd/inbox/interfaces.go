@@ -22,7 +22,9 @@ type Inbox interface {
 	// The message is stored in the inbox table. If a message with the same
 	// primary key (tenant_id, stream_type, stream_id, stream_position) already
 	// exists, it is ignored (idempotency).
-	Publish(message *InboxMessage) error
+	//
+	// ctx bounds the session the message is stored in.
+	Publish(ctx context.Context, message *InboxMessage) error
 
 	// Dispatch processes the next unprocessed message.
 	//
@@ -35,12 +37,13 @@ type Inbox interface {
 	// If dependencies are not satisfied, skips to the next message.
 	//
 	// Args:
+	//   ctx: Bounds the transaction; cancelling it aborts the transaction.
 	//   subscriber: Callback to process the message.
 	//   workerID: This worker's ID (0 to numWorkers-1).
 	//   numWorkers: Total number of workers for partitioning.
 	//
 	// Returns true if a message was processed, false if no processable messages.
-	Dispatch(subscriber Subscriber, workerID int, numWorkers int) (bool, error)
+	Dispatch(ctx context.Context, subscriber Subscriber, workerID int, numWorkers int) (bool, error)
 
 	// Run starts message processing with partitioned workers.
 	//
@@ -58,6 +61,10 @@ type Inbox interface {
 	//
 	// Returns when ctx is cancelled or a worker fails. A failing worker stops
 	// the others between messages, and the first error is returned.
+	//
+	// Shutdown is cooperative: Dispatch is called with a context that carries
+	// ctx's values but not its cancellation, so a message being processed is
+	// finished and committed before the worker stops.
 	Run(ctx context.Context, subscriber Subscriber, processID int, numProcesses int, concurrency int, pollInterval float64) error
 
 	// Setup initializes the inbox (creates tables and sequences if needed).

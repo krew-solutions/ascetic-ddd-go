@@ -55,13 +55,11 @@ func (o *PgOutbox) Publish(s session.Session, message *OutboxMessage) error {
 	return err
 }
 
-func (o *PgOutbox) Dispatch(subscriber Subscriber, consumerGroup string, uri string, workerID int, numWorkers int) (bool, error) {
+func (o *PgOutbox) Dispatch(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, workerID int, numWorkers int) (bool, error) {
 	effectiveConsumerGroup := consumerGroup
 	if numWorkers > 1 {
 		effectiveConsumerGroup = fmt.Sprintf("%s:%d", consumerGroup, workerID)
 	}
-
-	ctx := context.Background()
 
 	err := o.sessionPool.Session(ctx, func(s session.Session) error {
 		return o.ensureConsumerGroup(s, effectiveConsumerGroup, uri)
@@ -139,8 +137,11 @@ func (o *PgOutbox) Run(ctx context.Context, subscriber Subscriber, consumerGroup
 
 // workerLoop dispatches as one worker until ctx is cancelled or a dispatch fails.
 func (o *PgOutbox) workerLoop(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, workerID int, numWorkers int, pollInterval float64) error {
+	// Shutdown is cooperative: the transaction carries ctx's values but not
+	// its cancellation, so a batch being dispatched is finished and committed.
+	dispatchCtx := context.WithoutCancel(ctx)
 	for ctx.Err() == nil {
-		hasMessages, err := o.Dispatch(subscriber, consumerGroup, uri, workerID, numWorkers)
+		hasMessages, err := o.Dispatch(dispatchCtx, subscriber, consumerGroup, uri, workerID, numWorkers)
 		if err != nil {
 			return err
 		}

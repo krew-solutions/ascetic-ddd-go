@@ -66,7 +66,7 @@ err := ob.Run(
 `Dispatch` handles one batch and reports whether there was anything:
 
 ```go
-dispatched, err := ob.Dispatch(subscriber, "broker", "", 0, 1)
+dispatched, err := ob.Dispatch(ctx, subscriber, "broker", "", 0, 1)
 ```
 
 ### Publishing to Kafka

@@ -202,7 +202,7 @@ func TestPublishInsertsMessage(t *testing.T) {
 		Metadata:       map[string]any{"message_id": "uuid-123"},
 	}
 
-	err := inbox.Publish(message)
+	err := inbox.Publish(context.Background(), message)
 	if err != nil {
 		t.Fatalf("Publish failed: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestDispatchReturnsFalseWhenNoMessages(t *testing.T) {
 		return nil
 	}
 
-	result, err := inbox.Dispatch(subscriber, 0, 1)
+	result, err := inbox.Dispatch(context.Background(), subscriber, 0, 1)
 	if err != nil {
 		t.Fatalf("Dispatch failed: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestDispatchProcessesMessageWithoutDependencies(t *testing.T) {
 		return nil
 	}
 
-	result, err := inbox.Dispatch(subscriber, 0, 1)
+	result, err := inbox.Dispatch(context.Background(), subscriber, 0, 1)
 	if err != nil {
 		t.Fatalf("Dispatch failed: %v", err)
 	}

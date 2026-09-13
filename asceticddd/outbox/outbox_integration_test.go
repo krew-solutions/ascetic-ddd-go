@@ -92,7 +92,7 @@ func TestPublishAndDispatch(t *testing.T) {
 		return nil
 	}
 
-	result, err := outbox.Dispatch(subscriber, "", "", 0, 1)
+	result, err := outbox.Dispatch(context.Background(), subscriber, "", "", 0, 1)
 	require.NoError(t, err)
 
 	assert.True(t, result)
@@ -111,7 +111,7 @@ func TestDispatchReturnsFalseWhenEmpty(t *testing.T) {
 		return nil
 	}
 
-	result, err := outbox.Dispatch(subscriber, "", "", 0, 1)
+	result, err := outbox.Dispatch(context.Background(), subscriber, "", "", 0, 1)
 	require.NoError(t, err)
 
 	assert.False(t, result)
@@ -147,12 +147,12 @@ func TestMultipleConsumerGroups(t *testing.T) {
 		return nil
 	}
 
-	result1, err := outbox.Dispatch(subscriber, "group-1", "", 0, 1)
+	result1, err := outbox.Dispatch(context.Background(), subscriber, "group-1", "", 0, 1)
 	require.NoError(t, err)
 	assert.True(t, result1)
 	assert.Len(t, publishedMessages, 1)
 
-	result2, err := outbox.Dispatch(subscriber, "group-2", "", 0, 1)
+	result2, err := outbox.Dispatch(context.Background(), subscriber, "group-2", "", 0, 1)
 	require.NoError(t, err)
 	assert.True(t, result2)
 	assert.Len(t, publishedMessages, 2)
@@ -257,11 +257,11 @@ func TestDispatchUpdatesPosition(t *testing.T) {
 		return nil
 	}
 
-	result1, err := outbox.Dispatch(subscriber, "test-group", "", 0, 1)
+	result1, err := outbox.Dispatch(context.Background(), subscriber, "test-group", "", 0, 1)
 	require.NoError(t, err)
 	assert.True(t, result1)
 
-	result2, err := outbox.Dispatch(subscriber, "test-group", "", 0, 1)
+	result2, err := outbox.Dispatch(context.Background(), subscriber, "test-group", "", 0, 1)
 	require.NoError(t, err)
 	assert.False(t, result2)
 }
@@ -298,7 +298,7 @@ func TestOrderingByPosition(t *testing.T) {
 	}
 
 	for {
-		hasMessages, err := outbox.Dispatch(subscriber, "", "", 0, 1)
+		hasMessages, err := outbox.Dispatch(context.Background(), subscriber, "", "", 0, 1)
 		require.NoError(t, err)
 		if !hasMessages {
 			break
@@ -346,7 +346,7 @@ func TestBatchDispatch(t *testing.T) {
 		return nil
 	}
 
-	result, err := outbox.Dispatch(subscriber, "", "", 0, 1)
+	result, err := outbox.Dispatch(context.Background(), subscriber, "", "", 0, 1)
 	require.NoError(t, err)
 
 	assert.True(t, result)
@@ -410,7 +410,7 @@ func TestDispatchWithURIFilter(t *testing.T) {
 		return nil
 	}
 
-	result1, err := outbox.Dispatch(subscriber, "orders-consumer", "kafka://orders", 0, 1)
+	result1, err := outbox.Dispatch(context.Background(), subscriber, "orders-consumer", "kafka://orders", 0, 1)
 	require.NoError(t, err)
 	assert.True(t, result1)
 	assert.Len(t, publishedMessages, 2)
@@ -418,11 +418,11 @@ func TestDispatchWithURIFilter(t *testing.T) {
 		assert.Equal(t, "kafka://orders", msg.URI)
 	}
 
-	result2, err := outbox.Dispatch(subscriber, "orders-consumer", "kafka://orders", 0, 1)
+	result2, err := outbox.Dispatch(context.Background(), subscriber, "orders-consumer", "kafka://orders", 0, 1)
 	require.NoError(t, err)
 	assert.False(t, result2)
 
-	result3, err := outbox.Dispatch(subscriber, "orders-consumer", "kafka://users", 0, 1)
+	result3, err := outbox.Dispatch(context.Background(), subscriber, "orders-consumer", "kafka://users", 0, 1)
 	require.NoError(t, err)
 	assert.True(t, result3)
 	assert.Len(t, publishedMessages, 3)
@@ -475,7 +475,7 @@ func TestMultipleURIsIndependentPositions(t *testing.T) {
 	}
 
 	for {
-		hasMessages, err := outbox.Dispatch(ordersSubscriber, "group1", "kafka://orders", 0, 1)
+		hasMessages, err := outbox.Dispatch(context.Background(), ordersSubscriber, "group1", "kafka://orders", 0, 1)
 		require.NoError(t, err)
 		if !hasMessages {
 			break
@@ -489,7 +489,7 @@ func TestMultipleURIsIndependentPositions(t *testing.T) {
 	}
 
 	for {
-		hasMessages, err := outbox.Dispatch(usersSubscriber, "group1", "kafka://users", 0, 1)
+		hasMessages, err := outbox.Dispatch(context.Background(), usersSubscriber, "group1", "kafka://users", 0, 1)
 		require.NoError(t, err)
 		if !hasMessages {
 			break
@@ -530,7 +530,7 @@ func TestVisibilityRule(t *testing.T) {
 				return err
 			}
 
-			result, err := outbox.Dispatch(subscriber, "", "", 0, 1)
+			result, err := outbox.Dispatch(context.Background(), subscriber, "", "", 0, 1)
 			require.NoError(t, err)
 			assert.False(t, result)
 
@@ -539,7 +539,7 @@ func TestVisibilityRule(t *testing.T) {
 	})
 	require.Error(t, err)
 
-	result, err := outbox.Dispatch(subscriber, "", "", 0, 1)
+	result, err := outbox.Dispatch(context.Background(), subscriber, "", "", 0, 1)
 	require.NoError(t, err)
 	assert.False(t, result)
 	assert.Len(t, publishedMessages, 0)
@@ -625,7 +625,7 @@ func TestForUpdatePreventsDuplicateProcessing(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		go func() {
-			success, err := outbox.Dispatch(subscriber, "test-group", "", 0, 1)
+			success, err := outbox.Dispatch(context.Background(), subscriber, "test-group", "", 0, 1)
 			results <- result{success, err}
 		}()
 	}
@@ -778,7 +778,7 @@ func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 
 	for workerId := 0; workerId < numWorkers; workerId++ {
 		for {
-			hasMessages, err := outbox.Dispatch(subscriber, "group", "", workerId, numWorkers)
+			hasMessages, err := outbox.Dispatch(context.Background(), subscriber, "group", "", workerId, numWorkers)
 			require.NoError(t, err)
 			if !hasMessages {
 				break
@@ -790,4 +790,41 @@ func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 	for uri, n := range deliveredByUri {
 		assert.Equalf(t, 1, n, "URI %s delivered %d times, expected exactly once", uri, n)
 	}
+}
+
+func TestRunCancellationFinishesTheBatchInFlight(t *testing.T) {
+	outbox, pool := setupOutbox(t)
+	defer dropTables(t, pool)
+
+	err := pool.Session(context.Background(), func(s session.Session) error {
+		return s.Atomic(func(txSession session.Session) error {
+			return outbox.Publish(txSession, &OutboxMessage{
+				URI:      "kafka://orders",
+				Payload:  jsonPayload(map[string]any{"type": "OrderCreated"}),
+				Metadata: map[string]any{"message_id": "550e8400-e29b-41d4-a716-446655440900"},
+			})
+		})
+	})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	subscriber := func(msg *OutboxMessage) error {
+		cancel() // shutdown arrives while the batch is being dispatched
+		return nil
+	}
+
+	err = outbox.Run(ctx, subscriber, "group", "", 0, 1, 1, 0.01)
+	require.ErrorIs(t, err, context.Canceled)
+
+	// The batch was acknowledged: the group's position moved off zero.
+	var txId int64
+	err = pool.Session(context.Background(), func(s session.Session) error {
+		var err error
+		txId, _, err = outbox.GetPosition(s, "group", "")
+		return err
+	})
+	require.NoError(t, err)
+	assert.NotZero(t, txId, "the batch in flight must be finished and acknowledged")
 }
