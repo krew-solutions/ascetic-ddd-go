@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -15,6 +16,8 @@ type PgInbox struct {
 	table                string
 	sequence             string
 	partitionKeyStrategy PartitionKeyStrategy
+	pollInterval         time.Duration
+	logger               *slog.Logger
 }
 
 func NewInbox(
@@ -37,6 +40,8 @@ func NewInbox(
 		table:                table,
 		sequence:             sequence,
 		partitionKeyStrategy: partitionKeyStrategy,
+		pollInterval:         time.Second,
+		logger:               slog.Default(),
 	}
 }
 

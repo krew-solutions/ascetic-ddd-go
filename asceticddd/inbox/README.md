@@ -245,6 +245,29 @@ func processOrder(s session.Session, msg *inbox.InboxMessage) error {
 }
 ```
 
+## As a Channel of the Bus
+
+The inbox is also an adapter of `asceticddd/bus`. A bridge from a broker channel to the inbox channel is the intake: every wire message is stored under the identity its headers name, and the same identity again is ignored. The consumer is transactional and comes from the inbox itself: its handler runs inside the transaction that marks the message processed, and is given that transaction.
+
+```go
+b := bus.New()
+b.Register("kafka", kafkaBroker)
+b.Register(inbox.InboxScheme, inb.Channel())
+
+// the intake
+intake, err := bus.NewBridge(b).Run("kafka://orders", "orders-intake", bus.TargetFixed("inbox://orders"))
+
+// the processing; tx is the transaction the mark commits in
+orders := inbox.NewConsumer(inb, decodeOrderPlaced)
+processing, err := orders.Subscribe(func(tx session.Session, order OrderPlaced) error {
+    return place(tx, order)
+})
+```
+
+Headers become columns: `tenant_id`, `stream_type`, `stream_id` as the JSON text of an object, `stream_position`; `destination`, the channel the message was sent to as the outbox stamps it, becomes `uri`, and without one the inbox channel the message was published to, key included, does. Every other header is a field of `metadata`, structured again when its text is a JSON array or object. Published from an outbox to `inbox://orders/order-7`, a message crosses the outbox dispatcher's bridge into the inbox without a broker.
+
+The processing loop is a goroutine; `Cancel` on the subscription stops it between messages and waits for it. It polls at the interval set by `WithPollInterval`.
+
 ## Partition Strategies
 
 ### URI-based (Default)

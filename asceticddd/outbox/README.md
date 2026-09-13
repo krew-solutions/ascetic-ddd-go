@@ -163,6 +163,29 @@ for ctx.Err() == nil {
 }
 ```
 
+## As a Channel of the Bus
+
+The outbox is also an adapter of `asceticddd/bus`. Its producer is transactional, built once at the composition root for a destination on another channel, and publishing takes the session of the current transaction. Its consumer is the dispatcher: every committed row reaches the handler as a wire message whose `destination` header is the row's URI, and a `Bridge` to that header is the whole dispatcher process.
+
+```go
+b := bus.New()
+b.Register(outbox.OutboxScheme, ob.Channel())
+b.Register("kafka", kafkaBroker)
+
+// in the command handler, inside the transaction
+placed := outbox.NewProducer(ob, "kafka://orders/order-7", encodeOrderPlaced)
+err := pool.Session(ctx, func(s session.Session) error {
+    return s.Atomic(func(tx session.Session) error {
+        return placed.Publish(tx, event)
+    })
+})
+
+// the dispatcher process
+dispatcher, err := bus.NewBridge(b).Run("outbox://all", "dispatcher", bus.TargetHeader(outbox.DestinationHeader))
+```
+
+Headers travel as string fields of `metadata`, so `message_id` keeps its unique index. The dispatcher is a goroutine; `Cancel` on the subscription stops it between batches and waits for it. The consumer polls at the interval set by `WithPollInterval`.
+
 ## Complete Example with Kafka Integration
 
 ```go

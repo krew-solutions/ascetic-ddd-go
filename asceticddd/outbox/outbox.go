@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -15,6 +16,8 @@ type PgOutbox struct {
 	outboxTable  string
 	offsetsTable string
 	batchSize    int
+	pollInterval time.Duration
+	logger       *slog.Logger
 }
 
 func NewOutbox(
@@ -37,6 +40,8 @@ func NewOutbox(
 		outboxTable:  outboxTable,
 		offsetsTable: offsetsTable,
 		batchSize:    batchSize,
+		pollInterval: time.Second,
+		logger:       slog.Default(),
 	}
 }
 
