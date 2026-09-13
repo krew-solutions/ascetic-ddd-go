@@ -43,8 +43,19 @@ bridge.Run("outbox://all", "dispatcher", bus.TargetHeader("destination"))
 
 `inmemory.Broker` is the monolithic transport: topics in a process-local registry, a delivery goroutine per topic, one consumer per `(uri, group)`, ordered delivery, a bounded queue of 1024 messages per topic that makes producers wait. A handler that panics loses its message and not the topic. `Close` stops delivery, cancels the context every handler was given, and refuses further publishing.
 
+`kafka.Broker` is the same surface over [franz-go](https://github.com/twmb/franz-go), without cgo. A consumer group of the same name shares the partitions; delivery is at least once: a record's offset is marked after the handler returns and committed in the background, and `Cancel` commits the marked offsets before leaving the group. A handler that fails is retried until it succeeds, so the partition waits and keeps its order; a handler that panics or a message that cannot be decoded is skipped, because a poison message must not stop the partition. TLS, SASL and tuning come from the `kgo` options the broker is built with.
+
+```go
+broker := kafka.New([]string{"localhost:9092"}, kafka.WithClientOptions(kgo.DialTLS()))
+defer broker.Close()
+b.Register("kafka", broker)
+```
+
 ## Testing
 
 ```bash
 go test -race ./asceticddd/bus/...
+
+# the Kafka tests need a live broker and are skipped without one
+ASCETIC_DDD_TEST_KAFKA_BROKERS=localhost:9092 go test -race ./asceticddd/bus/adapters/kafka/
 ```
