@@ -71,7 +71,7 @@ func TestPublishAndDispatch(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
-				URI: "kafka://orders",
+				Uri: "kafka://orders",
 				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
@@ -97,7 +97,7 @@ func TestPublishAndDispatch(t *testing.T) {
 
 	assert.True(t, result)
 	assert.Len(t, publishedMessages, 1)
-	assert.Equal(t, "kafka://orders", publishedMessages[0].URI)
+	assert.Equal(t, "kafka://orders", publishedMessages[0].Uri)
 	assert.Equal(t, "123", decodePayload(t, publishedMessages[0].Payload)["order_id"])
 }
 
@@ -127,7 +127,7 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
-				URI: "kafka://orders",
+				Uri: "kafka://orders",
 				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
@@ -157,8 +157,8 @@ func TestMultipleConsumerGroups(t *testing.T) {
 	assert.True(t, result2)
 	assert.Len(t, publishedMessages, 2)
 
-	assert.Equal(t, "kafka://orders", publishedMessages[0].URI)
-	assert.Equal(t, "kafka://orders", publishedMessages[1].URI)
+	assert.Equal(t, "kafka://orders", publishedMessages[0].Uri)
+	assert.Equal(t, "kafka://orders", publishedMessages[1].Uri)
 }
 
 func TestGetAndSetPosition(t *testing.T) {
@@ -168,11 +168,11 @@ func TestGetAndSetPosition(t *testing.T) {
 	ctx := context.Background()
 
 	err := pool.Session(ctx, func(s session.Session) error {
-		txID, offset, err := outbox.GetPosition(s, "test-group", "")
+		txId, offset, err := outbox.GetPosition(s, "test-group", "")
 		if err != nil {
 			return err
 		}
-		assert.Equal(t, int64(0), txID)
+		assert.Equal(t, int64(0), txId)
 		assert.Equal(t, int64(0), offset)
 
 		err = outbox.SetPosition(s, "test-group", "", 100, 50)
@@ -180,11 +180,11 @@ func TestGetAndSetPosition(t *testing.T) {
 			return err
 		}
 
-		txID, offset, err = outbox.GetPosition(s, "test-group", "")
+		txId, offset, err = outbox.GetPosition(s, "test-group", "")
 		if err != nil {
 			return err
 		}
-		assert.Equal(t, int64(100), txID)
+		assert.Equal(t, int64(100), txId)
 		assert.Equal(t, int64(50), offset)
 
 		return nil
@@ -192,7 +192,7 @@ func TestGetAndSetPosition(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestGetAndSetPositionWithURI(t *testing.T) {
+func TestGetAndSetPositionWithUri(t *testing.T) {
 	outbox, pool := setupOutbox(t)
 	defer dropTables(t, pool)
 
@@ -209,18 +209,18 @@ func TestGetAndSetPositionWithURI(t *testing.T) {
 			return err
 		}
 
-		txIDOrders, offsetOrders, err := outbox.GetPosition(s, "test-group", "kafka://orders")
+		txIdOrders, offsetOrders, err := outbox.GetPosition(s, "test-group", "kafka://orders")
 		if err != nil {
 			return err
 		}
-		assert.Equal(t, int64(100), txIDOrders)
+		assert.Equal(t, int64(100), txIdOrders)
 		assert.Equal(t, int64(50), offsetOrders)
 
-		txIDUsers, offsetUsers, err := outbox.GetPosition(s, "test-group", "kafka://users")
+		txIdUsers, offsetUsers, err := outbox.GetPosition(s, "test-group", "kafka://users")
 		if err != nil {
 			return err
 		}
-		assert.Equal(t, int64(200), txIDUsers)
+		assert.Equal(t, int64(200), txIdUsers)
 		assert.Equal(t, int64(30), offsetUsers)
 
 		return nil
@@ -237,7 +237,7 @@ func TestDispatchUpdatesPosition(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
-				URI: "kafka://orders",
+				Uri: "kafka://orders",
 				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
@@ -276,7 +276,7 @@ func TestOrderingByPosition(t *testing.T) {
 		err := pool.Session(ctx, func(s session.Session) error {
 			return s.Atomic(func(txSession session.Session) error {
 				message := &OutboxMessage{
-					URI: "kafka://orders",
+					Uri: "kafka://orders",
 					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
@@ -321,7 +321,7 @@ func TestBatchDispatch(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			for i := 0; i < 5; i++ {
 				message := &OutboxMessage{
-					URI: "kafka://orders",
+					Uri: "kafka://orders",
 					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
@@ -353,7 +353,7 @@ func TestBatchDispatch(t *testing.T) {
 	assert.Len(t, publishedMessages, 5)
 }
 
-func TestDispatchWithURIFilter(t *testing.T) {
+func TestDispatchWithUriFilter(t *testing.T) {
 	outbox, pool := setupOutbox(t)
 	defer dropTables(t, pool)
 
@@ -363,7 +363,7 @@ func TestDispatchWithURIFilter(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			messages := []*OutboxMessage{
 				{
-					URI: "kafka://orders",
+					Uri: "kafka://orders",
 					Payload: jsonPayload(map[string]any{
 						"type":     "OrderCreated",
 						"order_id": "1",
@@ -373,7 +373,7 @@ func TestDispatchWithURIFilter(t *testing.T) {
 					},
 				},
 				{
-					URI: "kafka://users",
+					Uri: "kafka://users",
 					Payload: jsonPayload(map[string]any{
 						"type":    "UserCreated",
 						"user_id": "1",
@@ -383,7 +383,7 @@ func TestDispatchWithURIFilter(t *testing.T) {
 					},
 				},
 				{
-					URI: "kafka://orders",
+					Uri: "kafka://orders",
 					Payload: jsonPayload(map[string]any{
 						"type":     "OrderShipped",
 						"order_id": "1",
@@ -415,7 +415,7 @@ func TestDispatchWithURIFilter(t *testing.T) {
 	assert.True(t, result1)
 	assert.Len(t, publishedMessages, 2)
 	for _, msg := range publishedMessages {
-		assert.Equal(t, "kafka://orders", msg.URI)
+		assert.Equal(t, "kafka://orders", msg.Uri)
 	}
 
 	result2, err := outbox.Dispatch(context.Background(), subscriber, "orders-consumer", "kafka://orders", 0, 1)
@@ -426,10 +426,10 @@ func TestDispatchWithURIFilter(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result3)
 	assert.Len(t, publishedMessages, 3)
-	assert.Equal(t, "kafka://users", publishedMessages[2].URI)
+	assert.Equal(t, "kafka://users", publishedMessages[2].Uri)
 }
 
-func TestMultipleURIsIndependentPositions(t *testing.T) {
+func TestMultipleUrisIndependentPositions(t *testing.T) {
 	outbox, pool := setupOutbox(t)
 	defer dropTables(t, pool)
 
@@ -439,7 +439,7 @@ func TestMultipleURIsIndependentPositions(t *testing.T) {
 		err := pool.Session(ctx, func(s session.Session) error {
 			return s.Atomic(func(txSession session.Session) error {
 				orderMsg := &OutboxMessage{
-					URI: "kafka://orders",
+					Uri: "kafka://orders",
 					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
@@ -453,7 +453,7 @@ func TestMultipleURIsIndependentPositions(t *testing.T) {
 				}
 
 				userMsg := &OutboxMessage{
-					URI: "kafka://users",
+					Uri: "kafka://users",
 					Payload: jsonPayload(map[string]any{
 						"type": "UserCreated",
 						"user": i,
@@ -499,10 +499,10 @@ func TestMultipleURIsIndependentPositions(t *testing.T) {
 	assert.Len(t, ordersMessages, 3)
 	assert.Len(t, usersMessages, 3)
 	for _, msg := range ordersMessages {
-		assert.Equal(t, "kafka://orders", msg.URI)
+		assert.Equal(t, "kafka://orders", msg.Uri)
 	}
 	for _, msg := range usersMessages {
-		assert.Equal(t, "kafka://users", msg.URI)
+		assert.Equal(t, "kafka://users", msg.Uri)
 	}
 }
 
@@ -545,7 +545,7 @@ func TestVisibilityRule(t *testing.T) {
 	assert.Len(t, publishedMessages, 0)
 }
 
-func TestIdempotencyViaEventID(t *testing.T) {
+func TestIdempotencyViaMessageId(t *testing.T) {
 	outbox, pool := setupOutbox(t)
 	defer dropTables(t, pool)
 
@@ -554,7 +554,7 @@ func TestIdempotencyViaEventID(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
-				URI: "kafka://orders",
+				Uri: "kafka://orders",
 				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
@@ -571,7 +571,7 @@ func TestIdempotencyViaEventID(t *testing.T) {
 	err = pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
-				URI: "kafka://orders",
+				Uri: "kafka://orders",
 				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "456",
@@ -596,7 +596,7 @@ func TestForUpdatePreventsDuplicateProcessing(t *testing.T) {
 	err := pool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			message := &OutboxMessage{
-				URI: "kafka://orders",
+				Uri: "kafka://orders",
 				Payload: jsonPayload(map[string]any{
 					"type":     "OrderCreated",
 					"order_id": "123",
@@ -653,7 +653,7 @@ func TestRunWithSingleWorker(t *testing.T) {
 		err := pool.Session(ctx, func(s session.Session) error {
 			return s.Atomic(func(txSession session.Session) error {
 				message := &OutboxMessage{
-					URI: "kafka://orders",
+					Uri: "kafka://orders",
 					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
@@ -695,7 +695,7 @@ func TestRunWithMultipleWorkers(t *testing.T) {
 		err := pool.Session(ctx, func(s session.Session) error {
 			return s.Atomic(func(txSession session.Session) error {
 				message := &OutboxMessage{
-					URI: "kafka://orders",
+					Uri: "kafka://orders",
 					Payload: jsonPayload(map[string]any{
 						"type":  "OrderCreated",
 						"order": i,
@@ -744,7 +744,7 @@ func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 		return s.Atomic(func(txSession session.Session) error {
 			for i := 0; i < total; i++ {
 				message := &OutboxMessage{
-					URI:     fmt.Sprintf("kafka://orders/order-%d", i),
+					Uri:     fmt.Sprintf("kafka://orders/order-%d", i),
 					Payload: jsonPayload(map[string]any{"type": "OrderCreated", "order": i}),
 					Metadata: map[string]any{
 						"message_id": fmt.Sprintf("550e8400-e29b-41d4-a716-4466554407%02d", i),
@@ -772,7 +772,7 @@ func TestWorkersShareUrisWithoutGapsOrOverlap(t *testing.T) {
 
 	deliveredByUri := map[string]int{}
 	subscriber := func(msg *OutboxMessage) error {
-		deliveredByUri[msg.URI]++
+		deliveredByUri[msg.Uri]++
 		return nil
 	}
 
@@ -799,7 +799,7 @@ func TestRunCancellationFinishesTheBatchInFlight(t *testing.T) {
 	err := pool.Session(context.Background(), func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			return outbox.Publish(txSession, &OutboxMessage{
-				URI:      "kafka://orders",
+				Uri:      "kafka://orders",
 				Payload:  jsonPayload(map[string]any{"type": "OrderCreated"}),
 				Metadata: map[string]any{"message_id": "550e8400-e29b-41d4-a716-446655440900"},
 			})

@@ -134,7 +134,7 @@ func TestCausalDependenciesReturnsList(t *testing.T) {
 	}
 }
 
-func TestEventIDNoneWhenNoMetadata(t *testing.T) {
+func TestMessageIdNoneWhenNoMetadata(t *testing.T) {
 	message := &InboxMessage{
 		TenantId:       "tenant1",
 		StreamType:     "Order",
@@ -150,7 +150,7 @@ func TestEventIDNoneWhenNoMetadata(t *testing.T) {
 	}
 }
 
-func TestEventIDReturnsValue(t *testing.T) {
+func TestMessageIdReturnsValue(t *testing.T) {
 	message := &InboxMessage{
 		TenantId:       "tenant1",
 		StreamType:     "Order",

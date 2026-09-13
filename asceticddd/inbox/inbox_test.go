@@ -176,12 +176,12 @@ func (m *mockSessionPool) Close() {}
 // Tests
 
 func TestPublishInsertsMessage(t *testing.T) {
-	var executedSQL string
+	var executedSql string
 	var executedArgs []any
 
 	conn := &mockConnection{
 		execFunc: func(query string, args ...any) (session.Result, error) {
-			executedSQL = query
+			executedSql = query
 			executedArgs = args
 			return &mockResult{}, nil
 		},
@@ -207,7 +207,7 @@ func TestPublishInsertsMessage(t *testing.T) {
 		t.Fatalf("Publish failed: %v", err)
 	}
 
-	if executedSQL == "" {
+	if executedSql == "" {
 		t.Fatal("No SQL was executed")
 	}
 
@@ -257,8 +257,8 @@ func TestDispatchReturnsFalseWhenNoMessages(t *testing.T) {
 }
 
 func TestDispatchProcessesMessageWithoutDependencies(t *testing.T) {
-	streamID := map[string]any{"id": "order-123"}
-	streamIDBytes, _ := json.Marshal(streamID)
+	streamId := map[string]any{"id": "order-123"}
+	streamIdBytes, _ := json.Marshal(streamId)
 
 	payload := map[string]any{"type": "OrderCreated", "amount": 100}
 	payloadBytes, _ := json.Marshal(payload)
@@ -272,7 +272,7 @@ func TestDispatchProcessesMessageWithoutDependencies(t *testing.T) {
 				values: []any{
 					"tenant1",
 					"Order",
-					streamIDBytes,
+					streamIdBytes,
 					1,
 					"kafka://orders",
 					payloadBytes,
@@ -403,11 +403,11 @@ func TestDependencyNotSatisfiedWhenMissing(t *testing.T) {
 }
 
 func TestSetupCreatesSequenceAndTable(t *testing.T) {
-	var executedSQLs []string
+	var executedSqls []string
 
 	conn := &mockConnection{
 		execFunc: func(query string, args ...any) (session.Result, error) {
-			executedSQLs = append(executedSQLs, query)
+			executedSqls = append(executedSqls, query)
 			return &mockResult{}, nil
 		},
 	}
@@ -422,24 +422,24 @@ func TestSetupCreatesSequenceAndTable(t *testing.T) {
 		t.Fatalf("Setup failed: %v", err)
 	}
 
-	if len(executedSQLs) != 2 {
-		t.Fatalf("Expected 2 SQL statements, got %d", len(executedSQLs))
+	if len(executedSqls) != 2 {
+		t.Fatalf("Expected 2 SQL statements, got %d", len(executedSqls))
 	}
 
 	// First should create sequence
-	if executedSQLs[0] == "" {
+	if executedSqls[0] == "" {
 		t.Error("First SQL should create sequence")
 	}
 
 	// Second should create table
-	if executedSQLs[1] == "" {
+	if executedSqls[1] == "" {
 		t.Error("Second SQL should create table")
 	}
 }
 
 func TestRunSingleWorkerProcessesMessages(t *testing.T) {
-	streamID := map[string]any{"id": "order-123"}
-	streamIDBytes, _ := json.Marshal(streamID)
+	streamId := map[string]any{"id": "order-123"}
+	streamIdBytes, _ := json.Marshal(streamId)
 
 	payload := map[string]any{"type": "OrderCreated", "amount": 100}
 	payloadBytes, _ := json.Marshal(payload)
@@ -455,7 +455,7 @@ func TestRunSingleWorkerProcessesMessages(t *testing.T) {
 					values: []any{
 						"tenant1",
 						"Order",
-						streamIDBytes,
+						streamIdBytes,
 						1,
 						"kafka://orders",
 						payloadBytes,
@@ -494,7 +494,7 @@ func TestRunSingleWorkerProcessesMessages(t *testing.T) {
 }
 
 func TestRunMultipleWorkersSpawnsTasks(t *testing.T) {
-	streamID := func(i int) map[string]any {
+	streamId := func(i int) map[string]any {
 		return map[string]any{"id": "order-" + string(rune('0'+i))}
 	}
 
@@ -503,8 +503,8 @@ func TestRunMultipleWorkersSpawnsTasks(t *testing.T) {
 		queryRowFunc: func(query string, args ...any) session.Row {
 			n := int(callCount.Add(1))
 			if n <= 4 {
-				id := streamID(n - 1)
-				streamIDBytes, _ := json.Marshal(id)
+				id := streamId(n - 1)
+				streamIdBytes, _ := json.Marshal(id)
 				payload := map[string]any{"type": "OrderCreated", "amount": 100}
 				payloadBytes, _ := json.Marshal(payload)
 				receivedPos := int64(n - 1)
@@ -513,7 +513,7 @@ func TestRunMultipleWorkersSpawnsTasks(t *testing.T) {
 					values: []any{
 						"tenant1",
 						"Order",
-						streamIDBytes,
+						streamIdBytes,
 						n - 1,
 						"kafka://orders",
 						payloadBytes,

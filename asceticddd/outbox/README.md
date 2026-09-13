@@ -29,7 +29,7 @@ err = pool.Session(ctx, func(s session.Session) error {
     return s.Atomic(func(txSession session.Session) error {
         // ... save the aggregate through txSession ...
         message := &outbox.OutboxMessage{
-            URI:      "kafka://orders",
+            Uri:      "kafka://orders",
             Payload:  []byte(`{"type": "OrderCreated", "order_id": "123", "amount": 100}`),
             Metadata: map[string]any{
                 "message_id": "550e8400-e29b-41d4-a716-446655440001",
@@ -83,7 +83,7 @@ import (
 func publishToKafka(producer *kafka.Producer) outbox.Subscriber {
     return func(msg *outbox.OutboxMessage) error {
         // kafka://orders/order-7: topic "orders", partition key "order-7"
-        topic, key, _ := strings.Cut(strings.TrimPrefix(msg.URI, "kafka://"), "/")
+        topic, key, _ := strings.Cut(strings.TrimPrefix(msg.Uri, "kafka://"), "/")
 
         delivery := make(chan kafka.Event, 1)
         err := producer.Produce(&kafka.Message{

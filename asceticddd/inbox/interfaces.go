@@ -39,22 +39,22 @@ type Inbox interface {
 	// Args:
 	//   ctx: Bounds the transaction; cancelling it aborts the transaction.
 	//   subscriber: Callback to process the message.
-	//   workerID: This worker's ID (0 to numWorkers-1).
+	//   workerId: This worker's ID (0 to numWorkers-1).
 	//   numWorkers: Total number of workers for partitioning.
 	//
 	// Returns true if a message was processed, false if no processable messages.
-	Dispatch(ctx context.Context, subscriber Subscriber, workerID int, numWorkers int) (bool, error)
+	Dispatch(ctx context.Context, subscriber Subscriber, workerId int, numWorkers int) (bool, error)
 
 	// Run starts message processing with partitioned workers.
 	//
 	// Each goroutine processes its own partitions:
-	//   effectiveID = processID * concurrency + localID
+	//   effectiveId = processId * concurrency + localId
 	//   effectiveTotal = numProcesses * concurrency
 	//
 	// Args:
 	//   ctx: Context for cancellation and timeouts.
 	//   subscriber: Callback to process each message.
-	//   processID: This process's ID (0 to numProcesses-1).
+	//   processId: This process's ID (0 to numProcesses-1).
 	//   numProcesses: Total number of processes.
 	//   concurrency: Number of goroutines within this process.
 	//   pollInterval: Seconds to wait when no messages available.
@@ -65,7 +65,7 @@ type Inbox interface {
 	// Shutdown is cooperative: Dispatch is called with a context that carries
 	// ctx's values but not its cancellation, so a message being processed is
 	// finished and committed before the worker stops.
-	Run(ctx context.Context, subscriber Subscriber, processID int, numProcesses int, concurrency int, pollInterval float64) error
+	Run(ctx context.Context, subscriber Subscriber, processId int, numProcesses int, concurrency int, pollInterval float64) error
 
 	// Setup initializes the inbox (creates tables and sequences if needed).
 	Setup(s session.Session) error

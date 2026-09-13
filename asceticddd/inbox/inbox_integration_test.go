@@ -308,19 +308,19 @@ func TestRoutingByUri(t *testing.T) {
 
 	var handledEvents []struct {
 		uri      string
-		streamID map[string]any
+		streamId map[string]any
 	}
 
 	subscriber := func(s session.Session, message *InboxMessage) error {
 		if message.Uri == "kafka://orders" {
 			handledEvents = append(handledEvents, struct {
 				uri      string
-				streamID map[string]any
+				streamId map[string]any
 			}{"orders", message.StreamId})
 		} else if message.Uri == "kafka://shipments" {
 			handledEvents = append(handledEvents, struct {
 				uri      string
-				streamID map[string]any
+				streamId map[string]any
 			}{"shipments", message.StreamId})
 		}
 		return nil
@@ -338,10 +338,10 @@ func TestRoutingByUri(t *testing.T) {
 		t.Fatalf("Expected 2 events, got %d", len(handledEvents))
 	}
 
-	if handledEvents[0].uri != "orders" || handledEvents[0].streamID["id"] != "order-1" {
+	if handledEvents[0].uri != "orders" || handledEvents[0].streamId["id"] != "order-1" {
 		t.Error("First event mismatch")
 	}
-	if handledEvents[1].uri != "shipments" || handledEvents[1].streamID["id"] != "order-2" {
+	if handledEvents[1].uri != "shipments" || handledEvents[1].streamId["id"] != "order-2" {
 		t.Error("Second event mismatch")
 	}
 }

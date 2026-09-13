@@ -48,12 +48,12 @@ func (i *PgInbox) Publish(ctx context.Context, message *InboxMessage) error {
 	})
 }
 
-func (i *PgInbox) Dispatch(ctx context.Context, subscriber Subscriber, workerID int, numWorkers int) (bool, error) {
+func (i *PgInbox) Dispatch(ctx context.Context, subscriber Subscriber, workerId int, numWorkers int) (bool, error) {
 	var message *InboxMessage
 	err := i.sessionPool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			var err error
-			message, err = i.fetchNextProcessable(txSession, 0, workerID, numWorkers)
+			message, err = i.fetchNextProcessable(txSession, 0, workerId, numWorkers)
 			if err != nil {
 				return err
 			}
@@ -77,7 +77,7 @@ func (i *PgInbox) Dispatch(ctx context.Context, subscriber Subscriber, workerID 
 	return message != nil, nil
 }
 
-func (i *PgInbox) Run(ctx context.Context, subscriber Subscriber, processID int, numProcesses int, concurrency int, pollInterval float64) error {
+func (i *PgInbox) Run(ctx context.Context, subscriber Subscriber, processId int, numProcesses int, concurrency int, pollInterval float64) error {
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -95,15 +95,15 @@ func (i *PgInbox) Run(ctx context.Context, subscriber Subscriber, processID int,
 		once     sync.Once
 		firstErr error
 	)
-	for localID := 0; localID < concurrency; localID++ {
+	for localId := 0; localId < concurrency; localId++ {
 		wg.Add(1)
-		go func(effectiveID int) {
+		go func(effectiveId int) {
 			defer wg.Done()
-			if err := i.workerLoop(loopCtx, subscriber, effectiveID, effectiveTotal, pollInterval); err != nil {
+			if err := i.workerLoop(loopCtx, subscriber, effectiveId, effectiveTotal, pollInterval); err != nil {
 				once.Do(func() { firstErr = err })
 				stop()
 			}
-		}(processID*concurrency + localID)
+		}(processId*concurrency + localId)
 	}
 	wg.Wait()
 
@@ -114,12 +114,12 @@ func (i *PgInbox) Run(ctx context.Context, subscriber Subscriber, processID int,
 }
 
 // workerLoop dispatches as one worker until ctx is cancelled or a dispatch fails.
-func (i *PgInbox) workerLoop(ctx context.Context, subscriber Subscriber, workerID int, numWorkers int, pollInterval float64) error {
+func (i *PgInbox) workerLoop(ctx context.Context, subscriber Subscriber, workerId int, numWorkers int, pollInterval float64) error {
 	// Shutdown is cooperative: the transaction carries ctx's values but not
 	// its cancellation, so a message being processed is finished and committed.
 	dispatchCtx := context.WithoutCancel(ctx)
 	for ctx.Err() == nil {
-		hasMessages, err := i.Dispatch(dispatchCtx, subscriber, workerID, numWorkers)
+		hasMessages, err := i.Dispatch(dispatchCtx, subscriber, workerId, numWorkers)
 		if err != nil {
 			return err
 		}
@@ -144,7 +144,7 @@ func (i *PgInbox) insertMessage(s session.Session, message *InboxMessage) error 
 		ON CONFLICT (tenant_id, stream_type, stream_id, stream_position) DO NOTHING
 	`, i.table)
 
-	streamIDBytes, err := json.Marshal(message.StreamId)
+	streamIdBytes, err := json.Marshal(message.StreamId)
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (i *PgInbox) insertMessage(s session.Session, message *InboxMessage) error 
 		sql,
 		message.TenantId,
 		message.StreamType,
-		streamIDBytes,
+		streamIdBytes,
 		message.StreamPosition,
 		message.Uri,
 		message.Payload,
@@ -173,12 +173,12 @@ func (i *PgInbox) insertMessage(s session.Session, message *InboxMessage) error 
 func (i *PgInbox) fetchNextProcessable(
 	s session.Session,
 	startOffset int,
-	workerID int,
+	workerId int,
 	numWorkers int,
 ) (*InboxMessage, error) {
 	offset := startOffset
 	for {
-		message, err := i.fetchUnprocessedMessage(s, offset, workerID, numWorkers)
+		message, err := i.fetchUnprocessedMessage(s, offset, workerId, numWorkers)
 		if err != nil {
 			return nil, err
 		}
@@ -201,7 +201,7 @@ func (i *PgInbox) fetchNextProcessable(
 func (i *PgInbox) fetchUnprocessedMessage(
 	s session.Session,
 	offset int,
-	workerID int,
+	workerId int,
 	numWorkers int,
 ) (*InboxMessage, error) {
 	args := []any{offset}
@@ -214,7 +214,7 @@ func (i *PgInbox) fetchUnprocessedMessage(
 			"AND (hashtext(%s) & 2147483647) %% $2 = $3",
 			partitionExpr,
 		)
-		args = append(args, numWorkers, workerID)
+		args = append(args, numWorkers, workerId)
 	}
 
 	sql := fmt.Sprintf(`
@@ -232,9 +232,9 @@ func (i *PgInbox) fetchUnprocessedMessage(
 
 	row := s.(session.DbSession).Connection().QueryRow(sql, args...)
 
-	var tenantID string
+	var tenantId string
 	var streamType string
-	var streamIDBytes []byte
+	var streamIdBytes []byte
 	var streamPosition int
 	var uri string
 	var payloadBytes []byte
@@ -243,9 +243,9 @@ func (i *PgInbox) fetchUnprocessedMessage(
 	var processedPosition *int64
 
 	err := row.Scan(
-		&tenantID,
+		&tenantId,
 		&streamType,
-		&streamIDBytes,
+		&streamIdBytes,
 		&streamPosition,
 		&uri,
 		&payloadBytes,
@@ -262,8 +262,8 @@ func (i *PgInbox) fetchUnprocessedMessage(
 		return nil, err
 	}
 
-	var streamID map[string]any
-	if err := json.Unmarshal(streamIDBytes, &streamID); err != nil {
+	var streamId map[string]any
+	if err := json.Unmarshal(streamIdBytes, &streamId); err != nil {
 		return nil, err
 	}
 
@@ -275,9 +275,9 @@ func (i *PgInbox) fetchUnprocessedMessage(
 	}
 
 	return &InboxMessage{
-		TenantId:          tenantID,
+		TenantId:          tenantId,
 		StreamType:        streamType,
-		StreamId:          streamID,
+		StreamId:          streamId,
 		StreamPosition:    streamPosition,
 		Uri:               uri,
 		Payload:           payloadBytes,
@@ -317,7 +317,7 @@ func (i *PgInbox) isDependencyProcessed(s session.Session, dependency map[string
 		LIMIT 1
 	`, i.table)
 
-	streamIDBytes, err := json.Marshal(dependency["stream_id"])
+	streamIdBytes, err := json.Marshal(dependency["stream_id"])
 	if err != nil {
 		return false, err
 	}
@@ -326,7 +326,7 @@ func (i *PgInbox) isDependencyProcessed(s session.Session, dependency map[string
 		sql,
 		dependency["tenant_id"],
 		dependency["stream_type"],
-		streamIDBytes,
+		streamIdBytes,
 		dependency["stream_position"],
 	)
 
@@ -353,7 +353,7 @@ func (i *PgInbox) markProcessed(s session.Session, message *InboxMessage) error 
 		  AND stream_position = $4
 	`, i.table, i.sequence)
 
-	streamIDBytes, err := json.Marshal(message.StreamId)
+	streamIdBytes, err := json.Marshal(message.StreamId)
 	if err != nil {
 		return err
 	}
@@ -362,7 +362,7 @@ func (i *PgInbox) markProcessed(s session.Session, message *InboxMessage) error 
 		sql,
 		message.TenantId,
 		message.StreamType,
-		streamIDBytes,
+		streamIdBytes,
 		message.StreamPosition,
 	)
 	return err

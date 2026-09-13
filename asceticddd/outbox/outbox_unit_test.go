@@ -226,7 +226,7 @@ func TestPublishInsertsMessage(t *testing.T) {
 
 	outbox := NewOutbox(nil, "outbox", "outbox_offsets", 100)
 	message := &OutboxMessage{
-		URI: "kafka://orders",
+		Uri: "kafka://orders",
 		Payload: jsonPayload(map[string]any{
 			"type":     "OrderCreated",
 			"order_id": "123",
@@ -255,7 +255,7 @@ func TestPublishUsesCustomTableName(t *testing.T) {
 
 	outbox := NewOutbox(nil, "custom_outbox", "custom_offsets", 100)
 	message := &OutboxMessage{
-		URI: "kafka://orders",
+		Uri: "kafka://orders",
 		Payload: jsonPayload(map[string]any{
 			"type":     "OrderCreated",
 			"order_id": "123",
@@ -284,10 +284,10 @@ func TestGetPositionReturnsZerosWhenNotFound(t *testing.T) {
 	dbSession := &mockDbSession{conn: conn}
 
 	outbox := NewOutbox(nil, "outbox", "outbox_offsets", 100)
-	txID, offset, err := outbox.GetPosition(dbSession, "test-group", "")
+	txId, offset, err := outbox.GetPosition(dbSession, "test-group", "")
 
 	require.NoError(t, err)
-	assert.Equal(t, int64(0), txID)
+	assert.Equal(t, int64(0), txId)
 	assert.Equal(t, int64(0), offset)
 }
 
@@ -308,14 +308,14 @@ func TestGetPositionReturnsStoredPosition(t *testing.T) {
 	dbSession := &mockDbSession{conn: conn}
 
 	outbox := NewOutbox(nil, "outbox", "outbox_offsets", 100)
-	txID, offset, err := outbox.GetPosition(dbSession, "test-group", "")
+	txId, offset, err := outbox.GetPosition(dbSession, "test-group", "")
 
 	require.NoError(t, err)
-	assert.Equal(t, int64(100), txID)
+	assert.Equal(t, int64(100), txId)
 	assert.Equal(t, int64(50), offset)
 }
 
-func TestGetPositionWithURI(t *testing.T) {
+func TestGetPositionWithUri(t *testing.T) {
 	conn := &mockConnection{
 		queryRowFunc: func(query string, args ...any) session.Row {
 			return &mockRow{
@@ -332,10 +332,10 @@ func TestGetPositionWithURI(t *testing.T) {
 	dbSession := &mockDbSession{conn: conn}
 
 	outbox := NewOutbox(nil, "outbox", "outbox_offsets", 100)
-	txID, offset, err := outbox.GetPosition(dbSession, "test-group", "kafka://orders")
+	txId, offset, err := outbox.GetPosition(dbSession, "test-group", "kafka://orders")
 
 	require.NoError(t, err)
-	assert.Equal(t, int64(100), txID)
+	assert.Equal(t, int64(100), txId)
 	assert.Equal(t, int64(50), offset)
 
 	require.Len(t, conn.lastArgs, 2)
@@ -363,7 +363,7 @@ func TestSetPositionUpserts(t *testing.T) {
 	assert.Equal(t, "100", conn.lastArgs[3])
 }
 
-func TestSetPositionWithURI(t *testing.T) {
+func TestSetPositionWithUri(t *testing.T) {
 	conn := &mockConnection{}
 	dbSession := &mockDbSession{conn: conn}
 
@@ -378,7 +378,7 @@ func TestSetPositionWithURI(t *testing.T) {
 	assert.Equal(t, int64(50), conn.lastArgs[2])
 }
 
-func TestFetchMessagesWithURIFilter(t *testing.T) {
+func TestFetchMessagesWithUriFilter(t *testing.T) {
 	payload1, _ := json.Marshal(map[string]any{"type": "OrderCreated", "order_id": "123"})
 	metadata1, _ := json.Marshal(map[string]any{"message_id": "uuid-1"})
 
@@ -433,12 +433,12 @@ func TestFetchMessagesWithPartitioning(t *testing.T) {
 
 func TestConsumerGroupModificationWithWorkers(t *testing.T) {
 	consumerGroup := "test-group"
-	workerID := 2
+	workerId := 2
 	numWorkers := 5
 
 	var effectiveConsumerGroup string
 	if numWorkers > 1 {
-		effectiveConsumerGroup = fmt.Sprintf("%s:%d", consumerGroup, workerID)
+		effectiveConsumerGroup = fmt.Sprintf("%s:%d", consumerGroup, workerId)
 	} else {
 		effectiveConsumerGroup = consumerGroup
 	}
@@ -448,12 +448,12 @@ func TestConsumerGroupModificationWithWorkers(t *testing.T) {
 
 func TestConsumerGroupNoModificationWithSingleWorker(t *testing.T) {
 	consumerGroup := "test-group"
-	workerID := 0
+	workerId := 0
 	numWorkers := 1
 
 	var effectiveConsumerGroup string
 	if numWorkers > 1 {
-		effectiveConsumerGroup = fmt.Sprintf("%s:%d", consumerGroup, workerID)
+		effectiveConsumerGroup = fmt.Sprintf("%s:%d", consumerGroup, workerId)
 	} else {
 		effectiveConsumerGroup = consumerGroup
 	}
@@ -496,7 +496,7 @@ func TestDispatchReturnsTrue(t *testing.T) {
 
 	assert.True(t, result)
 	assert.Len(t, published, 2)
-	assert.Equal(t, "kafka://orders", published[0].URI)
+	assert.Equal(t, "kafka://orders", published[0].Uri)
 	assert.Equal(t, "OrderCreated", decodePayload(t, published[0].Payload)["type"])
 	assert.Equal(t, "OrderShipped", decodePayload(t, published[1].Payload)["type"])
 }
@@ -538,7 +538,7 @@ func TestDispatchAcknowledgesLastMessage(t *testing.T) {
 
 func TestMessageCreation(t *testing.T) {
 	message := &OutboxMessage{
-		URI: "kafka://orders",
+		Uri: "kafka://orders",
 		Payload: jsonPayload(map[string]any{
 			"type":     "OrderCreated",
 			"order_id": "123",
@@ -548,21 +548,21 @@ func TestMessageCreation(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, "kafka://orders", message.URI)
+	assert.Equal(t, "kafka://orders", message.Uri)
 	assert.Equal(t, "OrderCreated", decodePayload(t, message.Payload)["type"])
 	assert.Equal(t, "123", decodePayload(t, message.Payload)["order_id"])
 	assert.Equal(t, "uuid-123", message.Metadata["message_id"])
 	assert.Nil(t, message.Position)
-	assert.Nil(t, message.TransactionID)
+	assert.Nil(t, message.TransactionId)
 }
 
 func TestMessageWithAllFields(t *testing.T) {
 	createdAt := "2024-01-01 00:00:00"
 	position := int64(5)
-	transactionID := int64(100)
+	transactionId := int64(100)
 
 	message := &OutboxMessage{
-		URI: "kafka://orders",
+		Uri: "kafka://orders",
 		Payload: jsonPayload(map[string]any{
 			"type":     "OrderCreated",
 			"order_id": "123",
@@ -572,12 +572,12 @@ func TestMessageWithAllFields(t *testing.T) {
 		},
 		CreatedAt:     &createdAt,
 		Position:      &position,
-		TransactionID: &transactionID,
+		TransactionId: &transactionId,
 	}
 
 	assert.Equal(t, "2024-01-01 00:00:00", *message.CreatedAt)
 	assert.Equal(t, int64(5), *message.Position)
-	assert.Equal(t, int64(100), *message.TransactionID)
+	assert.Equal(t, int64(100), *message.TransactionId)
 }
 
 func TestRunFailingWorkerStopsTheOthers(t *testing.T) {

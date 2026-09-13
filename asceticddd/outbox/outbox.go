@@ -51,14 +51,14 @@ func (o *PgOutbox) Publish(s session.Session, message *OutboxMessage) error {
 		return err
 	}
 
-	_, err = s.(session.DbSession).Connection().Exec(sql, message.URI, message.Payload, metadata)
+	_, err = s.(session.DbSession).Connection().Exec(sql, message.Uri, message.Payload, metadata)
 	return err
 }
 
-func (o *PgOutbox) Dispatch(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, workerID int, numWorkers int) (bool, error) {
+func (o *PgOutbox) Dispatch(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, workerId int, numWorkers int) (bool, error) {
 	effectiveConsumerGroup := consumerGroup
 	if numWorkers > 1 {
-		effectiveConsumerGroup = fmt.Sprintf("%s:%d", consumerGroup, workerID)
+		effectiveConsumerGroup = fmt.Sprintf("%s:%d", consumerGroup, workerId)
 	}
 
 	err := o.sessionPool.Session(ctx, func(s session.Session) error {
@@ -72,7 +72,7 @@ func (o *PgOutbox) Dispatch(ctx context.Context, subscriber Subscriber, consumer
 	err = o.sessionPool.Session(ctx, func(s session.Session) error {
 		return s.Atomic(func(txSession session.Session) error {
 			var err error
-			messages, err = o.fetchMessages(txSession, effectiveConsumerGroup, uri, workerID, numWorkers)
+			messages, err = o.fetchMessages(txSession, effectiveConsumerGroup, uri, workerId, numWorkers)
 			if err != nil {
 				return err
 			}
@@ -88,7 +88,7 @@ func (o *PgOutbox) Dispatch(ctx context.Context, subscriber Subscriber, consumer
 			}
 
 			last := messages[len(messages)-1]
-			return o.ackMessage(txSession, effectiveConsumerGroup, uri, *last.TransactionID, *last.Position)
+			return o.ackMessage(txSession, effectiveConsumerGroup, uri, *last.TransactionId, *last.Position)
 		})
 	})
 
@@ -99,7 +99,7 @@ func (o *PgOutbox) Dispatch(ctx context.Context, subscriber Subscriber, consumer
 	return len(messages) > 0, nil
 }
 
-func (o *PgOutbox) Run(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, processID int, numProcesses int, concurrency int, pollInterval float64) error {
+func (o *PgOutbox) Run(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, processId int, numProcesses int, concurrency int, pollInterval float64) error {
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -117,15 +117,15 @@ func (o *PgOutbox) Run(ctx context.Context, subscriber Subscriber, consumerGroup
 		once     sync.Once
 		firstErr error
 	)
-	for localID := 0; localID < concurrency; localID++ {
+	for localId := 0; localId < concurrency; localId++ {
 		wg.Add(1)
-		go func(effectiveID int) {
+		go func(effectiveId int) {
 			defer wg.Done()
-			if err := o.workerLoop(loopCtx, subscriber, consumerGroup, uri, effectiveID, effectiveTotal, pollInterval); err != nil {
+			if err := o.workerLoop(loopCtx, subscriber, consumerGroup, uri, effectiveId, effectiveTotal, pollInterval); err != nil {
 				once.Do(func() { firstErr = err })
 				stop()
 			}
-		}(processID*concurrency + localID)
+		}(processId*concurrency + localId)
 	}
 	wg.Wait()
 
@@ -136,12 +136,12 @@ func (o *PgOutbox) Run(ctx context.Context, subscriber Subscriber, consumerGroup
 }
 
 // workerLoop dispatches as one worker until ctx is cancelled or a dispatch fails.
-func (o *PgOutbox) workerLoop(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, workerID int, numWorkers int, pollInterval float64) error {
+func (o *PgOutbox) workerLoop(ctx context.Context, subscriber Subscriber, consumerGroup string, uri string, workerId int, numWorkers int, pollInterval float64) error {
 	// Shutdown is cooperative: the transaction carries ctx's values but not
 	// its cancellation, so a batch being dispatched is finished and committed.
 	dispatchCtx := context.WithoutCancel(ctx)
 	for ctx.Err() == nil {
-		hasMessages, err := o.Dispatch(dispatchCtx, subscriber, consumerGroup, uri, workerID, numWorkers)
+		hasMessages, err := o.Dispatch(dispatchCtx, subscriber, consumerGroup, uri, workerId, numWorkers)
 		if err != nil {
 			return err
 		}
@@ -163,16 +163,16 @@ func (o *PgOutbox) GetPosition(s session.Session, consumerGroup string, uri stri
 	`, o.offsetsTable)
 
 	row := s.(session.DbSession).Connection().QueryRow(sql, consumerGroup, uri)
-	var transactionID int64
+	var transactionId int64
 	var offset int64
-	err := row.Scan(&transactionID, &offset)
+	err := row.Scan(&transactionId, &offset)
 	if err != nil {
 		return 0, 0, nil
 	}
-	return transactionID, offset, nil
+	return transactionId, offset, nil
 }
 
-func (o *PgOutbox) SetPosition(s session.Session, consumerGroup string, uri string, transactionID int64, offset int64) error {
+func (o *PgOutbox) SetPosition(s session.Session, consumerGroup string, uri string, transactionId int64, offset int64) error {
 	sql := fmt.Sprintf(`
 		INSERT INTO %s (consumer_group, uri, offset_acked, last_processed_transaction_id, updated_at)
 		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
@@ -182,7 +182,7 @@ func (o *PgOutbox) SetPosition(s session.Session, consumerGroup string, uri stri
 			updated_at = EXCLUDED.updated_at
 	`, o.offsetsTable)
 
-	_, err := s.(session.DbSession).Connection().Exec(sql, consumerGroup, uri, offset, fmt.Sprintf("%d", transactionID))
+	_, err := s.(session.DbSession).Connection().Exec(sql, consumerGroup, uri, offset, fmt.Sprintf("%d", transactionId))
 	return err
 }
 
@@ -208,7 +208,7 @@ func (o *PgOutbox) ensureConsumerGroup(s session.Session, consumerGroup string, 
 	return err
 }
 
-func (o *PgOutbox) fetchMessages(s session.Session, consumerGroup string, uri string, workerID int, numWorkers int) ([]*OutboxMessage, error) {
+func (o *PgOutbox) fetchMessages(s session.Session, consumerGroup string, uri string, workerId int, numWorkers int) ([]*OutboxMessage, error) {
 	args := []any{consumerGroup, uri}
 	paramNum := 3
 
@@ -224,7 +224,7 @@ func (o *PgOutbox) fetchMessages(s session.Session, consumerGroup string, uri st
 		// hashtext() is signed and % keeps the sign of the dividend, so a
 		// negative hash would match no worker; the sign bit is cleared.
 		partitionFilter = fmt.Sprintf("AND (hashtext(uri) & 2147483647) %% $%d = $%d", paramNum, paramNum+1)
-		args = append(args, numWorkers, workerID)
+		args = append(args, numWorkers, workerId)
 	}
 
 	sql := fmt.Sprintf(`
@@ -260,13 +260,13 @@ func (o *PgOutbox) fetchMessages(s session.Session, consumerGroup string, uri st
 	var messages []*OutboxMessage
 	for rows.Next() {
 		var position int64
-		var transactionID int64
+		var transactionId int64
 		var uri string
 		var payloadBytes []byte
 		var metadataBytes []byte
 		var createdAt time.Time
 
-		err := rows.Scan(&position, &transactionID, &uri, &payloadBytes, &metadataBytes, &createdAt)
+		err := rows.Scan(&position, &transactionId, &uri, &payloadBytes, &metadataBytes, &createdAt)
 		if err != nil {
 			return nil, err
 		}
@@ -278,19 +278,19 @@ func (o *PgOutbox) fetchMessages(s session.Session, consumerGroup string, uri st
 
 		createdAtStr := createdAt.Format(time.RFC3339)
 		messages = append(messages, &OutboxMessage{
-			URI:           uri,
+			Uri:           uri,
 			Payload:       payloadBytes,
 			Metadata:      metadata,
 			CreatedAt:     &createdAtStr,
 			Position:      &position,
-			TransactionID: &transactionID,
+			TransactionId: &transactionId,
 		})
 	}
 
 	return messages, rows.Err()
 }
 
-func (o *PgOutbox) ackMessage(s session.Session, consumerGroup string, uri string, transactionID int64, position int64) error {
+func (o *PgOutbox) ackMessage(s session.Session, consumerGroup string, uri string, transactionId int64, position int64) error {
 	sql := fmt.Sprintf(`
 		INSERT INTO %s (consumer_group, uri, offset_acked, last_processed_transaction_id, updated_at)
 		VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
@@ -300,7 +300,7 @@ func (o *PgOutbox) ackMessage(s session.Session, consumerGroup string, uri strin
 			updated_at = EXCLUDED.updated_at
 	`, o.offsetsTable)
 
-	_, err := s.(session.DbSession).Connection().Exec(sql, consumerGroup, uri, position, fmt.Sprintf("%d", transactionID))
+	_, err := s.(session.DbSession).Connection().Exec(sql, consumerGroup, uri, position, fmt.Sprintf("%d", transactionId))
 	return err
 }
 
