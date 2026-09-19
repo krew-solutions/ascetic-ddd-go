@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"flag"
 	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"go/types"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -77,6 +81,10 @@ func main() {
 	outputPath := filepath.Join(dir, strings.ToLower(*typeFlag)+"_specs_gen.go")
 	err = generateCode(outputPath, pkgName, *typeFlag, specs)
 	if err != nil {
+		var refused *UnsupportedError
+		if errors.As(err, &refused) {
+			log.Fatalf("%s: %v", fset.Position(refused.Pos), err)
+		}
 		log.Fatalf("Failed to generate code: %v", err)
 	}
 
@@ -87,7 +95,21 @@ func main() {
 type SpecFunc struct {
 	Name string
 	Doc  string
-	Body ast.Expr
+	// Param is the name the predicate gives to its candidate.
+	Param string
+	// Params are the parameters of the predicate after its candidate: values
+	// of the specification, given when its tree is built.
+	Params []SpecParam
+	// Imports are the imports of the source that the types of Params are of.
+	Imports []string
+	Body    ast.Expr
+}
+
+// SpecParam is a parameter of a specification: its name, and its type as the
+// source spells it.
+type SpecParam struct {
+	Name string
+	Type string
 }
 
 // findSpecFunctions finds all functions with //spec:sql comment
@@ -117,15 +139,26 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 			return true
 		}
 
-		// Validate function signature: func(T) bool
-		if funcDecl.Type.Params == nil || len(funcDecl.Type.Params.List) != 1 {
-			log.Printf("Warning: %s must have exactly one parameter", funcDecl.Name.Name)
+		// Validate function signature: func(T, ...) bool. A specification with
+		// a parameter is the usual kind - "dearer than this", "created since
+		// then" - and one of more than its candidate used to be skipped.
+		if funcDecl.Type.Params == nil || len(funcDecl.Type.Params.List) == 0 {
+			log.Printf("Warning: %s must have its candidate for the first parameter", funcDecl.Name.Name)
 			return true
 		}
 
 		param := funcDecl.Type.Params.List[0]
 		paramType, ok := param.Type.(*ast.Ident)
 		if !ok || paramType.Name != typeName {
+			return true
+		}
+		if len(param.Names) != 1 {
+			log.Printf("Warning: %s must have one candidate, with a name", funcDecl.Name.Name)
+			return true
+		}
+		params, ok := specParams(funcDecl.Type.Params.List[1:])
+		if !ok {
+			log.Printf("Warning: the parameters of %s must have names, and none may be variadic", funcDecl.Name.Name)
 			return true
 		}
 
@@ -157,9 +190,12 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 		}
 
 		specs = append(specs, SpecFunc{
-			Name: funcDecl.Name.Name,
-			Doc:  funcDecl.Doc.Text(),
-			Body: returnExpr,
+			Name:    funcDecl.Name.Name,
+			Doc:     funcDecl.Doc.Text(),
+			Param:   param.Names[0].Name,
+			Params:  params,
+			Imports: importsOf(file, funcDecl.Type.Params.List[1:]),
+			Body:    returnExpr,
 		})
 
 		return true
@@ -168,36 +204,114 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 	return specs
 }
 
+// specParams reads the parameters of a predicate after its candidate.
+func specParams(fields []*ast.Field) ([]SpecParam, bool) {
+	var params []SpecParam
+	for _, field := range fields {
+		if _, variadic := field.Type.(*ast.Ellipsis); variadic || len(field.Names) == 0 {
+			return nil, false
+		}
+		for _, name := range field.Names {
+			params = append(params, SpecParam{Name: name.Name, Type: types.ExprString(field.Type)})
+		}
+	}
+	return params, true
+}
+
+// importsOf returns the imports of the file that the types of the fields are
+// of, as the file spells them: the generated code names the same types.
+func importsOf(file *ast.File, fields []*ast.Field) []string {
+	used := map[string]bool{}
+	for _, field := range fields {
+		ast.Inspect(field.Type, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if pkg, ok := sel.X.(*ast.Ident); ok {
+					used[pkg.Name] = true
+				}
+			}
+			return true
+		})
+	}
+	var imports []string
+	for _, spec := range file.Imports {
+		path := strings.Trim(spec.Path.Value, `"`)
+		name := path[strings.LastIndex(path, "/")+1:]
+		if spec.Name != nil {
+			name = spec.Name.Name
+		}
+		if !used[name] {
+			continue
+		}
+		if spec.Name != nil {
+			imports = append(imports, spec.Name.Name+" "+spec.Path.Value)
+		} else {
+			imports = append(imports, spec.Path.Value)
+		}
+	}
+	return imports
+}
+
 // generateCode generates the *_spec_gen.go file
 func generateCode(outputPath, pkgName, typeName string, specs []SpecFunc) error {
-	f, err := os.Create(outputPath)
-	if err != nil {
+	// Into memory first: a specification that is refused leaves no file
+	// written by half.
+	var code bytes.Buffer
+	if err := renderCode(&code, pkgName, typeName, specs); err != nil {
 		return err
 	}
-	defer f.Close()
+	return os.WriteFile(outputPath, code.Bytes(), 0o644)
+}
 
+// renderCode writes the generated file.
+func renderCode(f io.Writer, pkgName, typeName string, specs []SpecFunc) error {
 	// Write header
 	fmt.Fprintf(f, "// Code generated by specgen. DO NOT EDIT.\n\n")
 	fmt.Fprintf(f, "package %s\n\n", pkgName)
 	fmt.Fprintf(f, "import (\n")
+	// What the types of the parameters are of
+	imported := map[string]bool{}
+	for _, s := range specs {
+		for _, imp := range s.Imports {
+			if !imported[imp] {
+				imported[imp] = true
+				fmt.Fprintf(f, "\t%s\n", imp)
+			}
+		}
+	}
+	if len(imported) > 0 {
+		fmt.Fprintf(f, "\n")
+	}
 	fmt.Fprintf(f, "\tspec \"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain\"\n")
 	fmt.Fprintf(f, "\tinfra \"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/infrastructure\"\n")
 	fmt.Fprintf(f, ")\n\n")
 
 	// Generate AST builder for each spec
 	for _, s := range specs {
-		visitor := NewSpecGenVisitor(typeName)
+		visitor := NewSpecGenVisitor(typeName).withRoot(s.Param)
+
+		// What cannot be a specification is reported where it stands.
+		body, err := visitor.Visit(s.Body)
+		if err != nil {
+			return fmt.Errorf("%s: %w", s.Name, err)
+		}
 
 		// Generate AST function
 		fmt.Fprintf(f, "// %sAST returns AST for %s\n", s.Name, s.Name)
-		fmt.Fprintf(f, "func %sAST() spec.Visitable {\n", s.Name)
-		fmt.Fprintf(f, "\treturn %s\n", visitor.Visit(s.Body))
+		declared, passed := make([]string, 0, len(s.Params)), make([]string, 0, len(s.Params))
+		for _, param := range s.Params {
+			declared = append(declared, param.Name+" "+param.Type)
+			passed = append(passed, param.Name)
+		}
+		signature, arguments := strings.Join(declared, ", "), strings.Join(passed, ", ")
+
+		fmt.Fprintf(f, "func %sAST(%s) spec.Visitable {\n", s.Name, signature)
+		fmt.Fprintf(f, "\treturn %s\n", body)
 		fmt.Fprintf(f, "}\n\n")
 
 		// Generate SQL helper
 		fmt.Fprintf(f, "// %sSQL returns SQL for %s\n", s.Name, s.Name)
-		fmt.Fprintf(f, "func %sSQL() (string, []any, error) {\n", s.Name)
-		fmt.Fprintf(f, "\tast := %sAST()\n", s.Name)
+		fmt.Fprintf(f, "func %sSQL(%s) (string, []any, error) {\n", s.Name, signature)
+		fmt.Fprintf(f, "\tast := %sAST(%s)\n", s.Name, arguments)
 		fmt.Fprintf(f, "\treturn infra.CompileToSQL(ast)\n")
 		fmt.Fprintf(f, "}\n\n")
 	}
@@ -210,8 +324,14 @@ func generateCode(outputPath, pkgName, typeName string, specs []SpecFunc) error 
 type SpecGenVisitor struct {
 	// typeName is the main type being processed (e.g., "User", "Order")
 	typeName string
+	// rootName is the name the predicate gives to its candidate (e.g., "u");
+	// empty if it is not known, and then any name that is not an item's is
+	// taken for it.
+	rootName string
 	// itemName is the current item variable name in wildcard context (e.g., "item")
 	itemName string
+	// outerItems are the item names of the enclosing collections.
+	outerItems []string
 	// inWildcard indicates if we're inside a wildcard predicate
 	inWildcard bool
 }
@@ -225,17 +345,50 @@ func NewSpecGenVisitor(typeName string) *SpecGenVisitor {
 	}
 }
 
-// withWildcardContext returns a new visitor configured for wildcard context.
-func (v *SpecGenVisitor) withWildcardContext(itemName string) *SpecGenVisitor {
+// withRoot returns a new visitor that knows the candidate by its name.
+func (v *SpecGenVisitor) withRoot(rootName string) *SpecGenVisitor {
 	return &SpecGenVisitor{
 		typeName:   v.typeName,
+		rootName:   rootName,
+		itemName:   v.itemName,
+		outerItems: v.outerItems,
+		inWildcard: v.inWildcard,
+	}
+}
+
+// withWildcardContext returns a new visitor configured for wildcard context.
+func (v *SpecGenVisitor) withWildcardContext(itemName string) *SpecGenVisitor {
+	outerItems := v.outerItems
+	if v.inWildcard && v.itemName != itemName {
+		outerItems = append(append([]string{}, v.outerItems...), v.itemName)
+	}
+	return &SpecGenVisitor{
+		typeName:   v.typeName,
+		rootName:   v.rootName,
 		itemName:   itemName,
+		outerItems: outerItems,
 		inWildcard: true,
 	}
 }
 
+// UnsupportedError is a construct that cannot be a specification, where it
+// stands. It used to be generated as spec.Value(nil) with a TODO in a comment:
+// a specification that compiles, and is null.
+type UnsupportedError struct {
+	Pos     token.Pos
+	Message string
+}
+
+func (e *UnsupportedError) Error() string {
+	return e.Message
+}
+
+func unsupported(node ast.Node, format string, args ...any) error {
+	return &UnsupportedError{Pos: node.Pos(), Message: fmt.Sprintf(format, args...)}
+}
+
 // Visit dispatches to the appropriate visit method based on node type.
-func (v *SpecGenVisitor) Visit(expr ast.Expr) string {
+func (v *SpecGenVisitor) Visit(expr ast.Expr) (string, error) {
 	switch e := expr.(type) {
 	case *ast.BinaryExpr:
 		return v.VisitBinaryExpr(e)
@@ -252,83 +405,160 @@ func (v *SpecGenVisitor) Visit(expr ast.Expr) string {
 	case *ast.ParenExpr:
 		return v.VisitParenExpr(e)
 	default:
-		return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported expr %T */", expr)
+		return "", unsupported(expr, "unsupported expression %T", expr)
 	}
 }
 
+// isNil tells whether the expression is the nil literal.
+func isNil(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name == "nil"
+}
+
+// isOutside tells whether the expression is a name from outside the
+// predicate: what it is equal to is known when the tree is built, not when it
+// is generated.
+func isOutside(expr ast.Expr) bool {
+	ident, ok := expr.(*ast.Ident)
+	return ok && ident.Name != "nil" && ident.Name != "true" && ident.Name != "false"
+}
+
+// equality generates `==` or `!=`. With nil it is the null test: written as
+// it stands it is `a = NULL`, which is null and true of nothing. With a name
+// from outside it is decided when the tree is built.
+func (v *SpecGenVisitor) equality(x, y ast.Expr, operator, comparison, nullTest string) (string, error) {
+	if isNil(x) && isNil(y) {
+		return "", unsupported(x, "nil is compared with nil")
+	}
+	if isNil(x) {
+		x, y = y, x
+	}
+	left, err := v.Visit(x)
+	if err != nil {
+		return "", err
+	}
+	if isNil(y) {
+		return fmt.Sprintf("%s(%s)", nullTest, left), nil
+	}
+	right, err := v.Visit(y)
+	if err != nil {
+		return "", err
+	}
+	if isOutside(x) || isOutside(y) {
+		return fmt.Sprintf("spec.EqualityOrNullTest(%q, %s, %s)", operator, left, right), nil
+	}
+	return fmt.Sprintf("%s(%s, %s)", comparison, left, right), nil
+}
+
 // VisitBinaryExpr handles binary expressions (comparisons, logical, arithmetic).
-func (v *SpecGenVisitor) VisitBinaryExpr(expr *ast.BinaryExpr) string {
-	left := v.Visit(expr.X)
-	right := v.Visit(expr.Y)
+func (v *SpecGenVisitor) VisitBinaryExpr(expr *ast.BinaryExpr) (string, error) {
+	switch expr.Op {
+	case token.EQL: // ==
+		return v.equality(expr.X, expr.Y, "=", "spec.Equal", "spec.IsNull")
+	case token.NEQ: // !=
+		return v.equality(expr.X, expr.Y, "!=", "spec.NotEqual", "spec.IsNotNull")
+	}
+
+	left, err := v.Visit(expr.X)
+	if err != nil {
+		return "", err
+	}
+	right, err := v.Visit(expr.Y)
+	if err != nil {
+		return "", err
+	}
 
 	switch expr.Op {
 	// Comparison
-	case token.EQL: // ==
-		return fmt.Sprintf("spec.Equal(%s, %s)", left, right)
-	case token.NEQ: // !=
-		return fmt.Sprintf("spec.NotEqual(%s, %s)", left, right)
 	case token.LSS: // <
-		return fmt.Sprintf("spec.LessThan(%s, %s)", left, right)
+		return fmt.Sprintf("spec.LessThan(%s, %s)", left, right), nil
 	case token.LEQ: // <=
-		return fmt.Sprintf("spec.LessThanEqual(%s, %s)", left, right)
+		return fmt.Sprintf("spec.LessThanEqual(%s, %s)", left, right), nil
 	case token.GTR: // >
-		return fmt.Sprintf("spec.GreaterThan(%s, %s)", left, right)
+		return fmt.Sprintf("spec.GreaterThan(%s, %s)", left, right), nil
 	case token.GEQ: // >=
-		return fmt.Sprintf("spec.GreaterThanEqual(%s, %s)", left, right)
+		return fmt.Sprintf("spec.GreaterThanEqual(%s, %s)", left, right), nil
 
 	// Logical
 	case token.LAND: // &&
-		return fmt.Sprintf("spec.And(%s, %s)", left, right)
+		return fmt.Sprintf("spec.And(%s, %s)", left, right), nil
 	case token.LOR: // ||
-		return fmt.Sprintf("spec.Or(%s, %s)", left, right)
+		return fmt.Sprintf("spec.Or(%s, %s)", left, right), nil
 
 	// Arithmetic
 	case token.ADD: // +
-		return fmt.Sprintf("spec.Add(%s, %s)", left, right)
+		return fmt.Sprintf("spec.Add(%s, %s)", left, right), nil
 	case token.SUB: // -
-		return fmt.Sprintf("spec.Sub(%s, %s)", left, right)
+		return fmt.Sprintf("spec.Sub(%s, %s)", left, right), nil
 	case token.MUL: // *
-		return fmt.Sprintf("spec.Mul(%s, %s)", left, right)
+		return fmt.Sprintf("spec.Mul(%s, %s)", left, right), nil
 	case token.QUO: // /
-		return fmt.Sprintf("spec.Div(%s, %s)", left, right)
+		return fmt.Sprintf("spec.Div(%s, %s)", left, right), nil
 	case token.REM: // %
-		return fmt.Sprintf("spec.Mod(%s, %s)", left, right)
+		return fmt.Sprintf("spec.Mod(%s, %s)", left, right), nil
 
 	// Bitwise
-	case token.AND: // & (bitwise AND)
-		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise AND not yet implemented in spec: %s & %s */", left, right)
-	case token.OR: // | (bitwise OR)
-		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise OR not yet implemented in spec: %s | %s */", left, right)
-	case token.XOR: // ^ (bitwise XOR)
-		return fmt.Sprintf("spec.Value(nil) /* TODO: bitwise XOR not yet implemented in spec: %s ^ %s */", left, right)
 	case token.SHL: // <<
-		return fmt.Sprintf("spec.LeftShift(%s, %s)", left, right)
+		return fmt.Sprintf("spec.LeftShift(%s, %s)", left, right), nil
 	case token.SHR: // >>
-		return fmt.Sprintf("spec.RightShift(%s, %s)", left, right)
+		return fmt.Sprintf("spec.RightShift(%s, %s)", left, right), nil
 
 	default:
-		return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported op %v */", expr.Op)
+		// & (bitwise AND), | (bitwise OR), ^ (bitwise XOR) are not yet
+		// implemented in spec
+		return "", unsupported(expr, "unsupported operator %v", expr.Op)
 	}
 }
 
 // VisitUnaryExpr handles unary expressions (!, -, +).
-func (v *SpecGenVisitor) VisitUnaryExpr(expr *ast.UnaryExpr) string {
-	operand := v.Visit(expr.X)
+func (v *SpecGenVisitor) VisitUnaryExpr(expr *ast.UnaryExpr) (string, error) {
+	// `-5` is the constant it looks like, not a negation of `5`.
+	if lit, ok := expr.X.(*ast.BasicLit); ok && expr.Op == token.SUB && (lit.Kind == token.INT || lit.Kind == token.FLOAT) {
+		return fmt.Sprintf("spec.Value(-%s)", lit.Value), nil
+	}
+
+	operand, err := v.Visit(expr.X)
+	if err != nil {
+		return "", err
+	}
 
 	switch expr.Op {
 	case token.NOT: // !
-		return fmt.Sprintf("spec.Not(%s)", operand)
+		return fmt.Sprintf("spec.Not(%s)", operand), nil
 	case token.SUB: // - (negation)
-		return fmt.Sprintf("spec.Neg(%s)", operand)
+		return fmt.Sprintf("spec.Neg(%s)", operand), nil
 	case token.ADD: // + (positive, no-op)
-		return operand
+		return operand, nil
 	default:
-		return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported unary op %v */", expr.Op)
+		return "", unsupported(expr, "unsupported unary operator %v", expr.Op)
 	}
 }
 
+// scopeOf returns the scope a base identifier stands for: the item of the
+// nearest collection, or the candidate.
+//
+// A name that is neither used to be read as the candidate: the item of an
+// outer collection named from the predicate of an inner one, which the tree
+// cannot name - it has one "@", the nearest - became a field of the candidate.
+func (v *SpecGenVisitor) scopeOf(base *ast.Ident) (string, error) {
+	if v.inWildcard && base.Name == v.itemName {
+		// Inside wildcard, referring to item
+		return "spec.Item()", nil
+	}
+	for _, outer := range v.outerItems {
+		if base.Name == outer {
+			return "", unsupported(base, "%q is the item of an outer collection: only the nearest item can be named", base.Name)
+		}
+	}
+	if v.rootName != "" && base.Name != v.rootName {
+		return "", unsupported(base, "%q is neither the candidate %q nor the item of a collection", base.Name, v.rootName)
+	}
+	// Normal context, referring to root object
+	return "spec.GlobalScope()", nil
+}
+
 // VisitSelectorExpr handles field access (e.g., u.Age, item.Price, u.Profile.Age).
-func (v *SpecGenVisitor) VisitSelectorExpr(expr *ast.SelectorExpr) string {
+func (v *SpecGenVisitor) VisitSelectorExpr(expr *ast.SelectorExpr) (string, error) {
 	// Build the chain of field accesses
 	var path []string
 	var baseIdent *ast.Ident
@@ -348,19 +578,15 @@ func (v *SpecGenVisitor) VisitSelectorExpr(expr *ast.SelectorExpr) string {
 			baseIdent = x
 		default:
 			// Unknown base
-			return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported selector base %T */", current.X)
+			return "", unsupported(current.X, "unsupported selector base %T", current.X)
 		}
 		break
 	}
 
 	// Determine the scope based on context
-	var scope string
-	if v.inWildcard && baseIdent.Name == v.itemName {
-		// Inside wildcard, referring to item
-		scope = "spec.Item()"
-	} else {
-		// Normal context, referring to root object
-		scope = "spec.GlobalScope()"
+	scope, err := v.scopeOf(baseIdent)
+	if err != nil {
+		return "", err
 	}
 
 	// Build nested Object chain for all but the last field
@@ -369,11 +595,11 @@ func (v *SpecGenVisitor) VisitSelectorExpr(expr *ast.SelectorExpr) string {
 	}
 
 	// Last element is the field
-	return fmt.Sprintf("spec.Field(%s, %q)", scope, path[len(path)-1])
+	return fmt.Sprintf("spec.Field(%s, %q)", scope, path[len(path)-1]), nil
 }
 
 // VisitCallExpr handles function calls (Any, All, IsNull, method calls).
-func (v *SpecGenVisitor) VisitCallExpr(expr *ast.CallExpr) string {
+func (v *SpecGenVisitor) VisitCallExpr(expr *ast.CallExpr) (string, error) {
 	switch fun := expr.Fun.(type) {
 	case *ast.Ident:
 		switch fun.Name {
@@ -391,9 +617,9 @@ func (v *SpecGenVisitor) VisitCallExpr(expr *ast.CallExpr) string {
 
 		// Value Object comparison methods
 		case "Equal", "Equals", "Eq":
-			return v.visitMethodComparison(expr, fun, "spec.Equal")
+			return v.visitMethodEquality(expr, fun, "=", "spec.Equal", "spec.IsNull")
 		case "NotEqual", "NotEquals", "Ne", "Neq":
-			return v.visitMethodComparison(expr, fun, "spec.NotEqual")
+			return v.visitMethodEquality(expr, fun, "!=", "spec.NotEqual", "spec.IsNotNull")
 		case "LessThan", "Lt":
 			return v.visitMethodComparison(expr, fun, "spec.LessThan")
 		case "LessThanOrEqual", "LessThanEqual", "Lte", "Le":
@@ -405,41 +631,43 @@ func (v *SpecGenVisitor) VisitCallExpr(expr *ast.CallExpr) string {
 		}
 	}
 
-	return fmt.Sprintf("spec.Value(nil) /* TODO: unsupported call %T */", expr.Fun)
+	return "", unsupported(expr, "unsupported call %T", expr.Fun)
 }
 
 // VisitBasicLit handles literal values (numbers, strings).
-func (v *SpecGenVisitor) VisitBasicLit(expr *ast.BasicLit) string {
-	return fmt.Sprintf("spec.Value(%s)", expr.Value)
+func (v *SpecGenVisitor) VisitBasicLit(expr *ast.BasicLit) (string, error) {
+	return fmt.Sprintf("spec.Value(%s)", expr.Value), nil
 }
 
-// VisitIdent handles identifiers (true, false, nil, field names).
-func (v *SpecGenVisitor) VisitIdent(expr *ast.Ident) string {
-	// Boolean constants or nil
-	if expr.Name == "true" || expr.Name == "false" || expr.Name == "nil" {
-		return fmt.Sprintf("spec.Value(%s)", expr.Name)
+// VisitIdent handles identifiers (true, false, nil, names from outside).
+func (v *SpecGenVisitor) VisitIdent(expr *ast.Ident) (string, error) {
+	// Boolean constants, nil, or a name from outside the predicate - a
+	// constant or a variable of the package - which is a value. It used to be
+	// read as a field of the candidate of that name: `u.Email.Equal(email)`
+	// compiled to `Email = email`.
+	if expr.Name == v.rootName || (v.inWildcard && expr.Name == v.itemName) {
+		return "", unsupported(expr, "%q as a whole is not a value: name a member of it", expr.Name)
 	}
-	// Direct field access (rare, but possible)
-	return fmt.Sprintf("spec.Field(spec.GlobalScope(), %q)", expr.Name)
+	return fmt.Sprintf("spec.Value(%s)", expr.Name), nil
 }
 
 // VisitParenExpr handles parenthesized expressions.
-func (v *SpecGenVisitor) VisitParenExpr(expr *ast.ParenExpr) string {
+func (v *SpecGenVisitor) VisitParenExpr(expr *ast.ParenExpr) (string, error) {
 	return v.Visit(expr.X)
 }
 
 // visitAnyAll handles Any/All collection predicates.
-func (v *SpecGenVisitor) visitAnyAll(expr *ast.CallExpr, funcName string) string {
+func (v *SpecGenVisitor) visitAnyAll(expr *ast.CallExpr, funcName string) (string, error) {
 	// Any/All(collection, func(item Type) bool { return predicate })
 	if len(expr.Args) != 2 {
-		return fmt.Sprintf("spec.Value(nil) /* %s requires 2 arguments */", funcName)
+		return "", unsupported(expr, "%s requires 2 arguments", funcName)
 	}
 
 	// First arg is the collection selector (e.g., store.Items or region.Categories)
 	collectionExpr := expr.Args[0]
 	collectionSelector, ok := collectionExpr.(*ast.SelectorExpr)
 	if !ok {
-		return fmt.Sprintf("spec.Value(nil) /* %s first arg must be selector */", funcName)
+		return "", unsupported(collectionExpr, "%s first arg must be selector", funcName)
 	}
 
 	collectionField := collectionSelector.Sel.Name
@@ -448,85 +676,116 @@ func (v *SpecGenVisitor) visitAnyAll(expr *ast.CallExpr, funcName string) string
 	var parentScope string
 	switch x := collectionSelector.X.(type) {
 	case *ast.Ident:
-		// Check if this is item.Collection (nested wildcard) or root.Collection
-		if v.inWildcard && x.Name == v.itemName {
-			// Nested wildcard: region.Categories, category.Items, etc.
-			parentScope = "spec.Item()"
-		} else {
-			// Root level: store.Items, o.Regions, etc.
-			parentScope = "spec.GlobalScope()"
+		// item.Collection (nested wildcard: region.Categories, category.Items)
+		// or root.Collection (store.Items, o.Regions)
+		scope, err := v.scopeOf(x)
+		if err != nil {
+			return "", err
 		}
+		parentScope = scope
 	case *ast.SelectorExpr:
 		// Nested case: store.Nested.Items
-		parentScope = v.VisitSelectorExpr(x)
+		field, err := v.VisitSelectorExpr(x)
+		if err != nil {
+			return "", err
+		}
 		// Convert Field to Object
-		parentScope = fmt.Sprintf("spec.Object(%s.Object(), %s.Name())", parentScope, parentScope)
+		parentScope = fmt.Sprintf("spec.Object(%s.Object(), %s.Name())", field, field)
 	default:
-		return fmt.Sprintf("spec.Value(nil) /* unsupported collection parent %T */", collectionSelector.X)
+		return "", unsupported(collectionSelector.X, "unsupported collection parent %T", collectionSelector.X)
 	}
 
 	// Second arg is the lambda function
 	lambdaExpr := expr.Args[1]
 	funcLit, ok := lambdaExpr.(*ast.FuncLit)
 	if !ok {
-		return fmt.Sprintf("spec.Value(nil) /* %s second arg must be func literal */", funcName)
+		return "", unsupported(lambdaExpr, "%s second arg must be func literal", funcName)
 	}
 
 	// Extract lambda parameter name
 	if len(funcLit.Type.Params.List) != 1 || len(funcLit.Type.Params.List[0].Names) != 1 {
-		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have exactly one param */", funcName)
+		return "", unsupported(funcLit, "%s lambda must have exactly one param", funcName)
 	}
 	lambdaItemName := funcLit.Type.Params.List[0].Names[0].Name
 
 	// Extract lambda body (should be a return statement)
 	if len(funcLit.Body.List) != 1 {
-		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have exactly one statement */", funcName)
+		return "", unsupported(funcLit, "%s lambda must have exactly one statement", funcName)
 	}
 	retStmt, ok := funcLit.Body.List[0].(*ast.ReturnStmt)
 	if !ok || len(retStmt.Results) != 1 {
-		return fmt.Sprintf("spec.Value(nil) /* %s lambda must have return statement */", funcName)
+		return "", unsupported(funcLit, "%s lambda must have return statement", funcName)
 	}
 
 	// Convert predicate in wildcard context using a new visitor
 	wildcardVisitor := v.withWildcardContext(lambdaItemName)
-	predicate := wildcardVisitor.Visit(retStmt.Results[0])
+	predicate, err := wildcardVisitor.Visit(retStmt.Results[0])
+	if err != nil {
+		return "", err
+	}
 
 	// Generate Wildcard node
-	return fmt.Sprintf("spec.Wildcard(spec.Object(%s, %q), %s)", parentScope, collectionField, predicate)
+	collection := fmt.Sprintf("spec.Object(%s, %q)", parentScope, collectionField)
+	if funcName == "All" {
+		// "All satisfy" is "none fails": All used to be generated as Any.
+		return fmt.Sprintf("spec.Not(spec.Wildcard(%s, spec.Not(%s)))", collection, predicate), nil
+	}
+	return fmt.Sprintf("spec.Wildcard(%s, %s)", collection, predicate), nil
 }
 
 // visitIsNull handles value.IsNull() calls.
-func (v *SpecGenVisitor) visitIsNull(expr *ast.CallExpr) string {
+func (v *SpecGenVisitor) visitIsNull(expr *ast.CallExpr) (string, error) {
 	sel, ok := expr.Fun.(*ast.SelectorExpr)
 	if !ok {
-		return "spec.Value(nil) /* IsNull: invalid selector */"
+		return "", unsupported(expr, "IsNull: invalid selector")
 	}
 
-	operand := v.Visit(sel.X)
-	return fmt.Sprintf("spec.IsNull(%s)", operand)
+	operand, err := v.Visit(sel.X)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("spec.IsNull(%s)", operand), nil
 }
 
 // visitIsNotNull handles value.IsNotNull() calls.
-func (v *SpecGenVisitor) visitIsNotNull(expr *ast.CallExpr) string {
+func (v *SpecGenVisitor) visitIsNotNull(expr *ast.CallExpr) (string, error) {
 	sel, ok := expr.Fun.(*ast.SelectorExpr)
 	if !ok {
-		return "spec.Value(nil) /* IsNotNull: invalid selector */"
+		return "", unsupported(expr, "IsNotNull: invalid selector")
 	}
 
-	operand := v.Visit(sel.X)
-	return fmt.Sprintf("spec.IsNotNull(%s)", operand)
+	operand, err := v.Visit(sel.X)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("spec.IsNotNull(%s)", operand), nil
 }
 
-// visitMethodComparison handles Value Object method calls like receiver.Equal(arg).
-func (v *SpecGenVisitor) visitMethodComparison(expr *ast.CallExpr, sel *ast.SelectorExpr, specFunc string) string {
+// visitMethodEquality handles Value Object method calls like receiver.Equal(arg).
+func (v *SpecGenVisitor) visitMethodEquality(expr *ast.CallExpr, sel *ast.SelectorExpr, operator, comparison, nullTest string) (string, error) {
 	if len(expr.Args) != 1 {
-		return fmt.Sprintf("spec.Value(nil) /* %s requires exactly 1 argument */", sel.Sel.Name)
+		return "", unsupported(expr, "%s requires exactly 1 argument", sel.Sel.Name)
+	}
+	// receiver becomes left operand, method argument becomes right operand
+	return v.equality(sel.X, expr.Args[0], operator, comparison, nullTest)
+}
+
+// visitMethodComparison handles Value Object method calls like receiver.LessThan(arg).
+func (v *SpecGenVisitor) visitMethodComparison(expr *ast.CallExpr, sel *ast.SelectorExpr, specFunc string) (string, error) {
+	if len(expr.Args) != 1 {
+		return "", unsupported(expr, "%s requires exactly 1 argument", sel.Sel.Name)
 	}
 
 	// receiver becomes left operand
-	left := v.Visit(sel.X)
+	left, err := v.Visit(sel.X)
+	if err != nil {
+		return "", err
+	}
 	// method argument becomes right operand
-	right := v.Visit(expr.Args[0])
+	right, err := v.Visit(expr.Args[0])
+	if err != nil {
+		return "", err
+	}
 
-	return fmt.Sprintf("%s(%s, %s)", specFunc, left, right)
+	return fmt.Sprintf("%s(%s, %s)", specFunc, left, right), nil
 }

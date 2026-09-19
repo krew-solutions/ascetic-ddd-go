@@ -106,6 +106,15 @@ func Not(operand Visitable) PrefixNode {
 	}
 }
 
+// Neg is the unary minus. The generator emitted calls of it before it existed.
+func Neg(operand Visitable) PrefixNode {
+	return PrefixNode{
+		operator:      operators.OperatorNeg,
+		operand:       operand,
+		associativity: RightAssociative,
+	}
+}
+
 func NewPrefixNode(operator operators.Operator, operand Visitable, associativity Associativity) PrefixNode {
 	return PrefixNode{
 		operator:      operator,
@@ -337,6 +346,32 @@ func IsNotNull(operand Visitable) PostfixNode {
 		operator:      operators.OperatorIsNotNull,
 		associativity: NonAssociative,
 	}
+}
+
+// EqualityOrNullTest is the comparison a frontend writes where its notation has
+// null for a value: equality with the null constant is the null test, IS NULL,
+// and inequality IS NOT NULL. In the tree, as in SQL, `a = NULL` is null and
+// true of nothing. The rule is of constants, not of data: two fields that are
+// both null still compare to null.
+func EqualityOrNullTest(operator operators.Operator, left, right Visitable) Visitable {
+	if operator == operators.OperatorEq || operator == operators.OperatorNe {
+		test := IsNull
+		if operator == operators.OperatorNe {
+			test = IsNotNull
+		}
+		if isNullConstant(right) {
+			return test(left)
+		}
+		if isNullConstant(left) {
+			return test(right)
+		}
+	}
+	return NewInfixNode(left, operator, right, NonAssociative)
+}
+
+func isNullConstant(node Visitable) bool {
+	value, ok := node.(ValueNode)
+	return ok && value.Value() == nil
 }
 
 func NewPostfixNode(operand Visitable, operator operators.Operator, associativity Associativity) PostfixNode {

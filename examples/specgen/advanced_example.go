@@ -110,7 +110,10 @@ func HasTaxedCheapItemsSpec(s Store) bool {
 // === Bitwise Operations ===
 
 // HasItemWithFlagSpec checks if any item has specific bit flag (example)
-//spec:sql
+//
+// Not marked for specgen: the tree has no bitwise AND, and the generator says
+// so where it stands. It used to generate spec.Value(nil) in its place: a
+// query that compares NULL with 1, and selects nothing.
 func HasItemWithFlagSpec(s Store) bool {
 	return spec.Any(s.Items, func(item Item) bool {
 		return item.Stock&1 == 1 // odd stock number

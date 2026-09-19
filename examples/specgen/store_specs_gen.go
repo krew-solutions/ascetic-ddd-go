@@ -42,7 +42,7 @@ func HasExpensiveItemsSpecSQL() (string, []any, error) {
 
 // AllItemsActiveSpecAST returns AST for AllItemsActiveSpec
 func AllItemsActiveSpecAST() spec.Visitable {
-	return spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.Field(spec.Item(), "Active"))
+	return spec.Not(spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.Not(spec.Field(spec.Item(), "Active"))))
 }
 
 // AllItemsActiveSpecSQL returns SQL for AllItemsActiveSpec
@@ -117,17 +117,6 @@ func HasTaxedCheapItemsSpecSQL() (string, []any, error) {
 	return infra.CompileToSQL(ast)
 }
 
-// HasItemWithFlagSpecAST returns AST for HasItemWithFlagSpec
-func HasItemWithFlagSpecAST() spec.Visitable {
-	return spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.Equal(spec.Value(nil) /* TODO: unsupported op & */, spec.Value(1)))
-}
-
-// HasItemWithFlagSpecSQL returns SQL for HasItemWithFlagSpec
-func HasItemWithFlagSpecSQL() (string, []any, error) {
-	ast := HasItemWithFlagSpecAST()
-	return infra.CompileToSQL(ast)
-}
-
 // HasItemWithShiftedIDSpecAST returns AST for HasItemWithShiftedIDSpec
 func HasItemWithShiftedIDSpecAST() spec.Visitable {
 	return spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.Equal(spec.LeftShift(spec.Field(spec.Item(), "ID"), spec.Value(2)), spec.Value(8)))
@@ -152,7 +141,7 @@ func PremiumActiveStoreSpecSQL() (string, []any, error) {
 
 // BudgetFriendlyStoreSpecAST returns AST for BudgetFriendlyStoreSpec
 func BudgetFriendlyStoreSpecAST() spec.Visitable {
-	return spec.And(spec.Field(spec.GlobalScope(), "Active"), spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.LessThan(spec.Field(spec.Item(), "Price"), spec.Value(1000))))
+	return spec.And(spec.Field(spec.GlobalScope(), "Active"), spec.Not(spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.Not(spec.LessThan(spec.Field(spec.Item(), "Price"), spec.Value(1000))))))
 }
 
 // BudgetFriendlyStoreSpecSQL returns SQL for BudgetFriendlyStoreSpec
@@ -174,7 +163,7 @@ func NoExpensiveItemsSpecSQL() (string, []any, error) {
 
 // NotAllItemsActiveSpecAST returns AST for NotAllItemsActiveSpec
 func NotAllItemsActiveSpecAST() spec.Visitable {
-	return spec.Not(spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.Field(spec.Item(), "Active")))
+	return spec.Not(spec.Not(spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.Not(spec.Field(spec.Item(), "Active")))))
 }
 
 // NotAllItemsActiveSpecSQL returns SQL for NotAllItemsActiveSpec

@@ -139,12 +139,12 @@ func AllItemsActiveSpec(s Store) bool {
 }
 ```
 
-**Generates:**
+**Generates:** "no item fails" - `NOT EXISTS (... WHERE NOT item.Active)`:
 ```go
-spec.Wildcard(
+spec.Not(spec.Wildcard(
     spec.Object(spec.GlobalScope(), "Items"),
-    spec.Field(spec.Item(), "Active"),
-)
+    spec.Not(spec.Field(spec.Item(), "Active")),
+))
 ```
 
 #### Complex Wildcard Predicates

@@ -240,7 +240,7 @@ func TestSchemaRegistry_NestedRelationalCollections(t *testing.T) {
 	schema := NewSchemaRegistry("stores").
 		WithParentAlias("s").
 		RegisterRelational("Categories", "categories", "store_id", "id").
-		RegisterRelational("Items", "items", "category_id", "id")
+		RegisterRelational("Categories.Items", "items", "category_id", "id")
 
 	// AST: Store has Category that has Item with Price > 1000
 	// spec.Wildcard(
@@ -290,7 +290,7 @@ func TestSchemaRegistry_NestedRelationalWithCompositeFK(t *testing.T) {
 			{ChildColumn: "tenant_id", ParentColumn: "tenant_id"},
 			{ChildColumn: "store_id", ParentColumn: "id"},
 		}).
-		RegisterRelationalComposite("Items", "items", []ForeignKeyPair{
+		RegisterRelationalComposite("Categories.Items", "items", []ForeignKeyPair{
 			{ChildColumn: "tenant_id", ParentColumn: "tenant_id"},
 			{ChildColumn: "category_id", ParentColumn: "id"},
 		})

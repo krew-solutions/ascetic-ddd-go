@@ -65,6 +65,11 @@ func (r *OperatorRegistry) ExecBinary(left any, op Operator, right any) (any, er
 		return execOr(left, right)
 	}
 
+	// IS is the equality in which NULL is a value: never NULL itself.
+	if op == OperatorIs {
+		return r.execIs(left, right)
+	}
+
 	// NULL propagation for all other binary operators
 	if left == nil || right == nil {
 		return nil, nil
@@ -73,6 +78,21 @@ func (r *OperatorRegistry) ExecBinary(left any, op Operator, right any) (any, er
 	fn, err := r.lookupBinary(left, op, right)
 	if err != nil {
 		return nil, err
+	}
+	return fn(left, right)
+}
+
+// execIs is IS NOT DISTINCT FROM: what is registered for IS, or else for =.
+func (r *OperatorRegistry) execIs(left, right any) (any, error) {
+	if left == nil || right == nil {
+		return left == nil && right == nil, nil
+	}
+	fn, err := r.lookupBinary(left, OperatorIs, right)
+	if err != nil {
+		fn, err = r.lookupBinary(left, OperatorEq, right)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("operator \"%s\" is not supported for %T and %T", OperatorIs, left, right)
 	}
 	return fn(left, right)
 }

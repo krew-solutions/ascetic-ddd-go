@@ -46,7 +46,10 @@ type SchemaRegistry struct {
 	// ParentAlias is the alias used for parent table in queries (e.g., "s" for "stores s")
 	ParentAlias string
 
-	// collections maps collection field name to its mapping
+	// collections maps a collection to its mapping, by the names from the
+	// aggregate to the collection joined with dots: "Items",
+	// "Categories.Items". The last name alone does not tell the items of a
+	// store from the items of a category.
 	collections map[string]CollectionMapping
 }
 

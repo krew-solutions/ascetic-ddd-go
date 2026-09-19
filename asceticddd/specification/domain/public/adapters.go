@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 // DelegatingImp wraps a Visitable node and implements Delegating.
@@ -84,14 +85,15 @@ func NewComparison(delegate s.Visitable) ComparisonImp {
 	return ComparisonImp{DelegatingImp: NewDelegating(delegate)}
 }
 
-// Eq creates an equality comparison.
+// Eq creates an equality comparison. With a null constant it is the null
+// test, IS NULL, and Ne is IS NOT NULL: `a = NULL` is true of nothing.
 func (c ComparisonImp) Eq(other Comparison) Logical {
-	return NewLogical(s.Equal(c.Delegate(), other.Delegate()))
+	return NewLogical(s.EqualityOrNullTest(operators.OperatorEq, c.Delegate(), other.Delegate()))
 }
 
 // Ne creates an inequality comparison.
 func (c ComparisonImp) Ne(other Comparison) Logical {
-	return NewLogical(s.NotEqual(c.Delegate(), other.Delegate()))
+	return NewLogical(s.EqualityOrNullTest(operators.OperatorNe, c.Delegate(), other.Delegate()))
 }
 
 // Gt creates a greater-than comparison.
@@ -112,16 +114,6 @@ func (c ComparisonImp) Gte(other Comparison) Logical {
 // Lte creates a less-than-or-equal comparison.
 func (c ComparisonImp) Lte(other Comparison) Logical {
 	return NewLogical(s.LessThanEqual(c.Delegate(), other.Delegate()))
-}
-
-// Lshift creates a left-shift operation.
-func (c ComparisonImp) Lshift(other Comparison) Logical {
-	return NewLogical(s.LeftShift(c.Delegate(), other.Delegate()))
-}
-
-// Rshift creates a right-shift operation.
-func (c ComparisonImp) Rshift(other Comparison) Logical {
-	return NewLogical(s.RightShift(c.Delegate(), other.Delegate()))
 }
 
 // MathematicalImp implements Mathematical interface.
@@ -157,6 +149,16 @@ func (m MathematicalImp) Div(other Mathematical) Mathematical {
 // Mod creates a modulo operation.
 func (m MathematicalImp) Mod(other Mathematical) Mathematical {
 	return NewMathematical(s.Mod(m.Delegate(), other.Delegate()))
+}
+
+// Lshift creates a left-shift operation.
+func (m MathematicalImp) Lshift(other Mathematical) Mathematical {
+	return NewMathematical(s.LeftShift(m.Delegate(), other.Delegate()))
+}
+
+// Rshift creates a right-shift operation.
+func (m MathematicalImp) Rshift(other Mathematical) Mathematical {
+	return NewMathematical(s.RightShift(m.Delegate(), other.Delegate()))
 }
 
 // Object_ creates an Object node from a dotted path string.

@@ -60,7 +60,10 @@ func TestVisitBinaryExpr_Comparison(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.BinaryExpr)
 			visitor := NewSpecGenVisitor("User")
-			result := visitor.VisitBinaryExpr(expr)
+			result, err := visitor.VisitBinaryExpr(expr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -90,7 +93,10 @@ func TestVisitBinaryExpr_Logical(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.BinaryExpr)
 			visitor := NewSpecGenVisitor("User")
-			result := visitor.VisitBinaryExpr(expr)
+			result, err := visitor.VisitBinaryExpr(expr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -135,7 +141,10 @@ func TestVisitBinaryExpr_Arithmetic(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.BinaryExpr)
 			visitor := NewSpecGenVisitor("Product")
-			result := visitor.VisitBinaryExpr(expr)
+			result, err := visitor.VisitBinaryExpr(expr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -165,7 +174,10 @@ func TestVisitBinaryExpr_Bitwise(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.BinaryExpr)
 			visitor := NewSpecGenVisitor("Item")
-			result := visitor.VisitBinaryExpr(expr)
+			result, err := visitor.VisitBinaryExpr(expr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -176,7 +188,10 @@ func TestVisitBinaryExpr_Bitwise(t *testing.T) {
 func TestVisitSelectorExpr_SimpleField(t *testing.T) {
 	expr := parseExpr(t, "u.Age").(*ast.SelectorExpr)
 	visitor := NewSpecGenVisitor("User")
-	result := visitor.VisitSelectorExpr(expr)
+	result, err := visitor.VisitSelectorExpr(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	expected := `spec.Field(spec.GlobalScope(), "Age")`
 
 	if result != expected {
@@ -187,7 +202,10 @@ func TestVisitSelectorExpr_SimpleField(t *testing.T) {
 func TestVisitSelectorExpr_NestedField(t *testing.T) {
 	expr := parseExpr(t, "u.Profile.Age").(*ast.SelectorExpr)
 	visitor := NewSpecGenVisitor("User")
-	result := visitor.VisitSelectorExpr(expr)
+	result, err := visitor.VisitSelectorExpr(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	expected := `spec.Field(spec.Object(spec.GlobalScope(), "Profile"), "Age")`
 
 	if result != expected {
@@ -199,7 +217,10 @@ func TestVisitSelectorExpr_ItemField(t *testing.T) {
 	// Inside wildcard context: item.Price
 	expr := parseExpr(t, "item.Price").(*ast.SelectorExpr)
 	visitor := NewSpecGenVisitor("Store").withWildcardContext("item")
-	result := visitor.VisitSelectorExpr(expr)
+	result, err := visitor.VisitSelectorExpr(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	expected := `spec.Field(spec.Item(), "Price")`
 
 	if result != expected {
@@ -211,7 +232,10 @@ func TestVisitSelectorExpr_ItemNestedField(t *testing.T) {
 	// Inside wildcard context: item.Details.Stock
 	expr := parseExpr(t, "item.Details.Stock").(*ast.SelectorExpr)
 	visitor := NewSpecGenVisitor("Store").withWildcardContext("item")
-	result := visitor.VisitSelectorExpr(expr)
+	result, err := visitor.VisitSelectorExpr(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	expected := `spec.Field(spec.Object(spec.Item(), "Details"), "Stock")`
 
 	if result != expected {
@@ -222,7 +246,10 @@ func TestVisitSelectorExpr_ItemNestedField(t *testing.T) {
 func TestVisitUnaryExpr_Not(t *testing.T) {
 	expr := parseExpr(t, "!u.Active").(*ast.UnaryExpr)
 	visitor := NewSpecGenVisitor("User")
-	result := visitor.Visit(expr)
+	result, err := visitor.Visit(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	expected := `spec.Not(spec.Field(spec.GlobalScope(), "Active"))`
 
 	if result != expected {
@@ -247,7 +274,10 @@ func TestVisit_BasicLit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr)
 			visitor := NewSpecGenVisitor("User")
-			result := visitor.Visit(expr)
+			result, err := visitor.Visit(expr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -258,7 +288,10 @@ func TestVisit_BasicLit(t *testing.T) {
 func TestVisit_Parentheses(t *testing.T) {
 	expr := parseExpr(t, "(u.Age > 18)")
 	visitor := NewSpecGenVisitor("User")
-	result := visitor.Visit(expr)
+	result, err := visitor.Visit(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	expected := `spec.GreaterThan(spec.Field(spec.GlobalScope(), "Age"), spec.Value(18))`
 
 	if result != expected {
@@ -270,7 +303,10 @@ func TestVisit_ComplexExpression(t *testing.T) {
 	// u.Active && u.Age >= 18 && u.Name != ""
 	expr := parseExpr(t, `u.Active && u.Age >= 18 && u.Name != ""`)
 	visitor := NewSpecGenVisitor("User")
-	result := visitor.Visit(expr)
+	result, err := visitor.Visit(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	expected := `spec.And(spec.And(spec.Field(spec.GlobalScope(), "Active"), spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Value(18))), spec.NotEqual(spec.Field(spec.GlobalScope(), "Name"), spec.Value("")))`
 
 	if result != expected {
@@ -364,7 +400,10 @@ func AdultUserSpec(u User) bool {
 
 	// Test that body was correctly extracted and can be converted
 	visitor := NewSpecGenVisitor("User")
-	result := visitor.Visit(spec.Body)
+	result, err := visitor.Visit(spec.Body)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	expectedParts := []string{
 		"spec.GreaterThanEqual",
@@ -407,7 +446,10 @@ func PremiumUserSpec(u User) bool {
 
 	spec := specs[0]
 	visitor := NewSpecGenVisitor("User")
-	result := visitor.Visit(spec.Body)
+	result, err := visitor.Visit(spec.Body)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	expectedParts := []string{
 		"spec.And",
@@ -446,7 +488,10 @@ func test(s Store) bool {
 	callExpr := retStmt.Results[0].(*ast.CallExpr)
 
 	visitor := NewSpecGenVisitor("Store")
-	result := visitor.visitAnyAll(callExpr, "Any")
+	result, err := visitor.visitAnyAll(callExpr, "Any")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Check that it generates correct AST
 	expectedParts := []string{
@@ -485,7 +530,10 @@ func test(region Region) bool {
 
 	// Simulate being inside a wildcard context where "region" is the item
 	visitor := NewSpecGenVisitor("Organization").withWildcardContext("region")
-	result := visitor.visitAnyAll(callExpr, "Any")
+	result, err := visitor.visitAnyAll(callExpr, "Any")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	// Check that it generates spec.Item() for nested wildcard
 	expectedParts := []string{
@@ -560,17 +608,17 @@ func TestVisitMethodComparison_Equal(t *testing.T) {
 		{
 			name:     "Equal method",
 			expr:     "u.Email.Equal(email)",
-			expected: `spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+			expected: `spec.EqualityOrNullTest("=", spec.Field(spec.GlobalScope(), "Email"), spec.Value(email))`,
 		},
 		{
 			name:     "Equals method",
 			expr:     "u.Email.Equals(email)",
-			expected: `spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+			expected: `spec.EqualityOrNullTest("=", spec.Field(spec.GlobalScope(), "Email"), spec.Value(email))`,
 		},
 		{
 			name:     "Eq method",
 			expr:     "u.Email.Eq(email)",
-			expected: `spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+			expected: `spec.EqualityOrNullTest("=", spec.Field(spec.GlobalScope(), "Email"), spec.Value(email))`,
 		},
 		{
 			name:     "Equal with literal",
@@ -580,17 +628,17 @@ func TestVisitMethodComparison_Equal(t *testing.T) {
 		{
 			name:     "NotEqual method",
 			expr:     "u.Email.NotEqual(email)",
-			expected: `spec.NotEqual(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+			expected: `spec.EqualityOrNullTest("!=", spec.Field(spec.GlobalScope(), "Email"), spec.Value(email))`,
 		},
 		{
 			name:     "Ne method",
 			expr:     "u.Email.Ne(email)",
-			expected: `spec.NotEqual(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+			expected: `spec.EqualityOrNullTest("!=", spec.Field(spec.GlobalScope(), "Email"), spec.Value(email))`,
 		},
 		{
 			name:     "Neq method",
 			expr:     "u.Email.Neq(email)",
-			expected: `spec.NotEqual(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email"))`,
+			expected: `spec.EqualityOrNullTest("!=", spec.Field(spec.GlobalScope(), "Email"), spec.Value(email))`,
 		},
 	}
 
@@ -598,7 +646,10 @@ func TestVisitMethodComparison_Equal(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.CallExpr)
 			visitor := NewSpecGenVisitor("User")
-			result := visitor.Visit(expr)
+			result, err := visitor.Visit(expr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -615,52 +666,52 @@ func TestVisitMethodComparison_Ordering(t *testing.T) {
 		{
 			name:     "LessThan method",
 			expr:     "u.Age.LessThan(maxAge)",
-			expected: `spec.LessThan(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+			expected: `spec.LessThan(spec.Field(spec.GlobalScope(), "Age"), spec.Value(maxAge))`,
 		},
 		{
 			name:     "Lt method",
 			expr:     "u.Age.Lt(maxAge)",
-			expected: `spec.LessThan(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+			expected: `spec.LessThan(spec.Field(spec.GlobalScope(), "Age"), spec.Value(maxAge))`,
 		},
 		{
 			name:     "LessThanOrEqual method",
 			expr:     "u.Age.LessThanOrEqual(maxAge)",
-			expected: `spec.LessThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+			expected: `spec.LessThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Value(maxAge))`,
 		},
 		{
 			name:     "Lte method",
 			expr:     "u.Age.Lte(maxAge)",
-			expected: `spec.LessThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+			expected: `spec.LessThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Value(maxAge))`,
 		},
 		{
 			name:     "Le method",
 			expr:     "u.Age.Le(maxAge)",
-			expected: `spec.LessThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "maxAge"))`,
+			expected: `spec.LessThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Value(maxAge))`,
 		},
 		{
 			name:     "GreaterThan method",
 			expr:     "u.Age.GreaterThan(minAge)",
-			expected: `spec.GreaterThan(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+			expected: `spec.GreaterThan(spec.Field(spec.GlobalScope(), "Age"), spec.Value(minAge))`,
 		},
 		{
 			name:     "Gt method",
 			expr:     "u.Age.Gt(minAge)",
-			expected: `spec.GreaterThan(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+			expected: `spec.GreaterThan(spec.Field(spec.GlobalScope(), "Age"), spec.Value(minAge))`,
 		},
 		{
 			name:     "GreaterThanOrEqual method",
 			expr:     "u.Age.GreaterThanOrEqual(minAge)",
-			expected: `spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+			expected: `spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Value(minAge))`,
 		},
 		{
 			name:     "Gte method",
 			expr:     "u.Age.Gte(minAge)",
-			expected: `spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+			expected: `spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Value(minAge))`,
 		},
 		{
 			name:     "Ge method",
 			expr:     "u.Age.Ge(minAge)",
-			expected: `spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Field(spec.GlobalScope(), "minAge"))`,
+			expected: `spec.GreaterThanEqual(spec.Field(spec.GlobalScope(), "Age"), spec.Value(minAge))`,
 		},
 	}
 
@@ -668,7 +719,10 @@ func TestVisitMethodComparison_Ordering(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.CallExpr)
 			visitor := NewSpecGenVisitor("User")
-			result := visitor.Visit(expr)
+			result, err := visitor.Visit(expr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -680,8 +734,11 @@ func TestVisitMethodComparison_NestedField(t *testing.T) {
 	// Test nested field access: u.Profile.Email.Equal(email)
 	expr := parseExpr(t, "u.Profile.Email.Equal(email)").(*ast.CallExpr)
 	visitor := NewSpecGenVisitor("User")
-	result := visitor.Visit(expr)
-	expected := `spec.Equal(spec.Field(spec.Object(spec.GlobalScope(), "Profile"), "Email"), spec.Field(spec.GlobalScope(), "email"))`
+	result, err := visitor.Visit(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := `spec.EqualityOrNullTest("=", spec.Field(spec.Object(spec.GlobalScope(), "Profile"), "Email"), spec.Value(email))`
 
 	if result != expected {
 		t.Errorf("\nExpected: %s\nGot:      %s", expected, result)
@@ -692,7 +749,10 @@ func TestVisitMethodComparison_InWildcard(t *testing.T) {
 	// Test inside wildcard context: item.Status.Equal("active")
 	expr := parseExpr(t, `item.Status.Equal("active")`).(*ast.CallExpr)
 	visitor := NewSpecGenVisitor("Store").withWildcardContext("item")
-	result := visitor.Visit(expr)
+	result, err := visitor.Visit(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	expected := `spec.Equal(spec.Field(spec.Item(), "Status"), spec.Value("active"))`
 
 	if result != expected {
@@ -722,7 +782,10 @@ func TestVisitMethodComparison_WithLiteral(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			expr := parseExpr(t, tt.expr).(*ast.CallExpr)
 			visitor := NewSpecGenVisitor("User")
-			result := visitor.Visit(expr)
+			result, err := visitor.Visit(expr)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("\nExpected: %s\nGot:      %s", tt.expected, result)
 			}
@@ -734,8 +797,11 @@ func TestVisitMethodComparison_CombinedWithLogical(t *testing.T) {
 	// Test: u.Email.Equal(email) && u.Active
 	expr := parseExpr(t, "u.Email.Equal(email) && u.Active")
 	visitor := NewSpecGenVisitor("User")
-	result := visitor.Visit(expr)
-	expected := `spec.And(spec.Equal(spec.Field(spec.GlobalScope(), "Email"), spec.Field(spec.GlobalScope(), "email")), spec.Field(spec.GlobalScope(), "Active"))`
+	result, err := visitor.Visit(expr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected := `spec.And(spec.EqualityOrNullTest("=", spec.Field(spec.GlobalScope(), "Email"), spec.Value(email)), spec.Field(spec.GlobalScope(), "Active"))`
 
 	if result != expected {
 		t.Errorf("\nExpected: %s\nGot:      %s", expected, result)

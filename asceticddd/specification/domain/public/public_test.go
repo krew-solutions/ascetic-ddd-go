@@ -215,8 +215,8 @@ func TestComparison(t *testing.T) {
 	})
 
 	t.Run("LeftShift", func(t *testing.T) {
-		left := NewComparison(s.Value(5))
-		right := NewComparison(s.Value(1))
+		left := NewMathematical(s.Value(5))
+		right := NewMathematical(s.Value(1))
 		result := left.Lshift(right)
 
 		delegate := result.Delegate()
@@ -226,8 +226,8 @@ func TestComparison(t *testing.T) {
 	})
 
 	t.Run("RightShift", func(t *testing.T) {
-		left := NewComparison(s.Value(5))
-		right := NewComparison(s.Value(1))
+		left := NewMathematical(s.Value(5))
+		right := NewMathematical(s.Value(1))
 		result := left.Rshift(right)
 
 		delegate := result.Delegate()

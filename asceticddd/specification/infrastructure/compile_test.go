@@ -255,8 +255,8 @@ func TestCompileToSQLIsNull(t *testing.T) {
 // TestCompositeExpressionNotEqual tests NotEqual for composite expressions
 
 func TestCompositeExpressionNotEqual(t *testing.T) {
-	left := CompositeExpression(s.Value(1), s.Value(2))
-	right := CompositeExpression(s.Value(3), s.Value(4))
+	left := CompositeExpression(Scalar(s.Value(1)), Scalar(s.Value(2)))
+	right := CompositeExpression(Scalar(s.Value(3)), Scalar(s.Value(4)))
 
 	result, err := left.NotEqual(right)
 	if err != nil {
@@ -282,12 +282,12 @@ func TestCompositeExpressionNotEqual(t *testing.T) {
 func TestCompositeExpressionNotEqualComplex(t *testing.T) {
 	// Nested composite: ((a, b), c) != ((d, e), f)
 	left := CompositeExpression(
-		CompositeExpression(s.Value(1), s.Value(2)),
-		s.Value(3),
+		CompositeExpression(Scalar(s.Value(1)), Scalar(s.Value(2))),
+		Scalar(s.Value(3)),
 	)
 	right := CompositeExpression(
-		CompositeExpression(s.Value(4), s.Value(5)),
-		s.Value(6),
+		CompositeExpression(Scalar(s.Value(4)), Scalar(s.Value(5))),
+		Scalar(s.Value(6)),
 	)
 
 	result, err := left.NotEqual(right)
@@ -311,8 +311,8 @@ func TestCompositeExpressionNotEqualComplex(t *testing.T) {
 }
 
 func TestCompositeExpressionNotEqualDifferentLength(t *testing.T) {
-	left := CompositeExpression(s.Value(1), s.Value(2))
-	right := CompositeExpression(s.Value(3))
+	left := CompositeExpression(Scalar(s.Value(1)), Scalar(s.Value(2)))
+	right := CompositeExpression(Scalar(s.Value(3)))
 
 	_, err := left.NotEqual(right)
 	if err == nil {

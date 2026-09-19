@@ -97,15 +97,15 @@ type SomethingId struct {
 type SomethingScopeContext struct {
 }
 
-func (c SomethingScopeContext) AttrNode(parent s.EmptiableObject, path []string) (s.Visitable, error) {
+func (c SomethingScopeContext) AttrNode(parent s.EmptiableObject, path []string) (Mapped, error) {
 	switch path[0] {
 	case "id":
 		return CompositeExpression(
 			CompositeExpression(
-				s.Field(parent, "tenant_id"),
-				s.Field(parent, "member_id"),
+				Scalar(s.Field(parent, "tenant_id")),
+				Scalar(s.Field(parent, "member_id")),
 			),
-			s.Field(parent, "something_id"),
+			Scalar(s.Field(parent, "something_id")),
 		), nil
 	default:
 		return nil, fmt.Errorf("can't get field \"%s\"", path[0])
@@ -113,10 +113,11 @@ func (c SomethingScopeContext) AttrNode(parent s.EmptiableObject, path []string)
 }
 
 type TestGlobalScopeContext struct {
+	ContextDefaults
 	something SomethingScopeContext
 }
 
-func (c TestGlobalScopeContext) AttrNode(path []string) (s.Visitable, error) {
+func (c TestGlobalScopeContext) AttrNode(path []string) (Mapped, error) {
 	switch path[0] {
 	case "something":
 		return c.something.AttrNode(s.Object(s.GlobalScope(), "something"), path[1:])
@@ -137,24 +138,24 @@ func (c TestGlobalScopeContext) AttrNode(path []string) (s.Visitable, error) {
 // Кажется, TransformVisitor можно вообще выбросить, т.к. сам контекст может возвращать CompositeExpression.
 // Он все-равно управляет маппингом через err. Он создан для маппинга.
 
-func (c TestGlobalScopeContext) ValueNode(val any) (s.Visitable, error) {
+func (c TestGlobalScopeContext) ValueNode(val any) (Mapped, error) {
 	switch valTyped := val.(type) {
 	case InternalMemberId:
 		var ex uint
 		valTyped.Export(func(v uint) { ex = v })
-		return s.Value(ex), nil
+		return Scalar(s.Value(ex)), nil
 	case TenantId:
 		var ex uint
 		valTyped.Export(func(v uint) { ex = v })
-		return s.Value(ex), nil
+		return Scalar(s.Value(ex)), nil
 	case SomethingId:
 		var ex uint
 		valTyped.Export(func(v uint) { ex = v })
-		return s.Value(ex), nil
+		return Scalar(s.Value(ex)), nil
 	case MemberId:
 		var ex MemberIdExporter
 		valTyped.Export(&ex)
-		nodes := []s.Visitable{}
+		nodes := []Mapped{}
 		for _, v := range ex.Values() {
 			node, err := c.ValueNode(v)
 			if err != nil {
@@ -166,7 +167,7 @@ func (c TestGlobalScopeContext) ValueNode(val any) (s.Visitable, error) {
 	case MemberSomethingId:
 		var ex MemberSomethingIdExporter
 		valTyped.Export(&ex)
-		nodes := []s.Visitable{}
+		nodes := []Mapped{}
 		for _, v := range ex.Values() {
 			node, err := c.ValueNode(v)
 			if err != nil {

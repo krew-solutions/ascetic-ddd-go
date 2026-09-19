@@ -34,8 +34,6 @@ type Comparison interface {
 	Lt(other Comparison) Logical
 	Gte(other Comparison) Logical
 	Lte(other Comparison) Logical
-	Lshift(other Comparison) Logical
-	Rshift(other Comparison) Logical
 }
 
 // Mathematical represents a type that supports mathematical operations.
@@ -46,4 +44,9 @@ type Mathematical interface {
 	Mul(other Mathematical) Mathematical
 	Div(other Mathematical) Mathematical
 	Mod(other Mathematical) Mathematical
+	// Lshift and Rshift shift the bits of an integer, as the evaluator and
+	// PostgreSQL have them: they are arithmetic. They were typed as
+	// comparisons, giving a Logical.
+	Lshift(other Mathematical) Mathematical
+	Rshift(other Mathematical) Mathematical
 }

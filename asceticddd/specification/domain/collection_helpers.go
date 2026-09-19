@@ -37,7 +37,8 @@ func Any[T any](collection []T, predicate func(T) bool) bool {
 //	    })
 //	}
 //
-// Generates: Wildcard(Object(GlobalScope(), "Items"), Field(Item(), "Active"))
+// Generates: Not(Wildcard(Object(GlobalScope(), "Items"), Not(Field(Item(), "Active")))):
+// "all satisfy" is "none fails".
 func All[T any](collection []T, predicate func(T) bool) bool {
 	for _, item := range collection {
 		if !predicate(item) {

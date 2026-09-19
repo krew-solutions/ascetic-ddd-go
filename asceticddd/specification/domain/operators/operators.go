@@ -27,7 +27,9 @@ const (
 	OperatorDiv Operator = "/"
 	OperatorMod Operator = "%"
 
-	OperatorPos Operator = "+pos"
+	// OperatorNeg is named, not spelled: "-" is OperatorSub. How an operator
+	// is spelled is for the notation that writes it to say. There is no unary
+	// plus: nothing made a node of it.
 	OperatorNeg Operator = "-neg"
 
 	// Bitwise

@@ -2,6 +2,7 @@ package specification
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/jinzhu/inflection"
@@ -43,7 +44,7 @@ type PostgresqlVisitorOption func(*PostgresqlVisitor)
 
 func PlaceholderIndex(index uint8) PostgresqlVisitorOption {
 	return func(v *PostgresqlVisitor) {
-		v.counters.placeholderIndex = index
+		v.counters.placeholderIndex = int(index)
 	}
 }
 
@@ -58,7 +59,8 @@ func WithSchema(schema *SchemaRegistry) PostgresqlVisitorOption {
 // every $-placeholder and every wildcard alias must get a globally-unique
 // number, so they live in a mutable container shared by reference.
 type counters struct {
-	placeholderIndex uint8
+	// An int: as a uint8 it wrapped, and the 256th parameter was written $0.
+	placeholderIndex int
 	wildcardCounter  int
 }
 
@@ -101,11 +103,56 @@ func buildPrecedenceMapping() map[string]int {
 	return m
 }
 
+// tableSpelling is how the precedence table spells the operators that Operator
+// names otherwise. The rest are spelled in the table as their value is.
+var tableSpelling = map[operators.Operator]string{
+	operators.OperatorNeg:       "-",
+	operators.OperatorIsNull:    "ISNULL",
+	operators.OperatorIsNotNull: "NOTNULL",
+}
+
+// sqlSpelling is how PostgreSQL spells the operators that Operator names
+// otherwise. The rest are spelled in a query as their value is.
+//
+// IS takes a keyword - TRUE, NULL - and not a parameter: `x IS $1` is a syntax
+// error. IS NOT DISTINCT FROM is the same equality, in which null is a value,
+// takes any expression, and binds as IS does.
+var sqlSpelling = map[operators.Operator]string{
+	operators.OperatorNeg: "-",
+	operators.OperatorIs:  "IS NOT DISTINCT FROM",
+}
+
+// regrouping holds the operators a run of which can be regrouped without a
+// change of its value, nulls included, so that `a AND (b AND c)` needs no
+// parentheses. True of the logical connectives and of nothing else:
+// `a - (b - c)` is not `a - b - c`, and even `+` overflows and rounds one way
+// and not the other.
+var regrouping = map[operators.Operator]bool{
+	operators.OperatorAnd: true,
+	operators.OperatorOr:  true,
+}
+
+var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// identifier returns a name that can be written into a query as it is: a
+// name, or names joined with dots. A name is refused rather than quoted, so
+// that no tree, whatever it was built from, can put SQL of its own into the
+// query: only values are parameters.
+func identifier(name string) (string, error) {
+	for _, part := range strings.Split(name, ".") {
+		if !identifierPattern.MatchString(part) {
+			return "", fmt.Errorf("%q is not a valid identifier", name)
+		}
+	}
+	return name, nil
+}
+
 // PostgresqlVisitor renders a specification AST as PostgreSQL.
 //
 // Functional: each Visit* returns a SqlFragment. Scoped state
-// (outerPrecedence, inWildcard, wildcardAlias) is captured immutably and
-// changed by constructing a sub-visitor via atPrecedence / enterWildcard.
+// (outerPrecedence, outerApart, inWildcard, wildcardAlias, wildcardPath) is
+// captured immutably and changed by constructing a sub-visitor via
+// atPrecedence / enterWildcard.
 // Monotonic counters live in a shared *counters container.
 type PostgresqlVisitor struct {
 	counters          *counters
@@ -113,8 +160,15 @@ type PostgresqlVisitor struct {
 	precedenceMapping map[string]int
 
 	outerPrecedence int
-	inWildcard      bool
-	wildcardAlias   string
+	// outerApart tells whether an operand as tight as the outer operator is
+	// parenthesised: it is on the side the operator does not group to.
+	outerApart    bool
+	inWildcard    bool
+	wildcardAlias string
+	// wildcardPath is the names from the aggregate to the collection of the
+	// current item, through the collections on the way: what a schema names
+	// it by.
+	wildcardPath []string
 }
 
 // Compile is the typed entry point for top-level callers.
@@ -122,37 +176,54 @@ func (v *PostgresqlVisitor) Compile(node s.Visitable) (SqlFragment, error) {
 	return s.Accept[SqlFragment](node, v)
 }
 
-// atPrecedence returns a sub-visitor with the given outer precedence.
-func (v *PostgresqlVisitor) atPrecedence(prec int) *PostgresqlVisitor {
+// atPrecedence returns a sub-visitor with the given outer precedence. apart
+// tells whether the operand is on the side the operator does not group to,
+// where one as tight as the operator is parenthesised.
+func (v *PostgresqlVisitor) atPrecedence(prec int, apart bool) *PostgresqlVisitor {
 	return &PostgresqlVisitor{
 		counters:          v.counters,
 		schema:            v.schema,
 		precedenceMapping: v.precedenceMapping,
 		outerPrecedence:   prec,
+		outerApart:        apart,
 		inWildcard:        v.inWildcard,
 		wildcardAlias:     v.wildcardAlias,
+		wildcardPath:      v.wildcardPath,
 	}
 }
 
 // enterWildcard returns a sub-visitor scoped to a new wildcard context.
-// outerPrecedence is reset because the predicate lives inside its own
-// EXISTS subquery and is naturally parenthesised.
-func (v *PostgresqlVisitor) enterWildcard(alias string) *PostgresqlVisitor {
+// prec is the precedence of the operator the predicate is an operand of: none
+// in `WHERE predicate`, AND in `WHERE keys AND predicate`.
+func (v *PostgresqlVisitor) enterWildcard(alias string, path []string, prec int) *PostgresqlVisitor {
 	return &PostgresqlVisitor{
 		counters:          v.counters,
 		schema:            v.schema,
 		precedenceMapping: v.precedenceMapping,
-		outerPrecedence:   0,
+		outerPrecedence:   prec,
 		inWildcard:        true,
 		wildcardAlias:     alias,
+		wildcardPath:      path,
 	}
+}
+
+// spell returns the operator as PostgreSQL spells it.
+func spell(operator operators.Operator) string {
+	if spelling, ok := sqlSpelling[operator]; ok {
+		return spelling
+	}
+	return string(operator)
 }
 
 // lookupPrecedence returns the inner precedence for an operable node,
 // falling back to the "(any other operator) LEFT" bucket and finally to the
 // current outer precedence (meaning "no parens needed").
 func (v *PostgresqlVisitor) lookupPrecedence(n s.Operable) int {
-	key := fmt.Sprintf("%s %s", n.Operator(), n.Associativity())
+	spelling, ok := tableSpelling[n.Operator()]
+	if !ok {
+		spelling = string(n.Operator())
+	}
+	key := fmt.Sprintf("%s %s", spelling, n.Associativity())
 	if prec, ok := v.precedenceMapping[key]; ok {
 		return prec
 	}
@@ -162,9 +233,13 @@ func (v *PostgresqlVisitor) lookupPrecedence(n s.Operable) int {
 	return v.outerPrecedence
 }
 
-// wrap adds parentheses if inner precedence is lower than current outer.
+// wrap adds parentheses if inner precedence is lower than current outer, or is
+// the same on the side the outer operator does not group to.
 func (v *PostgresqlVisitor) wrap(innerPrec int, sql string) string {
 	if innerPrec < v.outerPrecedence {
+		return "(" + sql + ")"
+	}
+	if innerPrec == v.outerPrecedence && v.outerApart {
 		return "(" + sql + ")"
 	}
 	return sql
@@ -195,26 +270,38 @@ func (v *PostgresqlVisitor) VisitValue(n s.ValueNode) (SqlFragment, error) {
 func (v *PostgresqlVisitor) VisitField(n s.FieldNode) (SqlFragment, error) {
 	if v.inWildcard && v.isItemReference(n.Object()) {
 		// Field of the current item in a wildcard: item.Price, item.Active, etc.
-		return SqlFragment{SQL: v.wildcardAlias + "." + n.Name()}, nil
+		name, err := identifier(n.Name())
+		if err != nil {
+			return SqlFragment{}, err
+		}
+		return SqlFragment{SQL: v.wildcardAlias + "." + name}, nil
 	}
 	// Normal field access
-	return SqlFragment{SQL: strings.Join(s.ExtractFieldPath(n), ".")}, nil
+	path, err := identifier(strings.Join(s.ExtractFieldPath(n), "."))
+	if err != nil {
+		return SqlFragment{}, err
+	}
+	return SqlFragment{SQL: path}, nil
 }
 
 func (v *PostgresqlVisitor) VisitInfix(n s.InfixNode) (SqlFragment, error) {
 	innerPrec := v.lookupPrecedence(n)
-	sub := v.atPrecedence(innerPrec)
+	// An operand as tight as the operator is parenthesised on the side the
+	// operator does not group to: `a - (b - c)`, `(a = b) = c`.
+	regroups := regrouping[n.Operator()]
+	leftSub := v.atPrecedence(innerPrec, !regroups && n.Associativity() != s.LeftAssociative)
+	rightSub := v.atPrecedence(innerPrec, !regroups && n.Associativity() != s.RightAssociative)
 
-	left, err := s.Accept[SqlFragment](n.Left(), sub)
+	left, err := s.Accept[SqlFragment](n.Left(), leftSub)
 	if err != nil {
 		return SqlFragment{}, err
 	}
-	right, err := s.Accept[SqlFragment](n.Right(), sub)
+	right, err := s.Accept[SqlFragment](n.Right(), rightSub)
 	if err != nil {
 		return SqlFragment{}, err
 	}
 
-	sql := fmt.Sprintf("%s %s %s", left.SQL, n.Operator(), right.SQL)
+	sql := fmt.Sprintf("%s %s %s", left.SQL, spell(n.Operator()), right.SQL)
 	return SqlFragment{
 		SQL:    v.wrap(innerPrec, sql),
 		Params: append(left.Params, right.Params...),
@@ -223,7 +310,9 @@ func (v *PostgresqlVisitor) VisitInfix(n s.InfixNode) (SqlFragment, error) {
 
 func (v *PostgresqlVisitor) VisitPrefix(n s.PrefixNode) (SqlFragment, error) {
 	innerPrec := v.lookupPrecedence(n)
-	sub := v.atPrecedence(innerPrec)
+	op := n.Operator()
+	// `NOT NOT a` reads as it should; `--a` reads as a comment.
+	sub := v.atPrecedence(innerPrec, op == operators.OperatorNeg)
 
 	operand, err := s.Accept[SqlFragment](n.Operand(), sub)
 	if err != nil {
@@ -231,25 +320,24 @@ func (v *PostgresqlVisitor) VisitPrefix(n s.PrefixNode) (SqlFragment, error) {
 	}
 
 	var sql string
-	op := n.Operator()
-	if op == operators.OperatorPos || op == operators.OperatorNeg {
-		// Unary +/- don't need a space.
-		sql = fmt.Sprintf("%s%s", op, operand.SQL)
+	if op == operators.OperatorNeg {
+		// Unary - doesn't need a space.
+		sql = fmt.Sprintf("%s%s", spell(op), operand.SQL)
 	} else {
-		sql = fmt.Sprintf("%s %s", op, operand.SQL)
+		sql = fmt.Sprintf("%s %s", spell(op), operand.SQL)
 	}
 	return SqlFragment{SQL: v.wrap(innerPrec, sql), Params: operand.Params}, nil
 }
 
 func (v *PostgresqlVisitor) VisitPostfix(n s.PostfixNode) (SqlFragment, error) {
 	innerPrec := v.lookupPrecedence(n)
-	sub := v.atPrecedence(innerPrec)
+	sub := v.atPrecedence(innerPrec, true)
 
 	operand, err := s.Accept[SqlFragment](n.Operand(), sub)
 	if err != nil {
 		return SqlFragment{}, err
 	}
-	sql := fmt.Sprintf("%s %s", operand.SQL, n.Operator())
+	sql := fmt.Sprintf("%s %s", operand.SQL, spell(n.Operator()))
 	return SqlFragment{SQL: v.wrap(innerPrec, sql), Params: operand.Params}, nil
 }
 
@@ -258,7 +346,7 @@ func (v *PostgresqlVisitor) VisitCollection(n s.CollectionNode) (SqlFragment, er
 	// 1. Embedded (JSONB/array): EXISTS (SELECT 1 FROM unnest(collection) AS item WHERE predicate)
 	// 2. Relational (separate table): EXISTS (SELECT 1 FROM table AS item WHERE fk_conditions AND predicate)
 	collectionName := v.extractCollectionName(n)
-	fieldName := v.extractFieldName(n)
+	fieldName := strings.Join(v.extractLogicalPath(n), ".")
 
 	if v.schema != nil && v.schema.IsRelational(fieldName) {
 		return v.visitRelationalCollection(n, fieldName, collectionName)
@@ -268,12 +356,18 @@ func (v *PostgresqlVisitor) VisitCollection(n s.CollectionNode) (SqlFragment, er
 
 // visitEmbeddedCollection generates SQL for JSONB/array collections using unnest.
 func (v *PostgresqlVisitor) visitEmbeddedCollection(n s.CollectionNode, collectionName string) (SqlFragment, error) {
-	collectionPath := v.extractCollectionPath(n)
+	collectionPath, err := v.extractCollectionPath(n)
+	if err != nil {
+		return SqlFragment{}, err
+	}
 
 	v.counters.wildcardCounter++
-	alias := fmt.Sprintf("%s_%d", strings.ToLower(collectionName), v.counters.wildcardCounter)
+	alias, err := identifier(fmt.Sprintf("%s_%d", strings.ToLower(collectionName), v.counters.wildcardCounter))
+	if err != nil {
+		return SqlFragment{}, err
+	}
 
-	sub := v.enterWildcard(alias)
+	sub := v.enterWildcard(alias, v.extractLogicalPath(n), 0)
 	predicate, err := s.Accept[SqlFragment](n.Predicate(), sub)
 	if err != nil {
 		return SqlFragment{}, err
@@ -299,12 +393,25 @@ func (v *PostgresqlVisitor) visitRelationalCollection(n s.CollectionNode, fieldN
 	} else {
 		alias = fmt.Sprintf("%s_%d", alias, v.counters.wildcardCounter)
 	}
+	alias, err := identifier(alias)
+	if err != nil {
+		return SqlFragment{}, err
+	}
 
 	// Determine parent reference BEFORE entering new wildcard context.
 	// This ensures we reference the outer scope, not the new alias.
-	parentRef := v.getParentRefForRelational()
+	parentRef, err := identifier(v.getParentRefForRelational(n))
+	if err != nil {
+		return SqlFragment{}, err
+	}
+	table, err := identifier(mapping.Table)
+	if err != nil {
+		return SqlFragment{}, err
+	}
 
-	sub := v.enterWildcard(alias)
+	// The predicate is an operand of the AND after the keys: written as it
+	// is, `fk AND p OR q` selects through `q` the rows of other parents.
+	sub := v.enterWildcard(alias, v.extractLogicalPath(n), v.precedenceMapping["AND LEFT"])
 	predicate, err := s.Accept[SqlFragment](n.Predicate(), sub)
 	if err != nil {
 		return SqlFragment{}, err
@@ -313,8 +420,16 @@ func (v *PostgresqlVisitor) visitRelationalCollection(n s.CollectionNode, fieldN
 	// Generate FK conditions (supports composite keys).
 	fkParts := make([]string, 0, len(mapping.ForeignKeys))
 	for _, fk := range mapping.ForeignKeys {
+		childColumn, err := identifier(fk.ChildColumn)
+		if err != nil {
+			return SqlFragment{}, err
+		}
+		parentColumn, err := identifier(fk.ParentColumn)
+		if err != nil {
+			return SqlFragment{}, err
+		}
 		fkParts = append(fkParts, fmt.Sprintf(
-			"%s.%s = %s.%s", alias, fk.ChildColumn, parentRef, fk.ParentColumn,
+			"%s.%s = %s.%s", alias, childColumn, parentRef, parentColumn,
 		))
 	}
 	fkConditions := strings.Join(fkParts, " AND ")
@@ -322,18 +437,21 @@ func (v *PostgresqlVisitor) visitRelationalCollection(n s.CollectionNode, fieldN
 	return SqlFragment{
 		SQL: fmt.Sprintf(
 			"EXISTS (SELECT 1 FROM %s AS %s WHERE %s AND %s)",
-			mapping.Table, alias, fkConditions, predicate.SQL,
+			table, alias, fkConditions, predicate.SQL,
 		),
 		Params: predicate.Params,
 	}, nil
 }
 
-// getParentRefForRelational returns parent reference based on current
-// wildcard context. Called BEFORE entering a new wildcard context to get
-// the correct outer reference.
-func (v *PostgresqlVisitor) getParentRefForRelational() string {
-	// If we are inside a nested wildcard, use the outer wildcard alias.
-	if v.inWildcard && v.wildcardAlias != "" {
+// getParentRefForRelational returns parent reference based on what the path
+// to the collection starts at. Called BEFORE entering a new wildcard context
+// to get the correct outer reference.
+func (v *PostgresqlVisitor) getParentRefForRelational(n s.CollectionNode) string {
+	// If the collection is one of the current item (a nested wildcard), use
+	// the outer wildcard alias. A collection of the candidate named inside
+	// the predicate of another is joined to the root row: it used to be
+	// joined to the enclosing item, whatever it was a collection of.
+	if v.inWildcard && v.isItemReference(v.extractRoot(n)) {
 		return v.wildcardAlias
 	}
 	// Otherwise, use schema's parent reference.
@@ -352,8 +470,36 @@ func (v *PostgresqlVisitor) extractFieldName(n s.CollectionNode) string {
 	return ""
 }
 
+// extractRoot extracts what the path to the collection starts at: GlobalScope
+// or Item.
+func (v *PostgresqlVisitor) extractRoot(n s.CollectionNode) s.EmptiableObject {
+	parent := n.Parent()
+	for !parent.IsRoot() {
+		parent = parent.Parent()
+	}
+	return parent
+}
+
+// extractLogicalPath extracts the names from the aggregate to the collection:
+// what a schema names the collection by. ["Categories", "Items"] for the items
+// of a category, ["Items"] for the items of the store. The last name alone,
+// extractFieldName, does not tell the two apart.
+func (v *PostgresqlVisitor) extractLogicalPath(n s.CollectionNode) []string {
+	var parts []string
+	parent := n.Parent()
+	for !parent.IsRoot() {
+		parts = append([]string{parent.Name()}, parts...) // prepend
+		parent = parent.Parent()
+	}
+	// A path from the current item goes on from the path to its collection.
+	if v.inWildcard && v.isItemReference(parent) {
+		return append(append([]string{}, v.wildcardPath...), parts...)
+	}
+	return parts
+}
+
 // extractCollectionPath extracts the SQL path to a collection from a CollectionNode.
-func (v *PostgresqlVisitor) extractCollectionPath(n s.CollectionNode) string {
+func (v *PostgresqlVisitor) extractCollectionPath(n s.CollectionNode) (string, error) {
 	var parts []string
 
 	// Walk up the parent chain to collect path components.
@@ -367,12 +513,16 @@ func (v *PostgresqlVisitor) extractCollectionPath(n s.CollectionNode) string {
 	// This handles nested wildcards: category.Items instead of just Items.
 	if v.inWildcard && v.isItemReference(parent) {
 		if len(parts) > 0 {
-			return v.wildcardAlias + "." + strings.Join(parts, ".")
+			path, err := identifier(strings.Join(parts, "."))
+			if err != nil {
+				return "", err
+			}
+			return v.wildcardAlias + "." + path, nil
 		}
-		return v.wildcardAlias
+		return v.wildcardAlias, nil
 	}
 
-	return strings.Join(parts, ".")
+	return identifier(strings.Join(parts, "."))
 }
 
 // extractCollectionName extracts the collection name for alias generation.

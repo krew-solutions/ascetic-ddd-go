@@ -130,7 +130,19 @@ specgen -type=TypeName
 
 ## Requirements
 
-- Functions must have signature: `func(T) bool`
+- Functions must have signature: `func(T) bool`, or `func(T, ...) bool`: what
+  follows the candidate are the parameters of the specification, and the
+  generated `...AST` and `...SQL` take the same. A parameter must have a name
+  and may not be variadic.
+
+  ```go
+  //spec:sql
+  func DearSinceSpec(s Store, since time.Time, min int) bool { ... }
+
+  // generated:
+  func DearSinceSpecAST(since time.Time, min int) spec.Visitable
+  func DearSinceSpecSQL(since time.Time, min int) (string, []any, error)
+  ```
 - Functions must have `//spec:sql` comment
 - Function body must contain a single return statement
 - Type `T` must be in the same package
@@ -151,11 +163,39 @@ See [examples/specgen](../../examples/specgen) for a complete working example.
 ## Limitations
 
 - Cannot parse complex control flow (if/else, loops)
-- Cannot access external variables (closures)
+- Cannot access external variables (closures): a value comes as a parameter
+  of the function, or as a constant or a variable of the package
 - Cannot call methods (only field access)
 - Single return statement only
 
 These limitations are intentional - specifications should be pure boolean expressions.
+
+What cannot be a specification is an error where it stands, and nothing is
+generated:
+
+```
+advanced_example.go:116:10: HasItemWithFlagSpec: unsupported operator &
+```
+
+It used to be generated as `spec.Value(nil)` with a TODO in a comment: code
+that compiles, and a query that compares NULL and selects nothing.
+
+## What Is Generated
+
+- `spec.All(s.Items, p)` is "no item fails `p`":
+  `spec.Not(spec.Wildcard(items, spec.Not(p)))`. It used to be generated as
+  `spec.Any`.
+- `x == nil` is `spec.IsNull(x)` and `x != nil` is `spec.IsNotNull(x)`: written
+  as it stands it is `x = NULL`, which is null and true of nothing.
+- A name that is not the candidate's nor an item's - a constant or a variable
+  of the package - is a value, `spec.Value(MinBalance)`. Equality with one is
+  decided when the tree is built: `spec.EqualityOrNullTest("=", x, v)` is the
+  null test if the value is nil. Such a name used to be read as a field of the
+  candidate: `u.Email.Equal(email)` compiled to `Email = email`.
+- `-x` is `spec.Neg(x)`, `-5` is `spec.Value(-5)`, `+x` is `x`.
+- From the predicate of an inner collection the item of an outer one cannot be
+  named: the tree has one item, the nearest. It used to become a field of the
+  candidate.
 
 ## Future Enhancements
 

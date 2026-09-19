@@ -2,6 +2,7 @@ package public
 
 import (
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 // Boolean represents a boolean field that supports logical operations.
@@ -79,11 +80,11 @@ func MakeNumberValue(value any) Number {
 
 // Comparison methods
 func (n Number) Eq(other Comparison) Logical {
-	return NewLogical(s.Equal(n.Delegate(), other.Delegate()))
+	return NewLogical(s.EqualityOrNullTest(operators.OperatorEq, n.Delegate(), other.Delegate()))
 }
 
 func (n Number) Ne(other Comparison) Logical {
-	return NewLogical(s.NotEqual(n.Delegate(), other.Delegate()))
+	return NewLogical(s.EqualityOrNullTest(operators.OperatorNe, n.Delegate(), other.Delegate()))
 }
 
 func (n Number) Gt(other Comparison) Logical {
@@ -100,14 +101,6 @@ func (n Number) Gte(other Comparison) Logical {
 
 func (n Number) Lte(other Comparison) Logical {
 	return NewLogical(s.LessThanEqual(n.Delegate(), other.Delegate()))
-}
-
-func (n Number) Lshift(other Comparison) Logical {
-	return NewLogical(s.LeftShift(n.Delegate(), other.Delegate()))
-}
-
-func (n Number) Rshift(other Comparison) Logical {
-	return NewLogical(s.RightShift(n.Delegate(), other.Delegate()))
 }
 
 // Mathematical methods
@@ -129,6 +122,14 @@ func (n Number) Div(other Mathematical) Mathematical {
 
 func (n Number) Mod(other Mathematical) Mathematical {
 	return NewNumber(s.Mod(n.Delegate(), other.Delegate()))
+}
+
+func (n Number) Lshift(other Mathematical) Mathematical {
+	return NewNumber(s.LeftShift(n.Delegate(), other.Delegate()))
+}
+
+func (n Number) Rshift(other Mathematical) Mathematical {
+	return NewNumber(s.RightShift(n.Delegate(), other.Delegate()))
 }
 
 // NullNumber represents a nullable numeric field.
@@ -186,11 +187,11 @@ func MakeDatetimeValue(value any) Datetime {
 
 // Comparison methods for Datetime
 func (d Datetime) Eq(other Comparison) Logical {
-	return NewLogical(s.Equal(d.Delegate(), other.Delegate()))
+	return NewLogical(s.EqualityOrNullTest(operators.OperatorEq, d.Delegate(), other.Delegate()))
 }
 
 func (d Datetime) Ne(other Comparison) Logical {
-	return NewLogical(s.NotEqual(d.Delegate(), other.Delegate()))
+	return NewLogical(s.EqualityOrNullTest(operators.OperatorNe, d.Delegate(), other.Delegate()))
 }
 
 func (d Datetime) Gt(other Comparison) Logical {
@@ -209,12 +210,12 @@ func (d Datetime) Lte(other Comparison) Logical {
 	return NewLogical(s.LessThanEqual(d.Delegate(), other.Delegate()))
 }
 
-func (d Datetime) Lshift(other Comparison) Logical {
-	return NewLogical(s.LeftShift(d.Delegate(), other.Delegate()))
+func (d Datetime) Lshift(other Mathematical) Mathematical {
+	return NewMathematical(s.LeftShift(d.Delegate(), other.Delegate()))
 }
 
-func (d Datetime) Rshift(other Comparison) Logical {
-	return NewLogical(s.RightShift(d.Delegate(), other.Delegate()))
+func (d Datetime) Rshift(other Mathematical) Mathematical {
+	return NewMathematical(s.RightShift(d.Delegate(), other.Delegate()))
 }
 
 // Mathematical methods for Datetime (for date arithmetic)

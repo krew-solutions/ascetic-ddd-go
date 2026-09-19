@@ -950,7 +950,10 @@ func TestOperatorAssociativity_AndLeftAssociative(t *testing.T) {
 	// Test that && is left-associative: a && b && c -> And(And(a, b), c)
 	s := MustParse("$[?@.a == 1 && @.b == 2 && @.c == 3]")
 
-	ast := s.AST()
+	ast, err := s.Bind()
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
 
 	// Top level should be And (InfixNode)
 	topAnd, ok := ast.(spec.InfixNode)
@@ -991,7 +994,10 @@ func TestOperatorAssociativity_OrLeftAssociative(t *testing.T) {
 	// Test that || is left-associative: a || b || c -> Or(Or(a, b), c)
 	s := MustParse("$[?@.a == 1 || @.b == 2 || @.c == 3]")
 
-	ast := s.AST()
+	ast, err := s.Bind()
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
 
 	// Top level should be Or
 	topOr, ok := ast.(spec.InfixNode)
@@ -1025,7 +1031,10 @@ func TestOperatorAssociativity_MixedOperators(t *testing.T) {
 	// a && b || c && d should be Or(And(a, b), And(c, d))
 	s := MustParse("$[?@.a == 1 && @.b == 2 || @.c == 3 && @.d == 4]")
 
-	ast := s.AST()
+	ast, err := s.Bind()
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
 
 	// Top level should be Or (lowest precedence)
 	topOr, ok := ast.(spec.InfixNode)
@@ -1063,7 +1072,10 @@ func TestOperatorPrecedence_AndHigherThanOr(t *testing.T) {
 	// Test that && binds tighter than ||: a || b && c -> Or(a, And(b, c))
 	s := MustParse("$[?@.a == 1 || @.b == 2 && @.c == 3]")
 
-	ast := s.AST()
+	ast, err := s.Bind()
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
 
 	// Top level should be Or
 	topOr, ok := ast.(spec.InfixNode)
@@ -1097,7 +1109,10 @@ func TestOperatorPrecedence_AndHigherThanOrReverse(t *testing.T) {
 	// Test precedence: a && b || c -> Or(And(a, b), c)
 	s := MustParse("$[?@.a == 1 && @.b == 2 || @.c == 3]")
 
-	ast := s.AST()
+	ast, err := s.Bind()
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
 
 	// Top level should be Or
 	topOr, ok := ast.(spec.InfixNode)
@@ -1132,7 +1147,10 @@ func TestOperatorPrecedence_ParenthesesOverride(t *testing.T) {
 	// (a || b) && c - parentheses force Or to bind first
 	s := MustParse("$[?((@.a == 1 || @.b == 2)) && @.c == 3]")
 
-	ast := s.AST()
+	ast, err := s.Bind()
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
 
 	// Top level should be And (due to parentheses)
 	topAnd, ok := ast.(spec.InfixNode)
@@ -1167,7 +1185,10 @@ func TestOperatorPrecedence_Complex(t *testing.T) {
 	// Should be: Or(Or(a, And(b, c)), And(d, e))
 	s := MustParse("$[?@.a == 1 || @.b == 2 && @.c == 3 || @.d == 4 && @.e == 5]")
 
-	ast := s.AST()
+	ast, err := s.Bind()
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
 
 	// Top level Or
 	topOr, ok := ast.(spec.InfixNode)
@@ -1456,8 +1477,9 @@ func TestASTCaching_ASTIsCached(t *testing.T) {
 	// Test that AST is stored after parsing
 	s := MustParse("$[?@.age > %d]")
 
-	// AST should be cached
-	if s.AST() == nil {
+	// AST should be cached: as a function of the parameters, which builds
+	// the tree they make of the template
+	if s.builder == nil {
 		t.Error("expected AST to be cached")
 	}
 }
@@ -1465,7 +1487,7 @@ func TestASTCaching_ASTIsCached(t *testing.T) {
 func TestASTCaching_ASTNotReparsedOnMatch(t *testing.T) {
 	// Test that AST is not re-created on Match()
 	s := MustParse("$[?@.age > %d]")
-	originalAST := s.AST()
+	originalAST, _ := s.Bind(25)
 
 	// Multiple match calls
 	data := NewDictContext(map[string]any{"age": 30})
@@ -1473,8 +1495,9 @@ func TestASTCaching_ASTNotReparsedOnMatch(t *testing.T) {
 	s.Match(data, 35)
 	s.Match(data, 20)
 
-	// AST should be the same object
-	if s.AST() != originalAST {
+	// AST should be the same object: what the same parameters make of the
+	// template is what it was before the calls
+	if again, _ := s.Bind(25); again != originalAST {
 		t.Error("AST should be the same object after multiple Match calls")
 	}
 }
@@ -1482,7 +1505,7 @@ func TestASTCaching_ASTNotReparsedOnMatch(t *testing.T) {
 func TestASTCaching_DifferentParamsSameAST(t *testing.T) {
 	// Test that different parameters don't affect cached AST
 	s := MustParse("$[?@.value == %s]")
-	originalAST := s.AST()
+	originalAST, _ := s.Bind("test")
 
 	data := NewDictContext(map[string]any{"value": "test"})
 
@@ -1492,8 +1515,11 @@ func TestASTCaching_DifferentParamsSameAST(t *testing.T) {
 	s.Match(data, "third")
 
 	// AST should remain unchanged
-	if s.AST() != originalAST {
+	if again, _ := s.Bind("test"); again != originalAST {
 		t.Error("AST should remain unchanged after calls with different params")
+	}
+	if other, _ := s.Bind("other"); other == originalAST {
+		t.Error("other parameters should make another tree")
 	}
 }
 

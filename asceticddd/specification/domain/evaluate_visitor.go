@@ -48,6 +48,10 @@ func (v *EvaluateVisitor) Evaluate(node Visitable) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	// A NULL is "not satisfied", as a row with a NULL condition is not selected.
+	if result == nil {
+		return false, nil
+	}
 	b, ok := result.(bool)
 	if !ok {
 		return false, errors.New("the result is not a bool")
@@ -107,19 +111,25 @@ func (v *EvaluateVisitor) VisitCollection(n CollectionNode) (any, error) {
 	if !ok {
 		return nil, errors.New("value is not a collection of Contexts")
 	}
-	result := false
+	// EXISTS (... WHERE predicate): an item of which the predicate is NULL is
+	// no witness, the result is never NULL, and the first witness decides.
 	for i := range itemsTyped {
 		value, err := Accept[any](n.Predicate(), v.withItem(itemsTyped[i]))
 		if err != nil {
 			return nil, err
 		}
+		if value == nil {
+			continue
+		}
 		b, ok := value.(bool)
 		if !ok {
 			return nil, errors.New("predicate did not yield a boolean")
 		}
-		result = result || b
+		if b {
+			return true, nil
+		}
 	}
-	return result, nil
+	return false, nil
 }
 
 func (v *EvaluateVisitor) VisitPrefix(n PrefixNode) (any, error) {
@@ -143,6 +153,11 @@ func (v *EvaluateVisitor) VisitInfix(n InfixNode) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A connective decided by its left operand does not evaluate its right
+	// one, as && and || of the host language do not: `a != 0 AND 10 / a > 1`.
+	if decides(n.Operator(), left) {
+		return left, nil
+	}
 	right, err := Accept[any](n.Right(), v)
 	if err != nil {
 		return nil, err
@@ -150,9 +165,47 @@ func (v *EvaluateVisitor) VisitInfix(n InfixNode) (any, error) {
 	return v.registry.ExecBinary(left, n.Operator(), right)
 }
 
+// decides tells whether a connective has its value in its left operand alone:
+// false AND anything is false, true OR anything is true.
+func decides(operator operators.Operator, left any) bool {
+	switch operator {
+	case operators.OperatorAnd:
+		return left == false
+	case operators.OperatorOr:
+		return left == true
+	default:
+		return false
+	}
+}
+
 func ExtractFieldPath(n FieldNode) []string {
 	path := []string{n.Name()}
 	var obj EmptiableObject = n.Object()
+	for !obj.IsRoot() {
+		path = append([]string{obj.Name()}, path...)
+		obj = obj.Parent()
+	}
+	return path
+}
+
+// ExtractFieldRoot returns what the path to a field starts at: GlobalScope or
+// Item. A path from the item and a path from the candidate can be of the same
+// names, and are not the same field.
+func ExtractFieldRoot(n FieldNode) EmptiableObject {
+	return ExtractObjectRoot(n.Object())
+}
+
+// ExtractObjectRoot returns what the path to an object starts at.
+func ExtractObjectRoot(obj EmptiableObject) EmptiableObject {
+	for !obj.IsRoot() {
+		obj = obj.Parent()
+	}
+	return obj
+}
+
+// ExtractObjectPath returns the names from the root to an object.
+func ExtractObjectPath(obj EmptiableObject) []string {
+	var path []string
 	for !obj.IsRoot() {
 		path = append([]string{obj.Name()}, path...)
 		obj = obj.Parent()
