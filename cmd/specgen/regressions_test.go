@@ -221,3 +221,70 @@ func TestWhatIsNotASpecificationOfTheTypeIsStillSkipped(t *testing.T) {
 		})
 	}
 }
+
+// A time is not compared with `<` in Go but with After and Before, which were
+// "unsupported call": a predicate on a date could not be generated at all.
+func TestATimeIsComparedByItsMethods(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			"after", "s.CreatedAt.After(since)",
+			`spec.GreaterThan(spec.Field(spec.GlobalScope(), "CreatedAt"), spec.Value(since))`,
+		},
+		{
+			"before", "s.CreatedAt.Before(until)",
+			`spec.LessThan(spec.Field(spec.GlobalScope(), "CreatedAt"), spec.Value(until))`,
+		},
+		{
+			"not after is not later than", "!s.CreatedAt.After(until)",
+			`spec.Not(spec.GreaterThan(spec.Field(spec.GlobalScope(), "CreatedAt"), spec.Value(until)))`,
+		},
+		{
+			"the value on the left", "since.Before(s.CreatedAt)",
+			`spec.LessThan(spec.Value(since), spec.Field(spec.GlobalScope(), "CreatedAt"))`,
+		},
+		{
+			// A nullable time is a pointer, and After of a nil one panics: the
+			// guard is the null test, and stops the tree where it stops Go.
+			"behind its guard", "s.DeletedAt != nil && s.DeletedAt.After(since)",
+			`spec.And(spec.IsNotNull(spec.Field(spec.GlobalScope(), "DeletedAt")), spec.GreaterThan(spec.Field(spec.GlobalScope(), "DeletedAt"), spec.Value(since)))`,
+		},
+		{
+			"of an item", "Any(s.Items, func(item Item) bool { return item.SoldAt.Before(s.ClosedAt) })",
+			`spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.LessThan(spec.Field(spec.Item(), "SoldAt"), spec.Field(spec.GlobalScope(), "ClosedAt")))`,
+		},
+		{
+			"equal is what it was", "s.CreatedAt.Equal(since)",
+			`spec.EqualityOrNullTest("=", spec.Field(spec.GlobalScope(), "CreatedAt"), spec.Value(since))`,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := generated(t, spec(c.body))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("\ngot  %s\nwant %s", got, c.want)
+			}
+		})
+	}
+
+	// The clock is not a value of a specification: it comes as a parameter.
+	for name, body := range map[string]string{
+		"now":           "s.CreatedAt.After(time.Now())",
+		"two arguments": "s.CreatedAt.After(since, until)",
+		"no argument":   "s.CreatedAt.Before()",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := generated(t, spec(body))
+			var refused *UnsupportedError
+			if !errors.As(err, &refused) {
+				t.Errorf("generated %q, %v", got, err)
+			}
+		})
+	}
+}

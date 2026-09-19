@@ -193,6 +193,13 @@ that compiles, and a query that compares NULL and selects nothing.
   null test if the value is nil. Such a name used to be read as a field of the
   candidate: `u.Email.Equal(email)` compiled to `Email = email`.
 - `-x` is `spec.Neg(x)`, `-5` is `spec.Value(-5)`, `+x` is `x`.
+- A `time.Time` is compared by its methods: `a.After(b)` is
+  `spec.GreaterThan(a, b)`, `a.Before(b)` is `spec.LessThan(a, b)`, `a.Equal(b)`
+  is the equality. The table goes by the name of the method - the generator
+  does not know the types - as it does for `Gt`, `Lt` and the rest. `time.Now()`
+  is refused: the clock comes as a parameter. A nullable time is a pointer, and
+  its guard is generated with it: `s.DeletedAt != nil && s.DeletedAt.After(since)`
+  is `DeletedAt IS NOT NULL AND DeletedAt > $1`.
 - From the predicate of an inner collection the item of an outer one cannot be
   named: the tree has one item, the nearest. It used to become a field of the
   candidate.

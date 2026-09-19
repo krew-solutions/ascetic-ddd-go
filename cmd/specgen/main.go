@@ -620,11 +620,14 @@ func (v *SpecGenVisitor) VisitCallExpr(expr *ast.CallExpr) (string, error) {
 			return v.visitMethodEquality(expr, fun, "=", "spec.Equal", "spec.IsNull")
 		case "NotEqual", "NotEquals", "Ne", "Neq":
 			return v.visitMethodEquality(expr, fun, "!=", "spec.NotEqual", "spec.IsNotNull")
-		case "LessThan", "Lt":
+		// Before and After are how a time.Time is compared, which has no `<`.
+		// The table goes by the name of the method: the generator reads the
+		// source and does not know the types.
+		case "LessThan", "Lt", "Before":
 			return v.visitMethodComparison(expr, fun, "spec.LessThan")
 		case "LessThanOrEqual", "LessThanEqual", "Lte", "Le":
 			return v.visitMethodComparison(expr, fun, "spec.LessThanEqual")
-		case "GreaterThan", "Gt":
+		case "GreaterThan", "Gt", "After":
 			return v.visitMethodComparison(expr, fun, "spec.GreaterThan")
 		case "GreaterThanOrEqual", "GreaterThanEqual", "Gte", "Ge":
 			return v.visitMethodComparison(expr, fun, "spec.GreaterThanEqual")
