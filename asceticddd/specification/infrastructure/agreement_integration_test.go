@@ -42,7 +42,8 @@ func shift(node s.Visitable) constantCase {
 }
 
 func typeOf(value any, nullType string) string {
-	switch value.(type) {
+	// A pointer is sent as what it points at, and a nil one as a null.
+	switch operators.Indirect(value).(type) {
 	case nil:
 		return nullType
 	case bool:
@@ -89,6 +90,9 @@ func constantCases() []constantCase {
 	t, f := func() s.Visitable { return s.Value(true) }, func() s.Visitable { return s.Value(false) }
 	min, max := math.MinInt64, math.MaxInt64
 	nan := math.NaN()
+	seven, half, yes, no := 7, 0.5, true, false
+	var noNumber *int
+	var noFlag *bool
 	return []constantCase{
 		// Arithmetic, and the parentheses that keep its shape
 		number(s.Sub(v(10), s.Sub(v(4), v(3)))),
@@ -110,6 +114,21 @@ func constantCases() []constantCase {
 		number(s.Add(v(1), v(0.5))),
 		number(s.Mul(v(2.5), v(4))),
 		number(s.Add(v(int64(1)), v(2))),
+		// Pointers: optional values, as the driver takes them
+		number(s.Add(v(&seven), v(2))),
+		number(s.Sub(v(&seven), v(&seven))),
+		number(s.Equal(v(&seven), v(7))),
+		number(s.LessThan(v(&half), v(&seven))),
+		number(s.Equal(v(noNumber), v(1))),
+		number(s.Add(v(1), v(noNumber))),
+		number(s.IsNull(v(noNumber))),
+		number(s.IsNotNull(v(&seven))),
+		number(s.Is(v(noNumber), v(noNumber))),
+		number(s.Is(v(&seven), v(noNumber))),
+		boolean(s.And(v(noFlag), v(&no))),
+		boolean(s.Or(v(noFlag), v(&yes))),
+		boolean(s.Not(v(noFlag))),
+		boolean(s.And(v(&yes), s.Not(v(&no)))),
 		shift(s.LeftShift(v(1), v(3))),
 		shift(s.LeftShift(v(1), v(64))),
 		shift(s.LeftShift(v(1), v(-1))),
@@ -188,6 +207,7 @@ func constantCases() []constantCase {
 
 // same tells whether the evaluator's value is the one PostgreSQL answered.
 func same(evaluated, answered any) bool {
+	evaluated = operators.Indirect(evaluated)
 	if i, ok := evaluated.(int); ok {
 		evaluated = int64(i)
 	}
@@ -279,6 +299,29 @@ func (r storeRow) context() s.Context {
 	}
 	return rowContext{
 		"id": r.id, "a": r.a, "b": r.b, "flag": r.flag, "name": r.name,
+		"items": s.NewCollectionContext(items),
+	}
+}
+
+// pointer returns a pointer to the value, and a nil pointer of the type the
+// column has for a null: a row as a Go struct with nullable fields holds it.
+func pointer[T any](value any) any {
+	if value == nil {
+		return (*T)(nil)
+	}
+	typed := value.(T)
+	return &typed
+}
+
+// pointerContext is the row with a pointer for each nullable member.
+func (r storeRow) pointerContext() s.Context {
+	items := make([]s.Context, 0, len(r.items))
+	for _, it := range r.items {
+		items = append(items, rowContext{"price": pointer[int](it[0]), "active": pointer[bool](it[1])})
+	}
+	return rowContext{
+		"id": r.id, "a": pointer[int](r.a), "b": pointer[int](r.b),
+		"flag": pointer[bool](r.flag), "name": pointer[string](r.name),
 		"items": s.NewCollectionContext(items),
 	}
 }
@@ -412,6 +455,15 @@ func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
 				}
 				if ok {
 					satisfied = append(satisfied, row.id)
+				}
+				// The same row with pointers for its nullable members is
+				// the same row.
+				pointed, err := s.NewEvaluateVisitor(row.pointerContext(), operators.NewDefaultRegistry()).Evaluate(specification)
+				if err != nil {
+					return fmt.Errorf("the evaluator, on store %d with pointers: %w", row.id, err)
+				}
+				if pointed != ok {
+					return fmt.Errorf("store %d: %v with values, %v with pointers", row.id, ok, pointed)
 				}
 			}
 			for _, storage := range storages {

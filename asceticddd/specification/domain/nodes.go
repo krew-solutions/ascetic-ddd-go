@@ -371,7 +371,9 @@ func EqualityOrNullTest(operator operators.Operator, left, right Visitable) Visi
 
 func isNullConstant(node Visitable) bool {
 	value, ok := node.(ValueNode)
-	return ok && value.Value() == nil
+	// A nil pointer is a null, as it is to the driver: compared with nil it
+	// is not, and `a = $1` with a NULL for $1 is true of nothing.
+	return ok && operators.IsNull(value.Value())
 }
 
 func NewPostfixNode(operand Visitable, operator operators.Operator, associativity Associativity) PostfixNode {

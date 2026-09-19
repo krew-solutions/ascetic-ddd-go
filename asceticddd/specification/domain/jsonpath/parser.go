@@ -339,11 +339,13 @@ func readNumber(spelling string, position int, expression string) (any, error) {
 // placeholder asks for: %d takes an integer, %f a number, %s a value of any
 // type. A nil fits any. The letter used to be read and never used.
 func requireParameterOfKind(formatType, name string, value any) (any, error) {
-	if value == nil {
+	// A pointer is an optional value: a nil one is a null, which fits any
+	// placeholder, and another is asked about what it points at.
+	if operators.IsNull(value) {
 		return value, nil
 	}
 	isInteger, isFloat := false, false
-	switch value.(type) {
+	switch operators.Indirect(value).(type) {
 	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 		isInteger = true
 	case float32, float64:

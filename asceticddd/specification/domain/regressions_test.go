@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
@@ -298,4 +299,121 @@ func TestNumbersOfDifferentTypesCompute(t *testing.T) {
 			}
 		})
 	}
+}
+
+// email is a Value Object that compares through a pointer receiver: the
+// pointer is the value, and is not to be taken for its pointee.
+type email struct{ address string }
+
+func (e *email) Equal(other EqualOperand) bool {
+	o, ok := other.(*email)
+	return ok && e.address == o.address
+}
+
+// A nullable column is a pointer in Go, and the driver takes one: a nil
+// pointer is NULL, another is what it points at. The evaluator took neither:
+// IS NULL of a nil pointer was false, without an error, and a pointer did not
+// compare with a value. The two readers disagreed on the usual shape of a row.
+func TestAPointerIsAnOptionalValue(t *testing.T) {
+	var noName *string
+	var noFlag *bool
+	name, age, active, inactive := "ann", 30, true, false
+	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	agePointer := &age
+	row := testContext{
+		"owner": noName, "name": &name, "age": &age, "age2": &agePointer,
+		"active": &active, "inactive": &inactive, "flag": noFlag, "created_at": &since,
+		"blob": []byte(nil), "tags": map[string]any(nil), "empty": []byte{},
+	}
+	f := func(name string) FieldNode { return Field(GlobalScope(), name) }
+
+	cases := []struct {
+		name string
+		node Visitable
+		want any
+	}{
+		{"a nil pointer is null", IsNull(f("owner")), true},
+		{"a nil pointer is not not-null", IsNotNull(f("owner")), false},
+		{"a pointer is not null", IsNull(f("name")), false},
+		{"a nil slice is null, as the driver sends it", IsNull(f("blob")), true},
+		{"a nil map is null", IsNull(f("tags")), true},
+		{"an empty slice is not", IsNull(f("empty")), false},
+		{"null propagates", Equal(f("owner"), Value("ann")), nil},
+		{"a pointer compares with a value", Equal(f("name"), Value("ann")), true},
+		{"and a value with a pointer", NotEqual(Value("bob"), f("name")), true},
+		{"a pointer computes", Add(f("age"), Value(1)), 31},
+		{"a pointer to a pointer", GreaterThan(f("age2"), Value(18)), true},
+		{"a pointer to a time", GreaterThan(f("created_at"), Value(since.Add(-time.Hour))), true},
+		{"two pointers", Equal(f("age"), f("age2")), true},
+		{"IS of two nil pointers", Is(f("owner"), Value(noName)), true},
+		{"IS of a nil pointer and a value", Is(f("owner"), Value("ann")), false},
+		{"a pointer to a bool is a condition", And(f("active"), Not(f("inactive"))), true},
+		{"false decides, through a pointer", And(f("inactive"), failing()), false},
+		{"true decides, through a pointer", Or(f("active"), failing()), true},
+		{"a nil condition is null", And(f("flag"), f("active")), nil},
+		{"null AND false", And(f("flag"), f("inactive")), false},
+		{"null OR true", Or(f("flag"), f("active")), true},
+		{"NOT null", Not(f("flag")), nil},
+		{"a constant that is a nil pointer", Equal(Value(noName), Value("ann")), nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := evaluated(t, row, c.node)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("got %v (%T), want %v (%T)", got, got, c.want, c.want)
+			}
+		})
+	}
+
+	t.Run("the result of a specification", func(t *testing.T) {
+		for field, want := range map[string]bool{"active": true, "inactive": false, "flag": false} {
+			got, err := NewEvaluateVisitor(row, operators.NewDefaultRegistry()).Evaluate(f(field))
+			if err != nil || got != want {
+				t.Errorf("%s: got %v, %v, want %v", field, got, err, want)
+			}
+		}
+	})
+
+	t.Run("the predicate of a collection", func(t *testing.T) {
+		items := testContext{"items": NewCollectionContext([]Context{
+			testContext{"active": noFlag}, testContext{"active": &active},
+		})}
+		some := Wildcard(Object(GlobalScope(), "items"), Field(Item(), "active"))
+		if got, err := evaluated(t, items, some); err != nil || got != true {
+			t.Errorf("got %v, %v", got, err)
+		}
+	})
+
+	t.Run("a pointer that is the value stays one", func(t *testing.T) {
+		got, err := evaluated(t, row, Equal(Value(&email{"a@b"}), Value(&email{"a@b"})))
+		if err != nil || got != true {
+			t.Errorf("got %v, %v", got, err)
+		}
+		got, err = evaluated(t, row, Equal(Value(&email{"a@b"}), Value(&email{"c@d"})))
+		if err != nil || got != false {
+			t.Errorf("got %v, %v", got, err)
+		}
+	})
+
+	t.Run("what is not defined is named by its types", func(t *testing.T) {
+		_, err := evaluated(t, row, Add(f("name"), Value(1)))
+		if err == nil || !strings.Contains(err.Error(), "*string") {
+			t.Errorf("got %v", err)
+		}
+	})
+
+	t.Run("equality with a nil pointer is the null test", func(t *testing.T) {
+		if got := EqualityOrNullTest(operators.OperatorEq, f("owner"), Value(noName)); got != IsNull(f("owner")) {
+			t.Errorf("got %#v", got)
+		}
+		if got := EqualityOrNullTest(operators.OperatorNe, Value([]byte(nil)), f("blob")); got != IsNotNull(f("blob")) {
+			t.Errorf("got %#v", got)
+		}
+		if got := EqualityOrNullTest(operators.OperatorEq, f("name"), Value(&name)); got != Equal(f("name"), Value(&name)) {
+			t.Errorf("got %#v", got)
+		}
+	})
 }

@@ -407,3 +407,26 @@ func TestLiteralsAreThoseOfRfc9535(t *testing.T) {
 		}
 	}
 }
+
+// A parameter that is a nil pointer is a null, and one that is a pointer is
+// taken for what it points at.
+func TestAParameterMayBeAPointer(t *testing.T) {
+	var none *string
+	if got := bound(t, "$[?@.owner == %s]", none); got != spec.IsNull(field("owner")) {
+		t.Errorf("got %#v", got)
+	}
+	age := 30
+	if _, err := MustParse("$[?@.age > %d]").Bind(&age); err != nil {
+		t.Errorf("%%d of a pointer to an integer: %v", err)
+	}
+	name := "ann"
+	if _, err := MustParse("$[?@.age > %d]").Bind(&name); err == nil {
+		t.Errorf("%%d took a pointer to a string")
+	}
+	matched, err := MustParse("$[?@.age > %d && @.owner == %s]").Match(
+		NewDictContext(map[string]any{"age": &age, "owner": none}), 18, none,
+	)
+	if err != nil || !matched {
+		t.Errorf("got %v, %v", matched, err)
+	}
+}
