@@ -222,7 +222,7 @@ func TestSomethingSpecification(t *testing.T) {
 	}
 	assert.Equal(
 		t,
-		"something.tenant_id = $1 AND something.member_id = $2 AND something.something_id = $3",
+		`"something"."tenant_id" = $1 AND "something"."member_id" = $2 AND "something"."something_id" = $3`,
 		sql)
 	assert.Equal(t, 3, len(params))
 	var tIdValue, mIdValue, sIdValue uint

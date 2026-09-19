@@ -22,7 +22,7 @@ func TestCompileToSQLSimple(t *testing.T) {
 		t.Fatalf("CompileToSQL failed: %v", err)
 	}
 
-	expected := "age >= $1"
+	expected := `"age" >= $1`
 	if sql != expected {
 		t.Errorf("Expected SQL: %s, got: %s", expected, sql)
 	}
@@ -100,7 +100,7 @@ func TestCompileToSQLNestedObject(t *testing.T) {
 		t.Fatalf("CompileToSQL failed: %v", err)
 	}
 
-	expected := "user.profile.age >= $1"
+	expected := `"user"."profile"."age" >= $1`
 	if sql != expected {
 		t.Errorf("Expected SQL: %s, got: %s", expected, sql)
 	}
@@ -175,7 +175,7 @@ func TestPostgresqlVisitorIsNull(t *testing.T) {
 	}
 	sql, params := fragment.SQL, fragment.Params
 
-	expected := "deleted_at IS NULL"
+	expected := `"deleted_at" IS NULL`
 	if sql != expected {
 		t.Errorf("Expected SQL: %s, got: %s", expected, sql)
 	}
@@ -195,7 +195,7 @@ func TestPostgresqlVisitorIsNotNull(t *testing.T) {
 	}
 	sql, params := fragment.SQL, fragment.Params
 
-	expected := "created_at IS NOT NULL"
+	expected := `"created_at" IS NOT NULL`
 	if sql != expected {
 		t.Errorf("Expected SQL: %s, got: %s", expected, sql)
 	}

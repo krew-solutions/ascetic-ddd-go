@@ -20,8 +20,8 @@ func TestSimpleFieldRendering(t *testing.T) {
 	}
 	sql, params := fragment.SQL, fragment.Params
 
-	if sql != "users.name" {
-		t.Errorf("Expected 'users.name', got %s", sql)
+	if sql != `"users"."name"` {
+		t.Errorf(`Expected '"users"."name"', got %s`, sql)
 	}
 
 	if len(params) != 0 {
@@ -67,11 +67,11 @@ func TestInfixOperatorAnd(t *testing.T) {
 	if !strings.Contains(sql, "AND") {
 		t.Errorf("Expected SQL to contain 'AND', got %s", sql)
 	}
-	if !strings.Contains(sql, "t.a") {
-		t.Errorf("Expected SQL to contain 't.a', got %s", sql)
+	if !strings.Contains(sql, `"t"."a"`) {
+		t.Errorf(`Expected SQL to contain '"t"."a"', got %s`, sql)
 	}
-	if !strings.Contains(sql, "t.b") {
-		t.Errorf("Expected SQL to contain 't.b', got %s", sql)
+	if !strings.Contains(sql, `"t"."b"`) {
+		t.Errorf(`Expected SQL to contain '"t"."b"', got %s`, sql)
 	}
 
 	if len(params) != 2 || params[0] != 1 || params[1] != 2 {
@@ -93,8 +93,8 @@ func TestPrefixNotOperator(t *testing.T) {
 	if !strings.Contains(sql, "NOT") {
 		t.Errorf("Expected SQL to contain 'NOT', got %s", sql)
 	}
-	if !strings.Contains(sql, "t.active") {
-		t.Errorf("Expected SQL to contain 't.active', got %s", sql)
+	if !strings.Contains(sql, `"t"."active"`) {
+		t.Errorf(`Expected SQL to contain '"t"."active"', got %s`, sql)
 	}
 
 	if len(params) != 1 || params[0] != true {
@@ -139,8 +139,8 @@ func TestLessThanOperator(t *testing.T) {
 	if !strings.Contains(sql, "<") {
 		t.Errorf("Expected SQL to contain '<', got %s", sql)
 	}
-	if !strings.Contains(sql, "t.age") {
-		t.Errorf("Expected SQL to contain 't.age', got %s", sql)
+	if !strings.Contains(sql, `"t"."age"`) {
+		t.Errorf(`Expected SQL to contain '"t"."age"', got %s`, sql)
 	}
 
 	if len(params) != 1 || params[0] != 30 {
@@ -196,7 +196,7 @@ func TestNestedFields(t *testing.T) {
 	}
 	sql, params := fragment.SQL, fragment.Params
 
-	expected := "user.profile.age"
+	expected := `"user"."profile"."age"`
 	if sql != expected {
 		t.Errorf("Expected '%s', got '%s'", expected, sql)
 	}

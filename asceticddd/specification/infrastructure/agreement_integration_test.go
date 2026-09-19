@@ -299,6 +299,10 @@ func (r storeRow) context() s.Context {
 	}
 	return rowContext{
 		"id": r.id, "a": r.a, "b": r.b, "flag": r.flag, "name": r.name,
+		// Members named as PostgreSQL names other things, under columns of
+		// those very names: `user` is the session's user if it is not quoted,
+		// `order` does not parse, `createdAt` folds to `createdat`.
+		"user": r.name, "order": r.a, "createdAt": r.b,
 		"items": s.NewCollectionContext(items),
 	}
 }
@@ -322,6 +326,7 @@ func (r storeRow) pointerContext() s.Context {
 	return rowContext{
 		"id": r.id, "a": pointer[int](r.a), "b": pointer[int](r.b),
 		"flag": pointer[bool](r.flag), "name": pointer[string](r.name),
+		"user": pointer[string](r.name), "order": pointer[int](r.a), "createdAt": pointer[int](r.b),
 		"items": s.NewCollectionContext(items),
 	}
 }
@@ -370,6 +375,10 @@ func rowSpecifications() []s.Visitable {
 		every(s.GreaterThan(item("price"), s.Value(5))),
 		s.Not(every(s.IsNotNull(item("price")))),
 		s.And(field("flag"), some(dear())),
+		// A name is the column's, whatever else PostgreSQL knows by it.
+		s.Equal(field("user"), s.Value("one")),
+		s.GreaterThan(field("order"), s.Value(0)),
+		s.Equal(field("createdAt"), s.Value(2)),
 	}
 }
 
@@ -386,13 +395,17 @@ func literal(value any) string {
 
 func makeTables(conn session.DbConnection) error {
 	statements := []string{
-		"CREATE TABLE spec_stores (id bigint PRIMARY KEY, a bigint, b bigint, flag boolean, name text)",
+		`CREATE TABLE spec_stores (id bigint PRIMARY KEY, a bigint, b bigint, flag boolean, name text, "user" text, "order" bigint, "createdAt" bigint)`,
 		"CREATE TABLE spec_items (store_id bigint, price bigint, active boolean)",
 		"CREATE TYPE spec_item AS (price bigint, active boolean)",
-		"CREATE TABLE spec_stores_embedded (id bigint PRIMARY KEY, a bigint, b bigint, flag boolean, name text, items spec_item[])",
+		`CREATE TABLE spec_stores_embedded (id bigint PRIMARY KEY, a bigint, b bigint, flag boolean, name text, "user" text, "order" bigint, "createdAt" bigint, items spec_item[])`,
 	}
 	for _, row := range storeRows {
-		columns := fmt.Sprintf("%d, %s, %s, %s, %s", row.id, literal(row.a), literal(row.b), literal(row.flag), literal(row.name))
+		columns := fmt.Sprintf(
+			"%d, %s, %s, %s, %s, %s, %s, %s",
+			row.id, literal(row.a), literal(row.b), literal(row.flag), literal(row.name),
+			literal(row.name), literal(row.a), literal(row.b),
+		)
 		embedded := make([]string, 0, len(row.items))
 		for _, it := range row.items {
 			statements = append(statements, fmt.Sprintf(

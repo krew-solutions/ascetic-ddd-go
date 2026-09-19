@@ -134,17 +134,37 @@ var regrouping = map[operators.Operator]bool{
 
 var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// identifier returns a name that can be written into a query as it is: a
-// name, or names joined with dots. A name is refused rather than quoted, so
-// that no tree, whatever it was built from, can put SQL of its own into the
-// query: only values are parameters.
+// quote returns the name between double quotes, a double quote of its own
+// doubled.
+//
+// A word PostgreSQL knows is read as what PostgreSQL knows: `user` without
+// quotes is the session's user, so `user = $1` parses and selects other rows
+// than were asked for, and `order` does not parse. Which words these are
+// depends on the server's version, which a library does not know; so no name
+// is looked up in a list, and every name is quoted.
+//
+// Between quotes a name is the column's to the letter: `"createdAt"` is the
+// column created as `"createdAt"`, which `createdAt` without quotes is not -
+// PostgreSQL folds that to `createdat`. What a member of the domain is called
+// in the storage is for the transform Context to say.
+func quote(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// identifier returns a name as the query has it: a name, or names joined
+// with dots, checked and then quoted part by part. Two things keep SQL of a
+// tree's own out of the text, and neither rests on the other: a name outside
+// the alphabet is refused, and a double quote inside a name is doubled. Only
+// values are parameters.
 func identifier(name string) (string, error) {
-	for _, part := range strings.Split(name, ".") {
+	parts := strings.Split(name, ".")
+	for i, part := range parts {
 		if !identifierPattern.MatchString(part) {
 			return "", fmt.Errorf("%q is not a valid identifier", name)
 		}
+		parts[i] = quote(part)
 	}
-	return name, nil
+	return strings.Join(parts, "."), nil
 }
 
 // PostgresqlVisitor renders a specification AST as PostgreSQL.
@@ -274,7 +294,7 @@ func (v *PostgresqlVisitor) VisitField(n s.FieldNode) (SqlFragment, error) {
 		if err != nil {
 			return SqlFragment{}, err
 		}
-		return SqlFragment{SQL: v.wildcardAlias + "." + name}, nil
+		return SqlFragment{SQL: quote(v.wildcardAlias) + "." + name}, nil
 	}
 	// Normal field access
 	path, err := identifier(strings.Join(s.ExtractFieldPath(n), "."))
@@ -362,7 +382,9 @@ func (v *PostgresqlVisitor) visitEmbeddedCollection(n s.CollectionNode, collecti
 	}
 
 	v.counters.wildcardCounter++
-	alias, err := identifier(fmt.Sprintf("%s_%d", strings.ToLower(collectionName), v.counters.wildcardCounter))
+	// The alias goes on as it is: a name is quoted where it is written.
+	alias := fmt.Sprintf("%s_%d", strings.ToLower(collectionName), v.counters.wildcardCounter)
+	aliasRef, err := identifier(alias)
 	if err != nil {
 		return SqlFragment{}, err
 	}
@@ -376,7 +398,7 @@ func (v *PostgresqlVisitor) visitEmbeddedCollection(n s.CollectionNode, collecti
 	return SqlFragment{
 		SQL: fmt.Sprintf(
 			"EXISTS (SELECT 1 FROM unnest(%s) AS %s WHERE %s)",
-			collectionPath, alias, predicate.SQL,
+			collectionPath, aliasRef, predicate.SQL,
 		),
 		Params: predicate.Params,
 	}, nil
@@ -393,7 +415,7 @@ func (v *PostgresqlVisitor) visitRelationalCollection(n s.CollectionNode, fieldN
 	} else {
 		alias = fmt.Sprintf("%s_%d", alias, v.counters.wildcardCounter)
 	}
-	alias, err := identifier(alias)
+	aliasRef, err := identifier(alias)
 	if err != nil {
 		return SqlFragment{}, err
 	}
@@ -429,7 +451,7 @@ func (v *PostgresqlVisitor) visitRelationalCollection(n s.CollectionNode, fieldN
 			return SqlFragment{}, err
 		}
 		fkParts = append(fkParts, fmt.Sprintf(
-			"%s.%s = %s.%s", alias, childColumn, parentRef, parentColumn,
+			"%s.%s = %s.%s", aliasRef, childColumn, parentRef, parentColumn,
 		))
 	}
 	fkConditions := strings.Join(fkParts, " AND ")
@@ -437,7 +459,7 @@ func (v *PostgresqlVisitor) visitRelationalCollection(n s.CollectionNode, fieldN
 	return SqlFragment{
 		SQL: fmt.Sprintf(
 			"EXISTS (SELECT 1 FROM %s AS %s WHERE %s AND %s)",
-			table, alias, fkConditions, predicate.SQL,
+			table, aliasRef, fkConditions, predicate.SQL,
 		),
 		Params: predicate.Params,
 	}, nil
@@ -517,9 +539,9 @@ func (v *PostgresqlVisitor) extractCollectionPath(n s.CollectionNode) (string, e
 			if err != nil {
 				return "", err
 			}
-			return v.wildcardAlias + "." + path, nil
+			return quote(v.wildcardAlias) + "." + path, nil
 		}
-		return v.wildcardAlias, nil
+		return quote(v.wildcardAlias), nil
 	}
 
 	return identifier(strings.Join(parts, "."))

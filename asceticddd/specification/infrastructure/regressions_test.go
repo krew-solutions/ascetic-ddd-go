@@ -52,18 +52,18 @@ func checkSql(t *testing.T, cases []sqlCase, opts ...PostgresqlVisitorOption) {
 func TestParenthesesAreWritten(t *testing.T) {
 	a, b, c := field("a"), field("b"), field("c")
 	checkSql(t, []sqlCase{
-		{s.And(s.Or(a, b), c), "(a OR b) AND c"},
-		{s.Or(s.And(a, b), c), "a AND b OR c"},
-		{s.Not(s.And(a, b)), "NOT (a AND b)"},
-		{s.Not(s.Equal(a, b)), "NOT a = b"},
-		{s.Mul(s.Add(a, b), c), "(a + b) * c"},
-		{s.Add(s.Mul(a, b), c), "a * b + c"},
-		{s.IsNull(s.Or(a, b)), "(a OR b) IS NULL"},
-		{s.IsNull(s.Equal(a, b)), "a = b IS NULL"},
-		{s.Neg(s.Add(a, b)), "-(a + b)"},
-		{s.LeftShift(s.Add(a, b), c), "a + b << c"},
-		{s.Add(a, s.LeftShift(b, c)), "a + (b << c)"},
-		{s.Equal(s.Is(a, b), c), "(a IS NOT DISTINCT FROM b) = c"},
+		{s.And(s.Or(a, b), c), `("a" OR "b") AND "c"`},
+		{s.Or(s.And(a, b), c), `"a" AND "b" OR "c"`},
+		{s.Not(s.And(a, b)), `NOT ("a" AND "b")`},
+		{s.Not(s.Equal(a, b)), `NOT "a" = "b"`},
+		{s.Mul(s.Add(a, b), c), `("a" + "b") * "c"`},
+		{s.Add(s.Mul(a, b), c), `"a" * "b" + "c"`},
+		{s.IsNull(s.Or(a, b)), `("a" OR "b") IS NULL`},
+		{s.IsNull(s.Equal(a, b)), `"a" = "b" IS NULL`},
+		{s.Neg(s.Add(a, b)), `-("a" + "b")`},
+		{s.LeftShift(s.Add(a, b), c), `"a" + "b" << "c"`},
+		{s.Add(a, s.LeftShift(b, c)), `"a" + ("b" << "c")`},
+		{s.Equal(s.Is(a, b), c), `("a" IS NOT DISTINCT FROM "b") = "c"`},
 	})
 }
 
@@ -73,20 +73,20 @@ func TestParenthesesAreWritten(t *testing.T) {
 func TestParenthesesFollowAssociativity(t *testing.T) {
 	a, b, c := field("a"), field("b"), field("c")
 	checkSql(t, []sqlCase{
-		{s.Sub(s.Sub(a, b), c), "a - b - c"},
-		{s.Sub(a, s.Sub(b, c)), "a - (b - c)"},
-		{s.Sub(a, s.Add(b, c)), "a - (b + c)"},
-		{s.Div(a, s.Div(b, c)), "a / (b / c)"},
-		{s.Div(s.Mul(a, b), c), "a * b / c"},
+		{s.Sub(s.Sub(a, b), c), `"a" - "b" - "c"`},
+		{s.Sub(a, s.Sub(b, c)), `"a" - ("b" - "c")`},
+		{s.Sub(a, s.Add(b, c)), `"a" - ("b" + "c")`},
+		{s.Div(a, s.Div(b, c)), `"a" / ("b" / "c")`},
+		{s.Div(s.Mul(a, b), c), `"a" * "b" / "c"`},
 		// A comparison groups to neither side.
-		{s.Equal(s.Equal(a, b), c), "(a = b) = c"},
-		{s.Equal(a, s.Equal(b, c)), "a = (b = c)"},
-		{s.Equal(s.IsNull(a), c), "(a IS NULL) = c"},
-		{s.IsNull(s.IsNull(a)), "(a IS NULL) IS NULL"},
+		{s.Equal(s.Equal(a, b), c), `("a" = "b") = "c"`},
+		{s.Equal(a, s.Equal(b, c)), `"a" = ("b" = "c")`},
+		{s.Equal(s.IsNull(a), c), `("a" IS NULL) = "c"`},
+		{s.IsNull(s.IsNull(a)), `("a" IS NULL) IS NULL`},
 		// AND and OR are associative, nulls included.
-		{s.And(a, s.And(b, c)), "a AND b AND c"},
-		{s.Or(a, s.Or(b, c)), "a OR b OR c"},
-		{s.And(a, b, c), "a AND b AND c"},
+		{s.And(a, s.And(b, c)), `"a" AND "b" AND "c"`},
+		{s.Or(a, s.Or(b, c)), `"a" OR "b" OR "c"`},
+		{s.And(a, b, c), `"a" AND "b" AND "c"`},
 	})
 }
 
@@ -94,11 +94,11 @@ func TestParenthesesFollowAssociativity(t *testing.T) {
 func TestTheUnaryMinusIsSpelled(t *testing.T) {
 	a, b := field("a"), field("b")
 	checkSql(t, []sqlCase{
-		{s.Neg(a), "-a"},
+		{s.Neg(a), `-"a"`},
 		// Two minus signs are a comment.
-		{s.Neg(s.Neg(a)), "-(-a)"},
-		{s.Sub(a, s.Neg(b)), "a - -b"},
-		{s.Not(s.Not(a)), "NOT NOT a"},
+		{s.Neg(s.Neg(a)), `-(-"a")`},
+		{s.Sub(a, s.Neg(b)), `"a" - -"b"`},
+		{s.Not(s.Not(a)), `NOT NOT "a"`},
 	})
 	sql, params, err := CompileToSQL(s.Neg(s.Value(5)))
 	if err != nil || sql != "-$1" || !reflect.DeepEqual(params, []any{5}) {
@@ -112,10 +112,10 @@ func TestIsTakesAParameter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sql != "active IS NOT DISTINCT FROM $1" || !reflect.DeepEqual(params, []any{true}) {
+	if sql != `"active" IS NOT DISTINCT FROM $1` || !reflect.DeepEqual(params, []any{true}) {
 		t.Errorf("got %q, %v", sql, params)
 	}
-	checkSql(t, []sqlCase{{s.IsNull(field("deleted_at")), "deleted_at IS NULL"}})
+	checkSql(t, []sqlCase{{s.IsNull(field("deleted_at")), `"deleted_at" IS NULL`}})
 }
 
 // The predicate was written after the keys as it was: `fk AND p OR q`, which
@@ -129,19 +129,19 @@ func TestThePredicateOfARelationalCollectionStaysInsideItsKeys(t *testing.T) {
 	checkSql(t, []sqlCase{
 		{
 			s.Wildcard(items, s.Or(item("Active"), dear)),
-			"EXISTS (SELECT 1 FROM items AS item_1 WHERE item_1.store_id = s.id" +
-				" AND (item_1.Active OR item_1.Price > $1))",
+			`EXISTS (SELECT 1 FROM "items" AS "item_1" WHERE "item_1"."store_id" = "s"."id"` +
+				` AND ("item_1"."Active" OR "item_1"."Price" > $1))`,
 		},
 		{
 			s.Wildcard(items, s.And(item("Active"), dear)),
-			"EXISTS (SELECT 1 FROM items AS item_1 WHERE item_1.store_id = s.id" +
-				" AND item_1.Active AND item_1.Price > $1)",
+			`EXISTS (SELECT 1 FROM "items" AS "item_1" WHERE "item_1"."store_id" = "s"."id"` +
+				` AND "item_1"."Active" AND "item_1"."Price" > $1)`,
 		},
 	}, WithSchema(schema))
 	// An embedded collection needs none.
 	checkSql(t, []sqlCase{{
 		s.Wildcard(items, s.Or(item("Active"), dear)),
-		"EXISTS (SELECT 1 FROM unnest(Items) AS item_1 WHERE item_1.Active OR item_1.Price > $1)",
+		`EXISTS (SELECT 1 FROM unnest("Items") AS "item_1" WHERE "item_1"."Active" OR "item_1"."Price" > $1)`,
 	}})
 }
 
@@ -161,14 +161,14 @@ func TestACollectionIsNamedByItsWholePath(t *testing.T) {
 	checkSql(t, []sqlCase{
 		{
 			ofTheStore,
-			"EXISTS (SELECT 1 FROM store_items AS item_1" +
-				" WHERE item_1.store_id = s.id AND item_1.Active)",
+			`EXISTS (SELECT 1 FROM "store_items" AS "item_1"` +
+				` WHERE "item_1"."store_id" = "s"."id" AND "item_1"."Active")`,
 		},
 		{
 			ofACategory,
-			"EXISTS (SELECT 1 FROM categories AS category_1" +
-				" WHERE category_1.store_id = s.id AND EXISTS (SELECT 1 FROM category_items AS item_2" +
-				" WHERE item_2.category_id = category_1.id AND item_2.Active))",
+			`EXISTS (SELECT 1 FROM "categories" AS "category_1"` +
+				` WHERE "category_1"."store_id" = "s"."id" AND EXISTS (SELECT 1 FROM "category_items" AS "item_2"` +
+				` WHERE "item_2"."category_id" = "category_1"."id" AND "item_2"."Active"))`,
 		},
 	}, WithSchema(schema))
 
@@ -178,9 +178,9 @@ func TestACollectionIsNamedByItsWholePath(t *testing.T) {
 		RegisterRelational("Categories", "categories", "store_id", "id")
 	checkSql(t, []sqlCase{{
 		ofACategory,
-		"EXISTS (SELECT 1 FROM categories AS category_1" +
-			" WHERE category_1.store_id = s.id AND EXISTS (SELECT 1 FROM unnest(category_1.Items) AS item_2" +
-			" WHERE item_2.Active))",
+		`EXISTS (SELECT 1 FROM "categories" AS "category_1"` +
+			` WHERE "category_1"."store_id" = "s"."id" AND EXISTS (SELECT 1 FROM unnest("category_1"."Items") AS "item_2"` +
+			` WHERE "item_2"."Active"))`,
 	}}, WithSchema(unnamed))
 
 	// The objects on the way are a part of the name.
@@ -188,8 +188,8 @@ func TestACollectionIsNamedByItsWholePath(t *testing.T) {
 		RegisterRelational("Warehouse.Items", "warehouse_items", "store_id", "id")
 	checkSql(t, []sqlCase{{
 		s.Wildcard(s.Object(s.Object(s.GlobalScope(), "Warehouse"), "Items"), item("Active")),
-		"EXISTS (SELECT 1 FROM warehouse_items AS item_1" +
-			" WHERE item_1.store_id = s.id AND item_1.Active)",
+		`EXISTS (SELECT 1 FROM "warehouse_items" AS "item_1"` +
+			` WHERE "item_1"."store_id" = "s"."id" AND "item_1"."Active")`,
 	}}, WithSchema(warehouse))
 }
 
@@ -206,17 +206,43 @@ func TestACollectionOfTheCandidateInsideAnotherJoinsToTheRoot(t *testing.T) {
 	checkSql(t, []sqlCase{
 		{
 			s.Wildcard(items, s.Wildcard(s.Object(s.GlobalScope(), "Tags"), onSale)),
-			"EXISTS (SELECT 1 FROM items AS item_1 WHERE item_1.store_id = s.id" +
-				" AND EXISTS (SELECT 1 FROM tags AS tag_2 WHERE tag_2.store_id = s.id" +
-				" AND tag_2.Name = $1))",
+			`EXISTS (SELECT 1 FROM "items" AS "item_1" WHERE "item_1"."store_id" = "s"."id"` +
+				` AND EXISTS (SELECT 1 FROM "tags" AS "tag_2" WHERE "tag_2"."store_id" = "s"."id"` +
+				` AND "tag_2"."Name" = $1))`,
 		},
 		{
 			s.Wildcard(items, s.Wildcard(s.Object(s.Item(), "Tags"), onSale)),
-			"EXISTS (SELECT 1 FROM items AS item_1 WHERE item_1.store_id = s.id" +
-				" AND EXISTS (SELECT 1 FROM item_tags AS tag_2 WHERE tag_2.item_id = item_1.id" +
-				" AND tag_2.Name = $1))",
+			`EXISTS (SELECT 1 FROM "items" AS "item_1" WHERE "item_1"."store_id" = "s"."id"` +
+				` AND EXISTS (SELECT 1 FROM "item_tags" AS "tag_2" WHERE "tag_2"."item_id" = "item_1"."id"` +
+				` AND "tag_2"."Name" = $1))`,
 		},
 	}, WithSchema(schema))
+}
+
+// A name was written into the query as it stood, and PostgreSQL reads a word
+// it knows as what it knows: `user = $1` compares the user of the session and
+// selects other rows than were asked for, `order > $1` does not parse. Which
+// words these are depends on the version of the server, so every name is
+// quoted, and between quotes it is the column's to the letter. The rows are in
+// TestASpecificationSelectsTheRowsItIsSatisfiedBy.
+func TestANameIsTheColumnsAndNothingElse(t *testing.T) {
+	checkSql(t, []sqlCase{
+		{s.Equal(field("user"), s.Value("ann")), `"user" = $1`},
+		{s.GreaterThan(field("order"), s.Value(0)), `"order" > $1`},
+		{s.IsNull(field("createdAt")), `"createdAt" IS NULL`},
+	})
+
+	// A quote inside a name does not end it.
+	if got := quote(`a" OR "b`); got != `"a"" OR ""b"` {
+		t.Errorf("got %s", got)
+	}
+	if got := quote(`"`); got != `""""` {
+		t.Errorf("got %s", got)
+	}
+	// Nor does it get there: the alphabet of names has no quote.
+	if _, _, err := CompileToSQL(field(`a" OR "b`)); err == nil {
+		t.Error("a name with a quote was compiled")
+	}
 }
 
 // Names were written into the query as they were: only values are parameters.
@@ -235,7 +261,7 @@ func TestANameThatIsNotAnIdentifierIsRefused(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if name == "a name with a dot inside" {
 				// A dotted name is a path of identifiers.
-				if got := sqlOf(t, tree); got != "a.b" {
+				if got := sqlOf(t, tree); got != `"a"."b"` {
 					t.Errorf("got %q", got)
 				}
 				return
@@ -266,13 +292,13 @@ func TestANameThatIsNotAnIdentifierIsRefused(t *testing.T) {
 	}
 
 	checkSql(t, []sqlCase{
-		{s.Field(s.Object(s.GlobalScope(), "users"), "_name1"), "users._name1"},
+		{s.Field(s.Object(s.GlobalScope(), "users"), "_name1"), `"users"."_name1"`},
 	})
 	qualified := NewSchemaRegistry("stores").WithParentAlias("s").
 		RegisterRelational("Items", "public.items", "store_id", "id")
 	checkSql(t, []sqlCase{{
 		active,
-		"EXISTS (SELECT 1 FROM public.items AS item_1 WHERE item_1.store_id = s.id AND item_1.Active)",
+		`EXISTS (SELECT 1 FROM "public"."items" AS "item_1" WHERE "item_1"."store_id" = "s"."id" AND "item_1"."Active")`,
 	}}, WithSchema(qualified))
 }
 
@@ -286,7 +312,7 @@ func TestParametersAreCountedBeyondAByte(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(params) != 300 || !strings.HasSuffix(sql, "a = $300") || strings.Contains(sql, "$0") {
+	if len(params) != 300 || !strings.HasSuffix(sql, `"a" = $300`) || strings.Contains(sql, "$0") {
 		t.Errorf("%d parameters, the query ends with %q", len(params), sql[len(sql)-20:])
 	}
 }
@@ -318,7 +344,7 @@ func TestCompositeInequality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sql != "NOT (tenant_id = $1 AND member_id = $2)" || !reflect.DeepEqual(params, []any{10, 3}) {
+	if sql != `NOT ("tenant_id" = $1 AND "member_id" = $2)` || !reflect.DeepEqual(params, []any{10, 3}) {
 		t.Errorf("got %q, %v", sql, params)
 	}
 
@@ -328,7 +354,7 @@ func TestCompositeInequality(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkSql(t, []sqlCase{{nested, "NOT (a = $1 AND b = $2 AND c = $3)"}})
+	checkSql(t, []sqlCase{{nested, `NOT ("a" = $1 AND "b" = $2 AND "c" = $3)`}})
 
 	row := rowContext{"tenant_id": 10, "member_id": 3}
 	meaning := []struct {
@@ -359,7 +385,7 @@ func TestACompositeOfOnePartAndOfNone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkSql(t, []sqlCase{{one, "id = $1"}, {other, "NOT id = $1"}})
+	checkSql(t, []sqlCase{{one, `"id" = $1`}, {other, `NOT "id" = $1`}})
 
 	if _, err := CompositeExpression().Equal(CompositeExpression()); !errors.Is(err, ErrCompositeExpressionIsEmpty) {
 		t.Errorf("an empty composite: got %v", err)
@@ -397,7 +423,7 @@ func TestACompositeIsNotANode(t *testing.T) {
 		t.Fatal(err)
 	}
 	sql, params, err := CompileToSQL(transformed)
-	if err != nil || sql != "tenant_id = $1 AND member_id = $2" || !reflect.DeepEqual(params, []any{10, 3}) {
+	if err != nil || sql != `"tenant_id" = $1 AND "member_id" = $2` || !reflect.DeepEqual(params, []any{10, 3}) {
 		t.Errorf("got %q, %v, %v", sql, params, err)
 	}
 
@@ -430,8 +456,8 @@ func TestACompositeIsNotANode(t *testing.T) {
 	}
 	checkSql(t, []sqlCase{{
 		inside,
-		"EXISTS (SELECT 1 FROM unnest(members) AS member_1" +
-			" WHERE NOT (member_1.tenant_id = $1 AND member_1.member_id = $2))",
+		`EXISTS (SELECT 1 FROM unnest("members") AS "member_1"` +
+			` WHERE NOT ("member_1"."tenant_id" = $1 AND "member_1"."member_id" = $2))`,
 	}})
 }
 
@@ -545,7 +571,7 @@ func TestThePredicateOfACollectionIsTransformed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "rank > $1 AND EXISTS (SELECT 1 FROM unnest(parts) AS part_1 WHERE part_1.weight_grams > $2)"
+	want := `"rank" > $1 AND EXISTS (SELECT 1 FROM unnest("parts") AS "part_1" WHERE "part_1"."weight_grams" > $2)`
 	if sql != want || !reflect.DeepEqual(params, []any{3, 100}) {
 		t.Errorf("got %q, %v", sql, params)
 	}
@@ -596,18 +622,18 @@ func TestACollectionIsKeptWhereTheContextSays(t *testing.T) {
 	checkSql(t, []sqlCase{
 		{
 			transformed(storedPartsContext{}, ofTheCandidate),
-			"EXISTS (SELECT 1 FROM unnest(something_parts) AS something_part_1 WHERE something_part_1.weight_grams > $1)",
+			`EXISTS (SELECT 1 FROM unnest("something_parts") AS "something_part_1" WHERE "something_part_1"."weight_grams" > $1)`,
 		},
 		{
 			transformed(storedPartsContext{}, ofAnItem),
-			"EXISTS (SELECT 1 FROM unnest(something_parts) AS something_part_1" +
-				" WHERE EXISTS (SELECT 1 FROM unnest(something_part_1.sub_parts) AS sub_part_2 WHERE sub_part_2.weight_grams > $1))",
+			`EXISTS (SELECT 1 FROM unnest("something_parts") AS "something_part_1"` +
+				` WHERE EXISTS (SELECT 1 FROM unnest("something_part_1"."sub_parts") AS "sub_part_2" WHERE "sub_part_2"."weight_grams" > $1))`,
 		},
 		// A context that does not say keeps it where it is.
 		{
 			transformed(partsContext{}, ofAnItem),
-			"EXISTS (SELECT 1 FROM unnest(parts) AS part_1" +
-				" WHERE EXISTS (SELECT 1 FROM unnest(part_1.parts) AS part_2 WHERE part_2.weight_grams > $1))",
+			`EXISTS (SELECT 1 FROM unnest("parts") AS "part_1"` +
+				` WHERE EXISTS (SELECT 1 FROM unnest("part_1"."parts") AS "part_2" WHERE "part_2"."weight_grams" > $1))`,
 		},
 	})
 
@@ -642,7 +668,7 @@ func TestWhatAContextMustSayAndWhatItMay(t *testing.T) {
 	var _ Context = leastContext{}
 
 	sql, _, err := Compile(leastContext{}, s.Equal(s.Field(s.Object(s.GlobalScope(), "profile"), "age"), s.Value(30)))
-	if err != nil || sql != "profile_age = $1" {
+	if err != nil || sql != `"profile_age" = $1` {
 		t.Errorf("got %q, %v", sql, err)
 	}
 
