@@ -535,7 +535,7 @@ func TestThePredicateOfACollectionIsTransformed(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got != c.want {
+			if !s.SameTree(got, c.want) {
 				t.Errorf("got  %#v\nwant %#v", got, c.want)
 			}
 		})

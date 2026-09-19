@@ -1497,7 +1497,7 @@ func TestASTCaching_ASTNotReparsedOnMatch(t *testing.T) {
 
 	// AST should be the same object: what the same parameters make of the
 	// template is what it was before the calls
-	if again, _ := s.Bind(25); again != originalAST {
+	if again, _ := s.Bind(25); !spec.SameTree(again, originalAST) {
 		t.Error("AST should be the same object after multiple Match calls")
 	}
 }
@@ -1515,10 +1515,10 @@ func TestASTCaching_DifferentParamsSameAST(t *testing.T) {
 	s.Match(data, "third")
 
 	// AST should remain unchanged
-	if again, _ := s.Bind("test"); again != originalAST {
+	if again, _ := s.Bind("test"); !spec.SameTree(again, originalAST) {
 		t.Error("AST should remain unchanged after calls with different params")
 	}
-	if other, _ := s.Bind("other"); other == originalAST {
+	if other, _ := s.Bind("other"); spec.SameTree(other, originalAST) {
 		t.Error("other parameters should make another tree")
 	}
 }

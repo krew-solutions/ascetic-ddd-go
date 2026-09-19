@@ -13,7 +13,7 @@ func TestDelegating(t *testing.T) {
 	t.Run("Creation", func(t *testing.T) {
 		valueNode := s.Value(42)
 		delegating := NewDelegating(valueNode)
-		if delegating.Delegate() != valueNode {
+		if !s.SameTree(delegating.Delegate(), valueNode) {
 			t.Errorf("Expected delegate to be %v, got %v", valueNode, delegating.Delegate())
 		}
 	})

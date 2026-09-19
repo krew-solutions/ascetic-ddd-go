@@ -105,7 +105,7 @@ func TestAParenthesisClosesItsOwnGroup(t *testing.T) {
 	}
 	for template, want := range cases {
 		t.Run(template, func(t *testing.T) {
-			if got := bound(t, template); got != want {
+			if got := bound(t, template); !spec.SameTree(got, want) {
 				t.Errorf("got  %#v\nwant %#v", got, want)
 			}
 		})
@@ -127,7 +127,7 @@ func TestAPathIsNotDropped(t *testing.T) {
 	}
 	for template, want := range cases {
 		t.Run(template, func(t *testing.T) {
-			if got := bound(t, template); got != want {
+			if got := bound(t, template); !spec.SameTree(got, want) {
 				t.Errorf("got  %#v\nwant %#v", got, want)
 			}
 		})
@@ -138,10 +138,10 @@ func TestAPathIsNotDropped(t *testing.T) {
 func TestTheCandidateInsideAFilter(t *testing.T) {
 	got := bound(t, "$.items[*][?@.price > $.limit]")
 	want := spec.Wildcard(spec.Object(spec.GlobalScope(), "items"), spec.GreaterThan(item("price"), field("limit")))
-	if got != want {
+	if !spec.SameTree(got, want) {
 		t.Errorf("got  %#v\nwant %#v", got, want)
 	}
-	if got := bound(t, "$[?100 < @.price]"); got != spec.LessThan(spec.Value(100), field("price")) {
+	if got := bound(t, "$[?100 < @.price]"); !spec.SameTree(got, spec.LessThan(spec.Value(100), field("price"))) {
 		t.Errorf("a value on the left: %#v", got)
 	}
 
@@ -171,14 +171,14 @@ func TestPlaceholdersOfOneStyle(t *testing.T) {
 		spec.Wildcard(spec.Object(spec.GlobalScope(), "items"), spec.GreaterThan(item("price"), spec.Value(9.5))),
 		spec.Equal(field("name"), spec.Value("main")),
 	)
-	if got != want {
+	if !spec.SameTree(got, want) {
 		t.Errorf("got  %#v\nwant %#v", got, want)
 	}
 
 	// One inside a string literal is text.
-	if got := bound(t, "$[?@.a == '%s' && @.b == %s]", 7); got != spec.And(
+	if got := bound(t, "$[?@.a == '%s' && @.b == %s]", 7); !spec.SameTree(got, spec.And(
 		spec.Equal(field("a"), spec.Value("%s")), spec.Equal(field("b"), spec.Value(7)),
-	) {
+	)) {
 		t.Errorf("got %#v", got)
 	}
 }
@@ -206,12 +206,12 @@ func TestATemplateIsAFunctionOfItsParameters(t *testing.T) {
 
 	t.Run("a bound template has values", func(t *testing.T) {
 		first, _ := parsed.Bind(25)
-		if first != spec.GreaterThan(field("age"), spec.Value(25)) {
+		if !spec.SameTree(first, spec.GreaterThan(field("age"), spec.Value(25))) {
 			t.Errorf("got %#v", first)
 		}
 		// The template is what it was: bound again, to something else.
 		again, _ := parsed.Bind(65)
-		if again != spec.GreaterThan(field("age"), spec.Value(65)) {
+		if !spec.SameTree(again, spec.GreaterThan(field("age"), spec.Value(65))) {
 			t.Errorf("got %#v", again)
 		}
 	})
@@ -290,7 +290,7 @@ func TestNullIsTestedNotCompared(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.template, func(t *testing.T) {
-			if got := bound(t, c.template, c.params...); got != c.want {
+			if got := bound(t, c.template, c.params...); !spec.SameTree(got, c.want) {
 				t.Errorf("got  %#v\nwant %#v", got, c.want)
 			}
 		})
@@ -412,7 +412,7 @@ func TestLiteralsAreThoseOfRfc9535(t *testing.T) {
 // taken for what it points at.
 func TestAParameterMayBeAPointer(t *testing.T) {
 	var none *string
-	if got := bound(t, "$[?@.owner == %s]", none); got != spec.IsNull(field("owner")) {
+	if got := bound(t, "$[?@.owner == %s]", none); !spec.SameTree(got, spec.IsNull(field("owner"))) {
 		t.Errorf("got %#v", got)
 	}
 	age := 30

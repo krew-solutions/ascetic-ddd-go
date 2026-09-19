@@ -241,7 +241,7 @@ func TestEqualityWithTheNullConstantIsTheNullTest(t *testing.T) {
 		{"a == b", EqualityOrNullTest(operators.OperatorEq, a, Field(GlobalScope(), "b")), Equal(a, Field(GlobalScope(), "b"))},
 	}
 	for _, c := range cases {
-		if c.got != c.want {
+		if !SameTree(c.got, c.want) {
 			t.Errorf("%s: got %#v, want %#v", c.name, c.got, c.want)
 		}
 	}
@@ -406,13 +406,13 @@ func TestAPointerIsAnOptionalValue(t *testing.T) {
 	})
 
 	t.Run("equality with a nil pointer is the null test", func(t *testing.T) {
-		if got := EqualityOrNullTest(operators.OperatorEq, f("owner"), Value(noName)); got != IsNull(f("owner")) {
+		if got := EqualityOrNullTest(operators.OperatorEq, f("owner"), Value(noName)); !SameTree(got, IsNull(f("owner"))) {
 			t.Errorf("got %#v", got)
 		}
-		if got := EqualityOrNullTest(operators.OperatorNe, Value([]byte(nil)), f("blob")); got != IsNotNull(f("blob")) {
+		if got := EqualityOrNullTest(operators.OperatorNe, Value([]byte(nil)), f("blob")); !SameTree(got, IsNotNull(f("blob"))) {
 			t.Errorf("got %#v", got)
 		}
-		if got := EqualityOrNullTest(operators.OperatorEq, f("name"), Value(&name)); got != Equal(f("name"), Value(&name)) {
+		if got := EqualityOrNullTest(operators.OperatorEq, f("name"), Value(&name)); !SameTree(got, Equal(f("name"), Value(&name))) {
 			t.Errorf("got %#v", got)
 		}
 	})

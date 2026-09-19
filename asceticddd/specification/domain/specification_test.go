@@ -17,7 +17,7 @@ func TestValueNode(t *testing.T) {
 func TestNotNode(t *testing.T) {
 	valNode := Value(true)
 	notNode := Not(valNode)
-	if notNode.Operand() != valNode {
+	if !SameTree(notNode.Operand(), valNode) {
 		t.Error("NOT node operand mismatch")
 	}
 }
@@ -27,10 +27,10 @@ func TestEqualNode(t *testing.T) {
 	right := Value(5)
 	eqNode := Equal(left, right)
 
-	if eqNode.Left() != left {
+	if !SameTree(eqNode.Left(), left) {
 		t.Error("Equal node left operand mismatch")
 	}
-	if eqNode.Right() != right {
+	if !SameTree(eqNode.Right(), right) {
 		t.Error("Equal node right operand mismatch")
 	}
 }
@@ -40,10 +40,10 @@ func TestAndNode(t *testing.T) {
 	right := Value(true)
 	andNode := And(left, right)
 
-	if andNode.Left() != left {
+	if !SameTree(andNode.Left(), left) {
 		t.Error("AND node left operand mismatch")
 	}
-	if andNode.Right() != right {
+	if !SameTree(andNode.Right(), right) {
 		t.Error("AND node right operand mismatch")
 	}
 }
@@ -70,7 +70,7 @@ func TestFieldNode(t *testing.T) {
 	if fieldNode.Name() != "name" {
 		t.Errorf("Expected field name 'name', got %s", fieldNode.Name())
 	}
-	if fieldNode.Object() != obj {
+	if !SameTree(fieldNode.Object(), obj) {
 		t.Error("Field object mismatch")
 	}
 }

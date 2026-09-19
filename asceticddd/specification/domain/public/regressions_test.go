@@ -14,7 +14,7 @@ func TestAShiftIsArithmetic(t *testing.T) {
 	flags := MakeNumberField("flags")
 	var shifted Mathematical = flags.Lshift(MakeNumberValue(2)).Add(MakeNumberValue(1))
 	want := s.Add(s.LeftShift(Field("flags"), s.Value(2)), s.Value(1))
-	if shifted.Delegate() != want {
+	if !s.SameTree(shifted.Delegate(), want) {
 		t.Errorf("got %#v", shifted.Delegate())
 	}
 	var _ Mathematical = MakeNumberField("flags").Rshift(MakeNumberValue(1))
@@ -37,7 +37,7 @@ func TestEqualityWithANullConstantIsTheNullTest(t *testing.T) {
 		},
 	}
 	for name, c := range cases {
-		if c.got != c.want {
+		if !s.SameTree(c.got, c.want) {
 			t.Errorf("%s: got %#v, want %#v", name, c.got, c.want)
 		}
 	}
