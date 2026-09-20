@@ -377,7 +377,30 @@ func requireParameterOfKind(formatType, name string, value any) (any, error) {
 // restore after it.
 type parseContext struct {
 	isWildcardContext bool
+	// depth is how deep the parser is: it grows where the parser recurses -
+	// at a group, a `!`, the filter of a collection - and nowhere else.
+	depth int
 }
+
+// maxHeight is how tall the tree of a template may be: the levels of the
+// longest way down it. maxNesting is how deep the parser may go to read one.
+//
+// Every reader of a tree recurses. The stack of a goroutine grows, up to a
+// gigabyte, and beyond that the program dies of a fatal error that no recover
+// catches: a text that is not trusted must not be a tree of millions of
+// levels. There was no bound at all.
+//
+// The two are counted apart, for they are not one number. How deep the parser
+// is comes down to a rule from the rule that called it. How tall a tree is
+// comes up from the trees below it, and grows wherever a node is made - in the
+// loop of a chain as well, where the parser does not recurse, and above a left
+// operand, which was read before anything knew it would have an operator over
+// it. The numbers are those of the Rust port, where they are measured against
+// a stack that does not grow: a template is one in every port, or in none.
+const (
+	maxHeight  = 128
+	maxNesting = 32
+)
 
 // placeholderInfo stores information about a placeholder.
 type placeholderInfo struct {
@@ -401,19 +424,31 @@ type parameters struct {
 // tree took for a value: a template that was not bound evaluated to false and
 // compiled to a query with the marker for a parameter. Kept as a function, a
 // tree comes of it with values in it or does not come at all.
-type builder func(params parameters) (spec.Visitable, error)
+//
+// With the function comes how tall the tree it builds is: known when the
+// template is parsed, which is when a tree too tall is refused.
+type builder struct {
+	build  func(params parameters) (spec.Visitable, error)
+	height int
+}
 
 func constant(node spec.Visitable) builder {
-	return func(parameters) (spec.Visitable, error) { return node, nil }
+	return builder{
+		build:  func(parameters) (spec.Visitable, error) { return node, nil },
+		height: 1,
+	}
 }
 
 func negation(operand builder) builder {
-	return func(params parameters) (spec.Visitable, error) {
-		node, err := operand(params)
-		if err != nil {
-			return nil, err
-		}
-		return spec.Not(node), nil
+	return builder{
+		build: func(params parameters) (spec.Visitable, error) {
+			node, err := operand.build(params)
+			if err != nil {
+				return nil, err
+			}
+			return spec.Not(node), nil
+		},
+		height: operand.height + 1,
 	}
 }
 
@@ -421,40 +456,49 @@ func negation(operand builder) builder {
 // bound to nil is the null test, as `@.a == null` is: both operands are values
 // by the time the comparison is made.
 func comparison(operator operators.Operator, left, right builder) builder {
-	return func(params parameters) (spec.Visitable, error) {
-		leftNode, err := left(params)
-		if err != nil {
-			return nil, err
-		}
-		rightNode, err := right(params)
-		if err != nil {
-			return nil, err
-		}
-		return spec.EqualityOrNullTest(operator, leftNode, rightNode), nil
+	return builder{
+		build: func(params parameters) (spec.Visitable, error) {
+			leftNode, err := left.build(params)
+			if err != nil {
+				return nil, err
+			}
+			rightNode, err := right.build(params)
+			if err != nil {
+				return nil, err
+			}
+			return spec.EqualityOrNullTest(operator, leftNode, rightNode), nil
+		},
+		height: max(left.height, right.height) + 1,
 	}
 }
 
 func connective(node func(spec.Visitable, ...spec.Visitable) spec.InfixNode, left, right builder) builder {
-	return func(params parameters) (spec.Visitable, error) {
-		leftNode, err := left(params)
-		if err != nil {
-			return nil, err
-		}
-		rightNode, err := right(params)
-		if err != nil {
-			return nil, err
-		}
-		return node(leftNode, rightNode), nil
+	return builder{
+		build: func(params parameters) (spec.Visitable, error) {
+			leftNode, err := left.build(params)
+			if err != nil {
+				return nil, err
+			}
+			rightNode, err := right.build(params)
+			if err != nil {
+				return nil, err
+			}
+			return node(leftNode, rightNode), nil
+		},
+		height: max(left.height, right.height) + 1,
 	}
 }
 
 func someItem(collection spec.ObjectNode, predicate builder) builder {
-	return func(params parameters) (spec.Visitable, error) {
-		node, err := predicate(params)
-		if err != nil {
-			return nil, err
-		}
-		return spec.Wildcard(collection, node), nil
+	return builder{
+		build: func(params parameters) (spec.Visitable, error) {
+			node, err := predicate.build(params)
+			if err != nil {
+				return nil, err
+			}
+			return spec.Wildcard(collection, node), nil
+		},
+		height: predicate.height + 1,
 	}
 }
 
@@ -598,24 +642,53 @@ func (p *NativeParametrizedSpecification) expect(tokens []Token, i int, tokenTyp
 	}
 }
 
+// tooDeep is the refusal of a template beyond either bound, at the token that
+// asks for one level more.
+func (p *NativeParametrizedSpecification) tooDeep(tokens []Token, at int) error {
+	return &JSONPathSyntaxError{
+		Message:    "Expression is nested too deep",
+		Position:   p.position(tokens, at),
+		Expression: p.template,
+		Context:    "expected a simpler expression",
+	}
+}
+
+// deeper returns the context a level below, if the parser may go that deep.
+func (p *NativeParametrizedSpecification) deeper(tokens []Token, at int, ctx parseContext) (parseContext, error) {
+	if ctx.depth >= maxNesting {
+		return ctx, p.tooDeep(tokens, at)
+	}
+	ctx.depth++
+	return ctx, nil
+}
+
+// bounded returns the builder of a node, if the tree it builds may be that
+// tall. Every node a rule makes goes through it.
+func (p *NativeParametrizedSpecification) bounded(tokens []Token, at int, node builder) (builder, error) {
+	if node.height > maxHeight {
+		return builder{}, p.tooDeep(tokens, at)
+	}
+	return node, nil
+}
+
 // parseFilter parses a filter: "[" "?" expression "]".
 func (p *NativeParametrizedSpecification) parseFilter(tokens []Token, ctx parseContext, start int) (builder, int, error) {
 	message := "Expected filter expression '[?...]'"
 	i, err := p.expect(tokens, start, TokenLBracket, message, "expected '['")
 	if err != nil {
-		return nil, i, err
+		return builder{}, i, err
 	}
 	i, err = p.expect(tokens, i, TokenQuestion, message, "expected '?'")
 	if err != nil {
-		return nil, i, err
+		return builder{}, i, err
 	}
 	node, i, err := p.parseExpression(tokens, ctx, i)
 	if err != nil {
-		return nil, i, err
+		return builder{}, i, err
 	}
 	i, err = p.expect(tokens, i, TokenRBracket, "Expected ']'", "expected end of filter expression")
 	if err != nil {
-		return nil, i, err
+		return builder{}, i, err
 	}
 	return node, i, nil
 }
@@ -642,17 +715,22 @@ func (p *NativeParametrizedSpecification) parsePrimary(tokens []Token, ctx parse
 
 	// Check for NOT operator (RFC 9535: !)
 	if i < len(tokens) && tokens[i].Type == TokenNot {
-		node, i, err := p.parsePrimary(tokens, ctx, i+1)
+		inner, err := p.deeper(tokens, i, ctx)
 		if err != nil {
-			return nil, i, err
+			return builder{}, i, err
 		}
-		return negation(node), i, nil
+		node, next, err := p.parsePrimary(tokens, inner, i+1)
+		if err != nil {
+			return builder{}, next, err
+		}
+		node, err = p.bounded(tokens, i, negation(node))
+		return node, next, err
 	}
 
 	// Parse left side (field access, nested wildcard, value or parentheses)
 	leftNode, i, err := p.parseOperand(tokens, ctx, i)
 	if err != nil {
-		return nil, i, err
+		return builder{}, i, err
 	}
 
 	// Parse operator
@@ -665,13 +743,14 @@ func (p *NativeParametrizedSpecification) parsePrimary(tokens []Token, ctx parse
 	}
 
 	// Parse right side
-	rightNode, i, err := p.parseOperand(tokens, ctx, i+1)
+	rightNode, next, err := p.parseOperand(tokens, ctx, i+1)
 	if err != nil {
-		return nil, i, err
+		return builder{}, next, err
 	}
 
 	// Create comparison node; `@.a == null` is the null test
-	return comparison(operator, leftNode, rightNode), i, nil
+	node, err := p.bounded(tokens, i, comparison(operator, leftNode, rightNode))
+	return node, next, err
 }
 
 // parseOperand parses an operand: either side of a comparison, or a test by itself.
@@ -682,15 +761,19 @@ func (p *NativeParametrizedSpecification) parseOperand(tokens []Token, ctx parse
 
 	if i < len(tokens) && tokens[i].Type == TokenLParen {
 		// Recursively parse FULL expression inside parentheses (can have && and ||)
-		node, i, err := p.parseExpression(tokens, ctx, i+1)
+		inner, err := p.deeper(tokens, i, ctx)
 		if err != nil {
-			return nil, i, err
+			return builder{}, i, err
+		}
+		node, i, err := p.parseExpression(tokens, inner, i+1)
+		if err != nil {
+			return builder{}, i, err
 		}
 		// The parenthesis that closes this group: an inner primary used to
 		// take it for its own, and `(a || b) && c` was read `a || (b && c)`.
 		i, err = p.expect(tokens, i, TokenRParen, "Expected ')'", "expected closing parenthesis")
 		if err != nil {
-			return nil, i, err
+			return builder{}, i, err
 		}
 		return node, i, nil
 	}
@@ -709,18 +792,21 @@ func (p *NativeParametrizedSpecification) parseAndExpression(tokens []Token, ctx
 	// Parse first primary expression
 	node, i, err := p.parsePrimary(tokens, ctx, start)
 	if err != nil {
-		return nil, i, err
+		return builder{}, i, err
 	}
 
 	// Handle && with left associativity
 	for i < len(tokens) && tokens[i].Type == TokenAnd {
-		i++
+		separator := i
 		var rightNode builder
-		rightNode, i, err = p.parsePrimary(tokens, ctx, i)
+		rightNode, i, err = p.parsePrimary(tokens, ctx, i+1)
 		if err != nil {
-			return nil, i, err
+			return builder{}, i, err
 		}
-		node = connective(spec.And, node, rightNode)
+		node, err = p.bounded(tokens, separator, connective(spec.And, node, rightNode))
+		if err != nil {
+			return builder{}, i, err
+		}
 	}
 
 	return node, i, nil
@@ -739,18 +825,21 @@ func (p *NativeParametrizedSpecification) parseExpression(tokens []Token, ctx pa
 	// Parse first AND expression (higher precedence)
 	node, i, err := p.parseAndExpression(tokens, ctx, start)
 	if err != nil {
-		return nil, i, err
+		return builder{}, i, err
 	}
 
 	// Handle || with left associativity
 	for i < len(tokens) && tokens[i].Type == TokenOr {
-		i++
+		separator := i
 		var rightNode builder
-		rightNode, i, err = p.parseAndExpression(tokens, ctx, i)
+		rightNode, i, err = p.parseAndExpression(tokens, ctx, i+1)
 		if err != nil {
-			return nil, i, err
+			return builder{}, i, err
 		}
-		node = connective(spec.Or, node, rightNode)
+		node, err = p.bounded(tokens, separator, connective(spec.Or, node, rightNode))
+		if err != nil {
+			return builder{}, i, err
+		}
 	}
 
 	return node, i, nil
@@ -827,7 +916,7 @@ func (p *NativeParametrizedSpecification) parseFieldAccess(tokens []Token, ctx p
 		var err error
 		i, err = p.expect(tokens, i, TokenDollar, "Expected '@' or '$'", "expected field access")
 		if err != nil {
-			return nil, i, err
+			return builder{}, i, err
 		}
 		parent = spec.GlobalScope()
 	}
@@ -839,7 +928,7 @@ func (p *NativeParametrizedSpecification) parseFieldAccess(tokens []Token, ctx p
 	}
 
 	if len(fieldChain) == 0 {
-		return nil, i, &JSONPathSyntaxError{
+		return builder{}, i, &JSONPathSyntaxError{
 			Message:    "Expected field name",
 			Position:   p.position(tokens, i),
 			Expression: p.template,
@@ -852,7 +941,7 @@ func (p *NativeParametrizedSpecification) parseFieldAccess(tokens []Token, ctx p
 		// Build parent chain for all fields except the last
 		parent = p.buildObjectChain(parent, fieldChain[:len(fieldChain)-1])
 		collectionName := fieldChain[len(fieldChain)-1]
-		return p.parseNestedWildcard(tokens, i, parent, collectionName)
+		return p.parseNestedWildcard(tokens, ctx, i, parent, collectionName)
 	}
 
 	// Build nested Field structure: a.b.c -> Field(Object(Object(parent, "a"), "b"), "c")
@@ -865,14 +954,20 @@ func (p *NativeParametrizedSpecification) parseFieldAccess(tokens []Token, ctx p
 // A filter applies to the items of a collection, so the wildcard is required:
 // `collection[?predicate]` used to lose its path and have the predicate
 // applied to the candidate.
-func (p *NativeParametrizedSpecification) parseNestedWildcard(tokens []Token, start int, parent spec.EmptiableObject, collectionName string) (builder, int, error) {
+func (p *NativeParametrizedSpecification) parseNestedWildcard(tokens []Token, ctx parseContext, start int, parent spec.EmptiableObject, collectionName string) (builder, int, error) {
 	i := start
+
+	// The predicate is read a level below where the collection stands
+	inner, err := p.deeper(tokens, start, ctx)
+	if err != nil {
+		return builder{}, i, err
+	}
 
 	// Skip [*]
 	if p.isWildcardPattern(tokens, i) {
 		i += 3
 	} else {
-		return nil, i, &JSONPathSyntaxError{
+		return builder{}, i, &JSONPathSyntaxError{
 			Message:    "Expected wildcard '[*]'",
 			Position:   p.position(tokens, i+1),
 			Expression: p.template,
@@ -882,14 +977,15 @@ func (p *NativeParametrizedSpecification) parseNestedWildcard(tokens []Token, st
 
 	// Parse filter expression [?...]
 	// "@" is the item inside the predicate
-	predicate, i, err := p.parseFilter(tokens, parseContext{isWildcardContext: true}, i)
+	predicate, i, err := p.parseFilter(tokens, parseContext{isWildcardContext: true, depth: inner.depth}, i)
 	if err != nil {
-		return nil, i, err
+		return builder{}, i, err
 	}
 
 	// Create Wildcard node
 	collectionObj := spec.Object(parent, collectionName)
-	return someItem(collectionObj, predicate), i, nil
+	node, err := p.bounded(tokens, start, someItem(collectionObj, predicate))
+	return node, i, err
 }
 
 // parseValue parses a value (literal or placeholder).
@@ -897,7 +993,7 @@ func (p *NativeParametrizedSpecification) parseValue(tokens []Token, start int) 
 	i := start
 
 	if i >= len(tokens) {
-		return nil, i, &JSONPathSyntaxError{
+		return builder{}, i, &JSONPathSyntaxError{
 			Message:    "Unexpected end of expression",
 			Position:   len(p.template),
 			Expression: p.template,
@@ -911,14 +1007,14 @@ func (p *NativeParametrizedSpecification) parseValue(tokens []Token, start int) 
 	case TokenNumber:
 		value, err := readNumber(token.Value, token.Position, p.template)
 		if err != nil {
-			return nil, i, err
+			return builder{}, i, err
 		}
 		return constant(spec.Value(value)), i + 1, nil
 
 	case TokenString:
 		value, err := readString(token.Value, token.Position, p.template)
 		if err != nil {
-			return nil, i, err
+			return builder{}, i, err
 		}
 		return constant(spec.Value(value)), i + 1, nil
 
@@ -936,7 +1032,7 @@ func (p *NativeParametrizedSpecification) parseValue(tokens []Token, start int) 
 		}
 	}
 
-	return nil, i, &JSONPathSyntaxError{
+	return builder{}, i, &JSONPathSyntaxError{
 		Message:    fmt.Sprintf("Unexpected token '%s'", token.Value),
 		Position:   token.Position,
 		Expression: p.template,
@@ -949,12 +1045,15 @@ func (p *NativeParametrizedSpecification) parseValue(tokens []Token, start int) 
 // place of the token among the placeholders of the template.
 func (p *NativeParametrizedSpecification) createPlaceholderValue(tokens []Token, i int) builder {
 	info := p.placeholderInfo[p.placeholderAt[i]]
-	return func(params parameters) (spec.Visitable, error) {
-		value, err := p.bindPlaceholder(info, params)
-		if err != nil {
-			return nil, err
-		}
-		return spec.Value(value), nil
+	return builder{
+		build: func(params parameters) (spec.Visitable, error) {
+			value, err := p.bindPlaceholder(info, params)
+			if err != nil {
+				return nil, err
+			}
+			return spec.Value(value), nil
+		},
+		height: 1,
 	}
 }
 
@@ -966,7 +1065,7 @@ func (p *NativeParametrizedSpecification) createPlaceholderValue(tokens []Token,
 func (p *NativeParametrizedSpecification) parsePath(tokens []Token, ctx parseContext) (builder, bool, error) {
 	i, err := p.expect(tokens, 0, TokenDollar, "Expected '$'", "a template starts at the root")
 	if err != nil {
-		return nil, false, err
+		return builder{}, false, err
 	}
 
 	// Parse path chain (e.g., a.b.c)
@@ -974,7 +1073,7 @@ func (p *NativeParametrizedSpecification) parsePath(tokens []Token, ctx parseCon
 	if i < len(tokens) && tokens[i].Type == TokenDot {
 		pathChain, i = p.parseIdentifierChain(tokens, i+1)
 		if len(pathChain) == 0 {
-			return nil, false, &JSONPathSyntaxError{
+			return builder{}, false, &JSONPathSyntaxError{
 				Message:    "Expected field name",
 				Position:   p.position(tokens, i),
 				Expression: p.template,
@@ -988,20 +1087,20 @@ func (p *NativeParametrizedSpecification) parsePath(tokens []Token, ctx parseCon
 	if len(pathChain) == 0 {
 		// No path found, it's just a filter without path
 		if i >= len(tokens) || tokens[i].Type != TokenLBracket {
-			return nil, false, &JSONPathSyntaxError{
+			return builder{}, false, &JSONPathSyntaxError{
 				Message:    "Expected path or filter expression",
 				Position:   p.position(tokens, i),
 				Expression: p.template,
 				Context:    "after '$'",
 			}
 		}
-		node, i, err = p.parseFilter(tokens, parseContext{isWildcardContext: false}, i)
+		node, i, err = p.parseFilter(tokens, parseContext{isWildcardContext: false, depth: ctx.depth}, i)
 		if err != nil {
-			return nil, false, err
+			return builder{}, false, err
 		}
 	} else {
 		if i >= len(tokens) || tokens[i].Type != TokenLBracket {
-			return nil, false, &JSONPathSyntaxError{
+			return builder{}, false, &JSONPathSyntaxError{
 				Message:    "Expected filter expression '[?...]'",
 				Position:   p.position(tokens, i),
 				Expression: p.template,
@@ -1012,15 +1111,15 @@ func (p *NativeParametrizedSpecification) parsePath(tokens []Token, ctx parseCon
 		parent := p.buildObjectChain(spec.GlobalScope(), pathChain[:len(pathChain)-1])
 		collectionName := pathChain[len(pathChain)-1]
 		// Wildcard with filter
-		node, i, err = p.parseNestedWildcard(tokens, i, parent, collectionName)
+		node, i, err = p.parseNestedWildcard(tokens, ctx, i, parent, collectionName)
 		if err != nil {
-			return nil, false, err
+			return builder{}, false, err
 		}
 		isWildcard = true
 	}
 
 	if i < len(tokens) {
-		return nil, false, &JSONPathSyntaxError{
+		return builder{}, false, &JSONPathSyntaxError{
 			Message:    fmt.Sprintf("Unexpected token '%s'", tokens[i].Value),
 			Position:   tokens[i].Position,
 			Expression: p.template,
@@ -1064,12 +1163,12 @@ func (p *NativeParametrizedSpecification) bindPlaceholder(info placeholderInfo, 
 // what the tree is - a nil makes a null test of an equality - so a query is
 // compiled of a bound template, and not once for all.
 func (p *NativeParametrizedSpecification) Bind(params ...any) (spec.Visitable, error) {
-	return p.builder(parameters{positional: params})
+	return p.builder.build(parameters{positional: params})
 }
 
 // BindNamed builds the specification the template is of these named parameters.
 func (p *NativeParametrizedSpecification) BindNamed(namedParams map[string]any) (spec.Visitable, error) {
-	return p.builder(parameters{named: namedParams})
+	return p.builder.build(parameters{named: namedParams})
 }
 
 // Match checks if data matches the specification with given positional parameters.
@@ -1085,7 +1184,7 @@ func (p *NativeParametrizedSpecification) MatchNamed(data spec.Context, namedPar
 // matchInternal is the internal implementation of Match and MatchNamed.
 func (p *NativeParametrizedSpecification) matchInternal(data spec.Context, params parameters) (bool, error) {
 	// Bind placeholder values to the parsed template
-	boundAST, err := p.builder(params)
+	boundAST, err := p.builder.build(params)
 	if err != nil {
 		return false, err
 	}

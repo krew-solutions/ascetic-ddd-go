@@ -1479,7 +1479,7 @@ func TestASTCaching_ASTIsCached(t *testing.T) {
 
 	// AST should be cached: as a function of the parameters, which builds
 	// the tree they make of the template
-	if s.builder == nil {
+	if s.builder.build == nil {
 		t.Error("expected AST to be cached")
 	}
 }
