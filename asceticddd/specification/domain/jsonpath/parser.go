@@ -150,7 +150,10 @@ var tokenPatterns = []tokenPattern{
 	// the kind the string is written in can stand inside it. Which escapes
 	// there are is readString's to say, with a position.
 	{TokenString, regexp.MustCompile(`^(?s:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")`)},
-	{TokenPlaceholder, regexp.MustCompile(`^%\(\w+\)[sdf]|^%[sdf]`)},
+	// One anchor, in front of the whole: with one in each branch and none in
+	// front the engine does not know the pattern for anchored, and looks for
+	// it through all the text that is left - for every token.
+	{TokenPlaceholder, regexp.MustCompile(`^(?:%\(\w+\)[sdf]|%[sdf])`)},
 	{TokenIdentifier, regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*`)},
 	{TokenWhitespace, regexp.MustCompile(`^\s+`)},
 }
@@ -465,9 +468,11 @@ func someItem(collection spec.ObjectNode, predicate builder) builder {
 type NativeParametrizedSpecification struct {
 	template        string
 	placeholderInfo []placeholderInfo
-	builder         builder // Parsed once at initialization
-	isWildcard      bool
-	registry        *operators.OperatorRegistry
+	// placeholderAt is the entry of placeholderInfo for the token at an index.
+	placeholderAt map[int]int
+	builder       builder // Parsed once at initialization
+	isWildcard    bool
+	registry      *operators.OperatorRegistry
 }
 
 // Parse parses RFC 9535 compliant JSONPath expression with C-style placeholders
@@ -523,10 +528,16 @@ func MustParse(template string) *NativeParametrizedSpecification {
 // mixed template bound the wrong parameters.
 func (p *NativeParametrizedSpecification) extractPlaceholders(tokens []Token) error {
 	var named, positional []Token
-	for _, token := range tokens {
+	// A template is of one style, so its placeholders are listed in the order
+	// they stand: the place of a token among them is its entry. Counted here,
+	// once - it used to be counted over the tokens before each placeholder,
+	// and the time grew as the square of their number.
+	p.placeholderAt = make(map[int]int)
+	for i, token := range tokens {
 		if token.Type != TokenPlaceholder {
 			continue
 		}
+		p.placeholderAt[i] = len(p.placeholderAt)
 		if strings.HasPrefix(token.Value, "%(") {
 			named = append(named, token)
 		} else {
@@ -937,13 +948,7 @@ func (p *NativeParametrizedSpecification) parseValue(tokens []Token, start int) 
 // later: by what its entry of placeholderInfo says, which is found by the
 // place of the token among the placeholders of the template.
 func (p *NativeParametrizedSpecification) createPlaceholderValue(tokens []Token, i int) builder {
-	index := 0
-	for _, token := range tokens[:i] {
-		if token.Type == TokenPlaceholder {
-			index++
-		}
-	}
-	info := p.placeholderInfo[index]
+	info := p.placeholderInfo[p.placeholderAt[i]]
 	return func(params parameters) (spec.Visitable, error) {
 		value, err := p.bindPlaceholder(info, params)
 		if err != nil {
