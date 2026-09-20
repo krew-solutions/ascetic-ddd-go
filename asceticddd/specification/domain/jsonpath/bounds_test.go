@@ -87,6 +87,40 @@ func TestALongTextIsReadInTheTimeItTakesToReadIt(t *testing.T) {
 	}
 }
 
+// balanced returns comparisons with a parameter each, two to the power of
+// depth of them, grouped in halves: a wide tree that is neither tall nor deep.
+func balanced(depth int) string {
+	if depth == 0 {
+		return "@.a == %d"
+	}
+	half := balanced(depth - 1)
+	return "(" + half + " && " + half + ")"
+}
+
+// The builder of a placeholder's value counted the placeholders among the
+// tokens before it, for each placeholder, so a template was parsed in a time
+// that grew as the square of their number. A long text that is refused does
+// not show it: it is refused before its placeholders are reached.
+func TestATemplateOfManyParametersIsReadInTheTimeItTakesToReadIt(t *testing.T) {
+	template := "$[?" + balanced(16) + "]" // 65536 of them
+	started := time.Now()
+	parsed, err := Parse(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(started); took > 5*time.Second {
+		t.Errorf("took %s", took)
+	}
+	params := make([]any, 1<<16)
+	for i := range params {
+		params[i] = 1
+	}
+	matched, err := parsed.Match(NewDictContext(map[string]any{"a": 1}), params...)
+	if err != nil || !matched {
+		t.Errorf("got %v, %v", matched, err)
+	}
+}
+
 // There was no bound at all: a goroutine's stack grows, up to a gigabyte, and
 // beyond it the program dies of a fatal error that no recover catches. A text
 // of a few megabytes is a tree of millions of levels.
