@@ -200,6 +200,36 @@ func RecentAndDearSpec(s Store, since time.Time, min, max int, at clock.Instant,
 	}
 }
 
+// The first `return` of the body was taken for the predicate and the rest of
+// the body was not looked at: `if s.Deleted { return false }; return s.Price >
+// 100` was generated as `Price > 100`, so the function refused the deleted and
+// the query selected them.
+func TestABodyOfMoreThanOneReturnIsRefused(t *testing.T) {
+	for name, body := range map[string]string{
+		"an early return":    "if s.Deleted {\n\t\treturn false\n\t}\n\treturn s.Price > 100",
+		"a statement before": "min := 100\n\treturn s.Price > min",
+		"no return":          "panic(s.Price)",
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := "package main\n//spec:sql\nfunc Spec(s Store) bool {\n\t" + body + "\n}\n"
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(fset, "test.go", source, parser.ParseComments)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var code bytes.Buffer
+			err = renderCode(&code, "main", "Store", findSpecFunctions(fset, file, "Store"))
+			var refused *UnsupportedError
+			if !errors.As(err, &refused) {
+				t.Fatalf("generated, %v:\n%s", err, code.String())
+			}
+			if !refused.Pos.IsValid() || !strings.Contains(err.Error(), "Spec") {
+				t.Errorf("the error has no position or no name: %v", err)
+			}
+		})
+	}
+}
+
 // A query cannot be written without knowing the table, and what a field of
 // the struct is called there is the repository's to say. The generated
 // `...SQL()` knew neither: it compiled the tree as it was, under the names of

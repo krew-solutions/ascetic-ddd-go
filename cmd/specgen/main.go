@@ -103,6 +103,9 @@ type SpecFunc struct {
 	// Imports are the imports of the source that the types of Params are of.
 	Imports []string
 	Body    ast.Expr
+	// Refused is why the function, marked as a specification, is not one: it
+	// is reported when the code is generated, and nothing is generated.
+	Refused error
 }
 
 // SpecParam is a parameter of a specification: its name, and its type as the
@@ -173,21 +176,11 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 			return true
 		}
 
-		// Find return statement
-		var returnExpr ast.Expr
-		for _, stmt := range funcDecl.Body.List {
-			if retStmt, ok := stmt.(*ast.ReturnStmt); ok {
-				if len(retStmt.Results) == 1 {
-					returnExpr = retStmt.Results[0]
-					break
-				}
-			}
-		}
-
-		if returnExpr == nil {
-			log.Printf("Warning: %s has no return statement", funcDecl.Name.Name)
-			return true
-		}
+		// The body is one return and nothing else. The first return used to
+		// be taken and the rest not looked at: `if s.Deleted { return false }`
+		// before it made a function that refuses the deleted and a query that
+		// selects them.
+		returnExpr, refused := theReturnOf(funcDecl.Body)
 
 		specs = append(specs, SpecFunc{
 			Name:    funcDecl.Name.Name,
@@ -196,12 +189,25 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 			Params:  params,
 			Imports: importsOf(file, funcDecl.Type.Params.List[1:]),
 			Body:    returnExpr,
+			Refused: refused,
 		})
 
 		return true
 	})
 
 	return specs
+}
+
+// theReturnOf returns what a body of one return statement returns.
+func theReturnOf(body *ast.BlockStmt) (ast.Expr, error) {
+	if len(body.List) != 1 {
+		return nil, unsupported(body.List[1], "the body of a specification is one return: what else it does is not in its tree")
+	}
+	retStmt, ok := body.List[0].(*ast.ReturnStmt)
+	if !ok || len(retStmt.Results) != 1 {
+		return nil, unsupported(body.List[0], "the body of a specification is one return of one value")
+	}
+	return retStmt.Results[0], nil
 }
 
 // specParams reads the parameters of a predicate after its candidate.
@@ -289,6 +295,9 @@ func renderCode(f io.Writer, pkgName, typeName string, specs []SpecFunc) error {
 		visitor := NewSpecGenVisitor(typeName).withRoot(s.Param)
 
 		// What cannot be a specification is reported where it stands.
+		if s.Refused != nil {
+			return fmt.Errorf("%s: %w", s.Name, s.Refused)
+		}
 		body, err := visitor.Visit(s.Body)
 		if err != nil {
 			return fmt.Errorf("%s: %w", s.Name, err)
