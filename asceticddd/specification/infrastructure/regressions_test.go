@@ -664,6 +664,47 @@ func (leastContext) ValueNode(val any) (Mapped, error) {
 	return Scalar(s.Value(val)), nil
 }
 
+// A mapping and a schema could not be given together: Compile took a context
+// and no options, CompileToSQL options and no context.
+func TestAMappingAndASchemaAreGivenTogether(t *testing.T) {
+	schema := NewSchemaRegistry("stores").WithParentAlias("s").
+		RegisterRelational("store_items", "items", "store_id", "id")
+	dear := s.Wildcard(s.Object(s.GlobalScope(), "Items"), s.GreaterThan(item("Price"), s.Value(500)))
+	sql, params, err := Compile(storeItemsContext{}, dear, WithSchema(schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `EXISTS (SELECT 1 FROM "items" AS "store_item_1" WHERE "store_item_1"."store_id" = "s"."id" AND "store_item_1"."price_cents" > $1)`
+	if sql != want || !reflect.DeepEqual(params, []any{500}) {
+		t.Errorf("got  %s, %v\nwant %s", sql, params, want)
+	}
+}
+
+// storeItemsContext names the members of a store as the storage does.
+type storeItemsContext struct{ ContextDefaults }
+
+func (storeItemsContext) AttrNode(path []string) (Mapped, error) {
+	return nil, fmt.Errorf("no such member of a store: %s", strings.Join(path, "."))
+}
+
+func (storeItemsContext) ItemAttrNode(path []string) (Mapped, error) {
+	if len(path) == 1 && path[0] == "Price" {
+		return Scalar(item("price_cents")), nil
+	}
+	return nil, fmt.Errorf("no such member of an item: %s", strings.Join(path, "."))
+}
+
+func (storeItemsContext) CollectionNode(path []string) (s.EmptiableObject, error) {
+	if len(path) == 1 && path[0] == "Items" {
+		return s.Object(s.GlobalScope(), "store_items"), nil
+	}
+	return nil, fmt.Errorf("no such collection of a store: %s", strings.Join(path, "."))
+}
+
+func (storeItemsContext) ValueNode(val any) (Mapped, error) {
+	return Scalar(s.Value(val)), nil
+}
+
 func TestWhatAContextMustSayAndWhatItMay(t *testing.T) {
 	var _ Context = leastContext{}
 

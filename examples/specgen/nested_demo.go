@@ -73,7 +73,7 @@ func runNestedDemo() {
 	fmt.Println("\n=== 1. SIMPLE NESTED WILDCARD (3 levels) ===")
 	if HasRegionWithExpensiveItemsSpec(org) {
 		fmt.Println("✓ Organization HAS region with expensive items (>$5000)")
-		sql, params, err := HasRegionWithExpensiveItemsSpecSQL()
+		sql, params, err := organizationSQL(HasRegionWithExpensiveItemsSpecAST())
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -84,7 +84,7 @@ func runNestedDemo() {
 	fmt.Println("\n=== 2. NESTED WITH CONDITIONS AT EACH LEVEL ===")
 	if HasActiveRegionWithPremiumItemsSpec(org) {
 		fmt.Println("✓ Organization HAS active region -> active category -> premium item")
-		sql, params, err := HasActiveRegionWithPremiumItemsSpecSQL()
+		sql, params, err := organizationSQL(HasActiveRegionWithPremiumItemsSpecAST())
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -95,7 +95,7 @@ func runNestedDemo() {
 	fmt.Println("\n=== 3. MIXED: ROOT + NESTED ===")
 	if ActiveOrgWithExpensiveItemsSpec(org) {
 		fmt.Println("✓ Active organization with expensive items (>$10000)")
-		sql, params, err := ActiveOrgWithExpensiveItemsSpecSQL()
+		sql, params, err := organizationSQL(ActiveOrgWithExpensiveItemsSpecAST())
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -106,7 +106,7 @@ func runNestedDemo() {
 	fmt.Println("\n=== 4. NEGATION OF NESTED ===")
 	if NoRegionWithExpensiveItemsSpec(org) {
 		fmt.Println("✓ Organization has NO region with ultra-expensive items (>$100000)")
-		sql, params, err := NoRegionWithExpensiveItemsSpecSQL()
+		sql, params, err := organizationSQL(NoRegionWithExpensiveItemsSpecAST())
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -117,12 +117,13 @@ func runNestedDemo() {
 	fmt.Println("\n=== NESTED WILDCARD SUMMARY ===")
 	fmt.Println("✅ Triple nesting: Organization -> Regions -> Categories -> Items")
 	fmt.Println("✅ Each level gets unique alias: region_1, category_2, item_3")
-	fmt.Println("✅ Nested paths: category_1.Items, region_1.Categories")
+	fmt.Println("✅ Nested paths: \"category_2\".\"items\", \"region_1\".\"categories\"")
+	fmt.Println("✅ Names of the storage: said once, in repository.go")
 	fmt.Println("✅ Conditions at each nesting level")
 	fmt.Println("✅ SQL: Nested EXISTS subqueries with proper aliasing")
 	fmt.Println("\n📝 Generated SQL Pattern:")
-	fmt.Println("  EXISTS (SELECT 1 FROM unnest(Regions) AS region_1")
-	fmt.Println("    WHERE EXISTS (SELECT 1 FROM unnest(region_1.Categories) AS category_2")
-	fmt.Println("      WHERE EXISTS (SELECT 1 FROM unnest(category_2.Items) AS item_3")
-	fmt.Println("        WHERE item_3.Price > $1)))")
+	fmt.Println(`  EXISTS (SELECT 1 FROM unnest("regions") AS "region_1"`)
+	fmt.Println(`    WHERE EXISTS (SELECT 1 FROM unnest("region_1"."categories") AS "category_2"`)
+	fmt.Println(`      WHERE EXISTS (SELECT 1 FROM unnest("category_2"."items") AS "item_3"`)
+	fmt.Println(`        WHERE "item_3"."price" > $1)))`)
 }

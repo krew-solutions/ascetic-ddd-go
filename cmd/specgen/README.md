@@ -4,7 +4,7 @@
 
 ## Why?
 
-**Goal**: Maximize performance by using native Go functions for in-memory checks while still being able to generate SQL from the same specification.
+**Goal**: Maximize performance by using native Go functions for in-memory checks while still being able to compile the same specification to SQL.
 
 **Problem**: Python can parse lambda functions at runtime using `inspect` and `ast`, but Go cannot inspect function bodies at runtime.
 
@@ -15,9 +15,16 @@
 ```
 Go Function (predicate)  →  specgen  →  Generated AST Code
      ↓                                         ↓
-In-Memory Check                            SQL Query
-(FASTEST)                              (from pre-built AST)
+In-Memory Check                     Repository: Compile(context, AST)
+(FASTEST)                                      ↓
+                                           SQL Query
 ```
+
+The tree is all that is generated. It has the names of the struct's fields;
+what a field is called in the storage, and where a collection is kept, is the
+repository's to say, with a `Context` - one place for each aggregate. A query
+cannot be written without knowing the table, so it is written by what knows
+it, and the package of the domain does not import the infrastructure.
 
 ## Usage
 
@@ -52,17 +59,47 @@ if AdultUserSpec(user) {
     fmt.Println("Adult")
 }
 
-// SQL: From generated AST (ZERO OVERHEAD)
-sql, params, _ := AdultUserSpecSQL()
+// SQL: in the repository, from the generated AST and the repository's context
+sql, params, _ := infra.Compile(userContext{}, AdultUserSpecAST())
 db.Query("SELECT * FROM users WHERE " + sql, params...)
 ```
+
+```go
+// userContext says what the members of a User are in the table, and refuses
+// any other: it is also the list of what a specification may filter by.
+type userContext struct{ infra.ContextDefaults }
+
+func (userContext) AttrNode(path []string) (infra.Mapped, error) {
+    switch strings.Join(path, ".") {
+    case "Age":
+        return infra.Scalar(spec.Field(spec.GlobalScope(), "age")), nil
+    case "Active":
+        return infra.Scalar(spec.Field(spec.GlobalScope(), "is_active")), nil
+    default:
+        return nil, fmt.Errorf("no such member of a user: %s", strings.Join(path, "."))
+    }
+}
+
+func (userContext) ValueNode(val any) (infra.Mapped, error) {
+    return infra.Scalar(spec.Value(val)), nil
+}
+```
+
+`infra.Compile(context, tree, infra.WithSchema(schema))` takes the schema of
+the collections kept in tables of their own as well.
+
+A name is written into the query between quotes, as it is: `"Age"` is not the
+column `age`. A `...SQL()` used to be generated, which compiled the tree under
+the names of Go's fields; it found a column only while PostgreSQL folded an
+unquoted word, and only a word of one part - `CreatedAt` was `createdat`, not
+`created_at`.
 
 ## Performance
 
 | Aspect | Python lambda | Go specgen |
 |--------|--------------|-----------|
 | In-memory | Bytecode interpretation | **Native function call** |
-| SQL generation | Runtime AST parse | **Pre-generated AST** |
+| Tree for SQL | Runtime AST parse | **Pre-generated AST** |
 | Parse overhead | Every time | **Once at compile time** |
 | Type safety | Runtime | **Compile time** |
 
@@ -101,11 +138,6 @@ func PremiumUserSpecAST() spec.Visitable {
         ),
     )
 }
-
-func PremiumUserSpecSQL() (string, []any, error) {
-    ast := PremiumUserSpecAST()
-    return infra.CompileToSQL(ast)
-}
 ```
 
 ## Installation
@@ -132,8 +164,8 @@ specgen -type=TypeName
 
 - Functions must have signature: `func(T) bool`, or `func(T, ...) bool`: what
   follows the candidate are the parameters of the specification, and the
-  generated `...AST` and `...SQL` take the same. A parameter must have a name
-  and may not be variadic.
+  generated `...AST` takes the same. A parameter must have a name and may not
+  be variadic.
 
   ```go
   //spec:sql
@@ -141,11 +173,12 @@ specgen -type=TypeName
 
   // generated:
   func DearSinceSpecAST(since time.Time, min int) spec.Visitable
-  func DearSinceSpecSQL(since time.Time, min int) (string, []any, error)
   ```
 - Functions must have `//spec:sql` comment
 - Function body must contain a single return statement
-- Type `T` must be in the same package
+- Type `T` must be in the same package. Its fields need not be exported: the
+  generator reads the source, and the generated file is of the same package,
+  so a predicate inside the package of an aggregate may name private fields.
 
 ## Example Project
 
@@ -199,7 +232,8 @@ that compiles, and a query that compares NULL and selects nothing.
   does not know the types - as it does for `Gt`, `Lt` and the rest. `time.Now()`
   is refused: the clock comes as a parameter. A nullable time is a pointer, and
   its guard is generated with it: `s.DeletedAt != nil && s.DeletedAt.After(since)`
-  is `DeletedAt IS NOT NULL AND DeletedAt > $1`.
+  is `"DeletedAt" IS NOT NULL AND "DeletedAt" > $1`, under the names a context
+  gives.
 - From the predicate of an inner collection the item of an outer one cannot be
   named: the tree has one item, the nearest. It used to become a field of the
   candidate.
@@ -210,5 +244,5 @@ that compiles, and a query that compares NULL and selects nothing.
 - [ ] Support for wildcards (`any(item in collection where ...)`)
 - [ ] Support for method calls on fields
 - [ ] Custom operator mappings
-- [ ] Multiple SQL dialect targets
-- [ ] Validation of generated SQL at compile time
+- [ ] A specification as an object: `Expression()` generated from the
+  `IsSatisfiedBy` method of a specification's type, its fields as the values

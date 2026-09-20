@@ -123,8 +123,8 @@ spec.Wildcard(
 **SQL:** (when PostgreSQL visitor supports it)
 ```sql
 WHERE EXISTS (
-    SELECT 1 FROM unnest(Items) AS item
-    WHERE item.Price > $1
+    SELECT 1 FROM unnest("items") AS "item"
+    WHERE "item"."price" > $1
 )
 ```
 
@@ -370,12 +370,12 @@ spec.Wildcard(
 **SQL:**
 ```sql
 WHERE EXISTS (
-    SELECT 1 FROM unnest(Regions) AS region_1
+    SELECT 1 FROM unnest("regions") AS "region_1"
     WHERE EXISTS (
-        SELECT 1 FROM unnest(region_1.Categories) AS category_2
+        SELECT 1 FROM unnest("region_1"."categories") AS "category_2"
         WHERE EXISTS (
-            SELECT 1 FROM unnest(category_2.Items) AS item_3
-            WHERE item_3.Price > $1
+            SELECT 1 FROM unnest("category_2"."items") AS "item_3"
+            WHERE "item_3"."price" > $1
         )
     )
 )
@@ -399,12 +399,12 @@ func HasActiveRegionWithPremiumItemsSpec(o Organization) bool {
 **SQL:**
 ```sql
 WHERE EXISTS (
-    SELECT 1 FROM unnest(Regions) AS region_1
-    WHERE region_1.Active AND EXISTS (
-        SELECT 1 FROM unnest(region_1.Categories) AS category_2
-        WHERE category_2.Active AND EXISTS (
-            SELECT 1 FROM unnest(category_2.Items) AS item_3
-            WHERE item_3.Price > $1 AND item_3.Active
+    SELECT 1 FROM unnest("regions") AS "region_1"
+    WHERE "region_1"."active" AND EXISTS (
+        SELECT 1 FROM unnest("region_1"."categories") AS "category_2"
+        WHERE "category_2"."active" AND EXISTS (
+            SELECT 1 FROM unnest("category_2"."items") AS "item_3"
+            WHERE "item_3"."price" > $1 AND "item_3"."active"
         )
     )
 )
@@ -493,21 +493,11 @@ func ActiveStoreSpecAST() spec.Visitable {
     return spec.Field(spec.GlobalScope(), "Active")
 }
 
-func ActiveStoreSpecSQL() (string, []any, error) {
-    ast := ActiveStoreSpecAST()
-    return infra.CompileToSQL(ast)
-}
-
 func HasCheapItemsSpecAST() spec.Visitable {
     return spec.Wildcard(
         spec.Object(spec.GlobalScope(), "Items"),
         spec.LessThan(spec.Field(spec.Item(), "Price"), spec.Value(100)),
     )
-}
-
-func HasCheapItemsSpecSQL() (string, []any, error) {
-    ast := HasCheapItemsSpecAST()
-    return infra.CompileToSQL(ast)
 }
 ```
 
@@ -522,8 +512,8 @@ for _, store := range stores {
     }
 }
 
-// SQL generation (when needed)
-sql, params, _ := ActiveStoreSpecSQL()
+// SQL (when needed): in the repository, with its context - repository.go
+sql, params, _ := infra.Compile(stores, ActiveStoreSpecAST())
 db.Query("SELECT * FROM stores WHERE " + sql, params...)
 ```
 

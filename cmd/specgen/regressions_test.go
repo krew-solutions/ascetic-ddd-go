@@ -184,8 +184,6 @@ func RecentAndDearSpec(s Store, since time.Time, min, max int, at clock.Instant,
 	for _, want := range []string{
 		// The parameters of the predicate, less its candidate.
 		`func RecentAndDearSpecAST(since time.Time, min int, max int, at clock.Instant, owner *string) spec.Visitable {`,
-		`func RecentAndDearSpecSQL(since time.Time, min int, max int, at clock.Instant, owner *string) (string, []any, error) {`,
-		`ast := RecentAndDearSpecAST(since, min, max, at, owner)`,
 		// They are values; equal to one of which is decided when the tree is built.
 		`spec.GreaterThan(spec.Field(spec.GlobalScope(), "CreatedAt"), spec.Value(since))`,
 		`spec.EqualityOrNullTest("=", spec.Field(spec.GlobalScope(), "Owner"), spec.Value(owner))`,
@@ -199,6 +197,34 @@ func RecentAndDearSpec(s Store, since time.Time, min, max int, at clock.Instant,
 	}
 	if strings.Contains(generated, "example.com/unused") {
 		t.Errorf("an import no parameter needs is generated:\n%s", generated)
+	}
+}
+
+// A query cannot be written without knowing the table, and what a field of
+// the struct is called there is the repository's to say. The generated
+// `...SQL()` knew neither: it compiled the tree as it was, under the names of
+// Go's fields - which found a column only while PostgreSQL folded an unquoted
+// word of one part - and it made the package of the domain import the
+// infrastructure. The tree is what is generated; a repository compiles it with
+// its own context: specification.Compile(context, XAST(), WithSchema(schema)).
+func TestOnlyTheTreeIsGenerated(t *testing.T) {
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "test.go", "package main\n"+spec("s.Price > 100"), parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var code bytes.Buffer
+	if err := renderCode(&code, "main", "Store", findSpecFunctions(fset, file, "Store")); err != nil {
+		t.Fatal(err)
+	}
+	generated := code.String()
+	if !strings.Contains(generated, "SpecAST() spec.Visitable {") {
+		t.Errorf("the tree is not generated:\n%s", generated)
+	}
+	for _, unwanted := range []string{"SQL(", "CompileToSQL", "specification/infrastructure"} {
+		if strings.Contains(generated, unwanted) {
+			t.Errorf("the generated code has %q:\n%s", unwanted, generated)
+		}
 	}
 }
 

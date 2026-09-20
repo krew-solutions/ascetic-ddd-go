@@ -81,10 +81,10 @@ Added 3 new test cases:
 ### Simple Nested (2 levels)
 ```sql
 EXISTS (
-    SELECT 1 FROM unnest(Categories) AS category_1
+    SELECT 1 FROM unnest("categories") AS "category_1"
     WHERE EXISTS (
-        SELECT 1 FROM unnest(category_1.Items) AS item_2
-        WHERE item_2.Price > $1
+        SELECT 1 FROM unnest("category_1"."items") AS "item_2"
+        WHERE "item_2"."price" > $1
     )
 )
 ```
@@ -92,12 +92,12 @@ EXISTS (
 ### Triple Nested (3 levels)
 ```sql
 EXISTS (
-    SELECT 1 FROM unnest(Regions) AS region_1
+    SELECT 1 FROM unnest("regions") AS "region_1"
     WHERE EXISTS (
-        SELECT 1 FROM unnest(region_1.Categories) AS category_2
+        SELECT 1 FROM unnest("region_1"."categories") AS "category_2"
         WHERE EXISTS (
-            SELECT 1 FROM unnest(category_2.Items) AS item_3
-            WHERE item_3.Price > $1
+            SELECT 1 FROM unnest("category_2"."items") AS "item_3"
+            WHERE "item_3"."price" > $1
         )
     )
 )
@@ -106,12 +106,12 @@ EXISTS (
 ### Nested with Conditions
 ```sql
 EXISTS (
-    SELECT 1 FROM unnest(Regions) AS region_1
-    WHERE region_1.Active AND EXISTS (
-        SELECT 1 FROM unnest(region_1.Categories) AS category_2
-        WHERE category_2.Active AND EXISTS (
-            SELECT 1 FROM unnest(category_2.Items) AS item_3
-            WHERE item_3.Price > $1 AND item_3.Active
+    SELECT 1 FROM unnest("regions") AS "region_1"
+    WHERE "region_1"."active" AND EXISTS (
+        SELECT 1 FROM unnest("region_1"."categories") AS "category_2"
+        WHERE "category_2"."active" AND EXISTS (
+            SELECT 1 FROM unnest("category_2"."items") AS "item_3"
+            WHERE "item_3"."price" > $1 AND "item_3"."active"
         )
     )
 )
@@ -163,7 +163,8 @@ if HasExpensiveItemsSpec(org) {
 
 **SQL generation** (when needed):
 ```go
-sql, params, _ := HasExpensiveItemsSpecSQL()
+// in the repository, with its context - repository.go
+sql, params, _ := infra.Compile(organizations, HasExpensiveItemsSpecAST())
 db.Query("SELECT * FROM organizations WHERE " + sql, params...)
 ```
 

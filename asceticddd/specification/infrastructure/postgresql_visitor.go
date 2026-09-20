@@ -17,21 +17,28 @@ type SqlFragment struct {
 	Params []any
 }
 
-// Compile transforms a domain specification and then renders it as SQL.
-func Compile(context Context, exp s.Visitable) (sql string, params []any, err error) {
+// Compile transforms a domain specification and then renders it as SQL: what
+// a repository does with a specification. The context says what the members
+// and the values of the domain are in the storage, the options how the
+// storage is laid out - WithSchema - and both are the repository's to know:
+// a query cannot be written without knowing the table. The options used not
+// to be taken, so a mapping and a schema could not be given together.
+func Compile(context Context, exp s.Visitable, opts ...PostgresqlVisitorOption) (sql string, params []any, err error) {
 	transformed, err := NewTransformVisitor(context).Transform(exp)
 	if err != nil {
 		return "", nil, err
 	}
-	fragment, err := NewPostgresqlVisitor().Compile(transformed)
+	fragment, err := NewPostgresqlVisitor(opts...).Compile(transformed)
 	if err != nil {
 		return "", nil, err
 	}
 	return fragment.SQL, fragment.Params, nil
 }
 
-// CompileToSQL compiles AST directly to SQL without context transformation.
-// Useful for generated code where AST is already in the right form.
+// CompileToSQL compiles AST directly to SQL without context transformation:
+// for a tree that is in the storage's names already. A tree built of a Go
+// predicate is not: it has the names of the fields of a struct. It goes
+// through Compile.
 func CompileToSQL(exp s.Visitable, opts ...PostgresqlVisitorOption) (sql string, params []any, err error) {
 	fragment, err := NewPostgresqlVisitor(opts...).Compile(exp)
 	if err != nil {

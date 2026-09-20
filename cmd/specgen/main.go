@@ -23,7 +23,7 @@ import (
 //	//go:generate go run github.com/krew-solutions/ascetic-ddd-go/cmd/specgen -type=User
 //
 // This will scan all functions with //spec:sql comment and generate
-// corresponding AST builder functions in *_spec_gen.go files.
+// corresponding AST builder functions in *_specs_gen.go files.
 
 var (
 	typeFlag = flag.String("type", "", "Type name to generate specs for")
@@ -282,7 +282,6 @@ func renderCode(f io.Writer, pkgName, typeName string, specs []SpecFunc) error {
 		fmt.Fprintf(f, "\n")
 	}
 	fmt.Fprintf(f, "\tspec \"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain\"\n")
-	fmt.Fprintf(f, "\tinfra \"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/infrastructure\"\n")
 	fmt.Fprintf(f, ")\n\n")
 
 	// Generate AST builder for each spec
@@ -297,23 +296,22 @@ func renderCode(f io.Writer, pkgName, typeName string, specs []SpecFunc) error {
 
 		// Generate AST function
 		fmt.Fprintf(f, "// %sAST returns AST for %s\n", s.Name, s.Name)
-		declared, passed := make([]string, 0, len(s.Params)), make([]string, 0, len(s.Params))
+		declared := make([]string, 0, len(s.Params))
 		for _, param := range s.Params {
 			declared = append(declared, param.Name+" "+param.Type)
-			passed = append(passed, param.Name)
 		}
-		signature, arguments := strings.Join(declared, ", "), strings.Join(passed, ", ")
+		signature := strings.Join(declared, ", ")
 
 		fmt.Fprintf(f, "func %sAST(%s) spec.Visitable {\n", s.Name, signature)
 		fmt.Fprintf(f, "\treturn %s\n", body)
 		fmt.Fprintf(f, "}\n\n")
 
-		// Generate SQL helper
-		fmt.Fprintf(f, "// %sSQL returns SQL for %s\n", s.Name, s.Name)
-		fmt.Fprintf(f, "func %sSQL(%s) (string, []any, error) {\n", s.Name, signature)
-		fmt.Fprintf(f, "\tast := %sAST(%s)\n", s.Name, arguments)
-		fmt.Fprintf(f, "\treturn infra.CompileToSQL(ast)\n")
-		fmt.Fprintf(f, "}\n\n")
+		// The tree is all that is generated. A query cannot be written without
+		// knowing the table, and what a field is called there is the
+		// repository's to say: it compiles the tree with its own context. A
+		// `...SQL()` used to be generated, which compiled the tree under the
+		// names of Go's fields and imported the infrastructure into the
+		// package of the domain.
 	}
 
 	return nil

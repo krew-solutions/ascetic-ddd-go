@@ -62,12 +62,11 @@ func AdultUserSpecAST() spec.Visitable {
         spec.Value(18),
     )
 }
-
-func AdultUserSpecSQL() (string, []any, error) {
-    ast := AdultUserSpecAST()
-    return infra.CompileToSQL(ast)
-}
 ```
+
+The tree is all that is generated: it has the names of the struct's fields. What
+a field is called in the storage is said by the repository, once for each
+aggregate - [repository.go](repository.go).
 
 ### 3. Use in your code
 
@@ -77,9 +76,9 @@ if AdultUserSpec(user) {
     fmt.Println("Adult user")
 }
 
-// SQL: when needed
-sql, params, _ := AdultUserSpecSQL()
-// SELECT * FROM users WHERE Age >= $1
+// SQL: when needed, in the repository, with its context
+sql, params, _ := infra.Compile(users, AdultUserSpecAST())
+// SELECT * FROM users WHERE "age" >= $1
 db.Query("SELECT * FROM users WHERE " + sql, params...)
 ```
 
@@ -152,11 +151,11 @@ Adult users:
 === SQL Generation (For Database Queries) ===
 
 AdultUserSpec SQL:
-  WHERE Age >= $1
+  WHERE "age" >= $1
   Params: [18]
 
 PremiumUserSpec SQL:
-  WHERE Age >= $1 AND Active AND Name != $2
+  WHERE "age" >= $1 AND "active" AND "name" != $2
   Params: [18 ]
 ```
 
@@ -179,7 +178,7 @@ PremiumUserSpec SQL:
 
 2. **Generated code**:
    - `*AST()` functions return Specification AST nodes
-   - `*SQL()` functions compile AST to SQL
+   - SQL is not generated: a repository compiles the AST with its context
    - Original functions remain unchanged for in-memory use
 
 3. **Runtime**:

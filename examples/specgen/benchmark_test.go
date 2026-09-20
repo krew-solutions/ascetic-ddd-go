@@ -46,7 +46,7 @@ func BenchmarkAdultUserSpec_GeneratedAST(b *testing.B) {
 // Benchmark: SQL generation (only when needed)
 func BenchmarkAdultUserSpec_SQL(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _, _ = AdultUserSpecSQL()
+		_, _, _ = userSQL(AdultUserSpecAST())
 	}
 }
 
@@ -60,7 +60,7 @@ func BenchmarkPremiumUserSpec_InMemory(b *testing.B) {
 // Benchmark: Complex specification SQL generation
 func BenchmarkPremiumUserSpec_SQL(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		_, _, _ = PremiumUserSpecSQL()
+		_, _, _ = userSQL(PremiumUserSpecAST())
 	}
 }
 

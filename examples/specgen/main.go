@@ -45,19 +45,19 @@ func runAdvancedDemo() {
 	fmt.Println("\n✓ spec.Any() - Checks if ANY item matches:")
 	if HasExpensiveItemsSpec(store) {
 		fmt.Println("  ✓ Store HAS expensive items (>$1000)")
-		sql, params, _ := HasExpensiveItemsSpecSQL()
+		sql, params, _ := storeSQL(HasExpensiveItemsSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
 	if HasCheapItemsSpec(store) {
 		fmt.Println("  ✓ Store HAS cheap items (<$100)")
-		sql, params, _ := HasCheapItemsSpecSQL()
+		sql, params, _ := storeSQL(HasCheapItemsSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
 	if HasItemInStockSpec(store) {
 		fmt.Println("  ✓ Store HAS items in stock")
-		sql, params, _ := HasItemInStockSpecSQL()
+		sql, params, _ := storeSQL(HasItemInStockSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
@@ -65,7 +65,7 @@ func runAdvancedDemo() {
 	fmt.Println("\n✓ spec.All() - Checks if ALL items match:")
 	if AllItemsActiveSpec(cheapStore) {
 		fmt.Println("  ✓ Cheap store: ALL items active")
-		sql, params, _ := AllItemsActiveSpecSQL()
+		sql, params, _ := storeSQL(AllItemsActiveSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 	if !AllItemsActiveSpec(store) {
@@ -76,13 +76,13 @@ func runAdvancedDemo() {
 
 	if HasAffordableActiveItemsSpec(store) {
 		fmt.Println("✓ Store has affordable active items (<$500 AND active)")
-		sql, params, _ := HasAffordableActiveItemsSpecSQL()
+		sql, params, _ := storeSQL(HasAffordableActiveItemsSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
 	if HasPremiumItemsSpec(store) {
 		fmt.Println("✓ Store has premium items (>$5000 AND in stock AND active)")
-		sql, params, _ := HasPremiumItemsSpecSQL()
+		sql, params, _ := storeSQL(HasPremiumItemsSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
@@ -90,13 +90,13 @@ func runAdvancedDemo() {
 
 	if HasDiscountedExpensiveItemsSpec(store) {
 		fmt.Println("✓ Store has items where (price - 100) > 900")
-		sql, params, _ := HasDiscountedExpensiveItemsSpecSQL()
+		sql, params, _ := storeSQL(HasDiscountedExpensiveItemsSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
 	if HasTaxedCheapItemsSpec(store) {
 		fmt.Println("✓ Store has items where (price + price/10) < 110")
-		sql, params, _ := HasTaxedCheapItemsSpecSQL()
+		sql, params, _ := storeSQL(HasTaxedCheapItemsSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
@@ -104,7 +104,7 @@ func runAdvancedDemo() {
 
 	if HasItemWithShiftedIDSpec(store) {
 		fmt.Println("✓ Store has item where (ID << 2) == 8")
-		sql, params, _ := HasItemWithShiftedIDSpecSQL()
+		sql, params, _ := storeSQL(HasItemWithShiftedIDSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
@@ -112,13 +112,13 @@ func runAdvancedDemo() {
 
 	if PremiumActiveStoreSpec(store) {
 		fmt.Println("✓ Premium Active Store: active + named + has expensive items")
-		sql, params, _ := PremiumActiveStoreSpecSQL()
+		sql, params, _ := storeSQL(PremiumActiveStoreSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
 	if BudgetFriendlyStoreSpec(cheapStore) {
 		fmt.Println("✓ Budget Friendly Store: active + all items < $1000")
-		sql, params, _ := BudgetFriendlyStoreSpecSQL()
+		sql, params, _ := storeSQL(BudgetFriendlyStoreSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
@@ -126,13 +126,13 @@ func runAdvancedDemo() {
 
 	if NoExpensiveItemsSpec(cheapStore) {
 		fmt.Println("✓ Budget store: NO items over $5000")
-		sql, params, _ := NoExpensiveItemsSpecSQL()
+		sql, params, _ := storeSQL(NoExpensiveItemsSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
 	if NotAllItemsActiveSpec(store) {
 		fmt.Println("✓ Premium store: NOT all items are active")
-		sql, params, _ := NotAllItemsActiveSpecSQL()
+		sql, params, _ := storeSQL(NotAllItemsActiveSpecAST())
 		fmt.Printf("  SQL: WHERE %s\n  Params: %v\n", sql, params)
 	}
 
@@ -183,7 +183,7 @@ func runBasicDemo() {
 		}
 	}
 
-	sql, params, err := AdultUserSpecSQL()
+	sql, params, err := userSQL(AdultUserSpecAST())
 	if err != nil {
 		log.Fatal(err)
 	}
