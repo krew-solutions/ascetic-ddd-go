@@ -295,10 +295,20 @@ type storeRow struct {
 func (r storeRow) context() s.Context {
 	items := make([]s.Context, 0, len(r.items))
 	for _, it := range r.items {
-		items = append(items, rowContext{"price": it[0], "active": it[1]})
+		items = append(items, rowContext{
+			"price": it[0], "active": it[1],
+			// A Value Object inside the item, which the storage keeps as a
+			// composite inside the item's row.
+			"maker": rowContext{"name": makerName(it[0])},
+			// An object of its own, which the storage keeps in a table of
+			// its own and the item refers to by a key.
+			"owner": rowContext{"name": ownerOf(it[1]).name},
+		})
 	}
 	return rowContext{
 		"id": r.id, "a": r.a, "b": r.b, "flag": r.flag, "name": r.name,
+		// The store's owner, kept as the owners of items are.
+		"owner": rowContext{"name": ownerOf(r.flag).name},
 		// Members named as PostgreSQL names other things, under columns of
 		// those very names: `user` is the session's user if it is not quoted,
 		// `order` does not parse, `createdAt` folds to `createdat`.
@@ -321,13 +331,48 @@ func pointer[T any](value any) any {
 func (r storeRow) pointerContext() s.Context {
 	items := make([]s.Context, 0, len(r.items))
 	for _, it := range r.items {
-		items = append(items, rowContext{"price": pointer[int](it[0]), "active": pointer[bool](it[1])})
+		items = append(items, rowContext{
+			"price": pointer[int](it[0]), "active": pointer[bool](it[1]),
+			"maker": rowContext{"name": pointer[string](makerName(it[0]))},
+			"owner": rowContext{"name": pointer[string](ownerOf(it[1]).name)},
+		})
 	}
 	return rowContext{
 		"id": r.id, "a": pointer[int](r.a), "b": pointer[int](r.b),
 		"flag": pointer[bool](r.flag), "name": pointer[string](r.name),
-		"user": pointer[string](r.name), "order": pointer[int](r.a), "createdAt": pointer[int](r.b),
+		"owner": rowContext{"name": pointer[string](ownerOf(r.flag).name)},
+		"user":  pointer[string](r.name), "order": pointer[int](r.a), "createdAt": pointer[int](r.b),
 		"items": s.NewCollectionContext(items),
+	}
+}
+
+// makerName is the name of the maker of an item of this price.
+func makerName(price any) any {
+	switch p := price.(type) {
+	case int:
+		if p > 500 {
+			return "dear"
+		}
+		return "cheap"
+	default:
+		return nil
+	}
+}
+
+// owner is the key and the name of an owner. The third owner has no name.
+type owner struct {
+	id   int
+	name any
+}
+
+func ownerOf(known any) owner {
+	switch known {
+	case true:
+		return owner{1, "ann"}
+	case false:
+		return owner{2, "bob"}
+	default:
+		return owner{3, nil}
 	}
 }
 
@@ -347,6 +392,9 @@ func rowSpecifications() []s.Visitable {
 		return s.Wildcard(s.Object(s.GlobalScope(), "items"), predicate)
 	}
 	every := func(predicate s.Visitable) s.Visitable { return s.Not(some(s.Not(predicate))) }
+	makerNameOfItem := func() s.Visitable { return s.Field(s.Object(s.Item(), "maker"), "name") }
+	ownerNameOfItem := func() s.Visitable { return s.Field(s.Object(s.Item(), "owner"), "name") }
+	ownerNameOfStore := func() s.Visitable { return s.Field(s.Object(s.GlobalScope(), "owner"), "name") }
 	return []s.Visitable{
 		s.Equal(field("a"), field("b")),
 		s.Not(s.Equal(field("a"), field("b"))),
@@ -375,6 +423,21 @@ func rowSpecifications() []s.Visitable {
 		every(s.GreaterThan(item("price"), s.Value(5))),
 		s.Not(every(s.IsNotNull(item("price")))),
 		s.And(field("flag"), some(dear())),
+		// A member of a Value Object inside the item: a composite inside the
+		// item's row, in the array and in the table alike.
+		some(s.Equal(makerNameOfItem(), s.Value("dear"))),
+		some(s.And(s.IsNull(makerNameOfItem()), item("active"))),
+		every(s.NotEqual(makerNameOfItem(), s.Value("cheap"))),
+		// A member of an object referred to by a key: the schema says
+		// `items.owner`, and `owner`, are kept in a table of their own.
+		some(s.Equal(ownerNameOfItem(), s.Value("ann"))),
+		some(s.And(s.IsNull(ownerNameOfItem()), dear())),
+		every(s.NotEqual(ownerNameOfItem(), s.Value("bob"))),
+		some(s.Equal(ownerNameOfItem(), makerNameOfItem())),
+		// The same of the candidate itself, and both in one predicate.
+		s.Equal(ownerNameOfStore(), s.Value("bob")),
+		s.And(s.IsNull(ownerNameOfStore()), s.IsNotNull(field("a"))),
+		some(s.Equal(ownerNameOfItem(), ownerNameOfStore())),
 		// A name is the column's, whatever else PostgreSQL knows by it.
 		s.Equal(field("user"), s.Value("one")),
 		s.GreaterThan(field("order"), s.Value(0)),
@@ -395,23 +458,30 @@ func literal(value any) string {
 
 func makeTables(conn session.DbConnection) error {
 	statements := []string{
-		`CREATE TABLE spec_stores (id bigint PRIMARY KEY, a bigint, b bigint, flag boolean, name text, "user" text, "order" bigint, "createdAt" bigint)`,
-		"CREATE TABLE spec_items (store_id bigint, price bigint, active boolean)",
-		"CREATE TYPE spec_item AS (price bigint, active boolean)",
-		`CREATE TABLE spec_stores_embedded (id bigint PRIMARY KEY, a bigint, b bigint, flag boolean, name text, "user" text, "order" bigint, "createdAt" bigint, items spec_item[])`,
+		"CREATE TABLE spec_owners (id bigint PRIMARY KEY, name text)",
+		"INSERT INTO spec_owners VALUES (1, 'ann'), (2, 'bob'), (3, NULL)",
+		`CREATE TABLE spec_stores (id bigint PRIMARY KEY, a bigint, b bigint, flag boolean, name text, "user" text, "order" bigint, "createdAt" bigint, owner_id bigint)`,
+		"CREATE TYPE spec_maker AS (name text)",
+		"CREATE TABLE spec_items (store_id bigint, price bigint, active boolean, maker spec_maker, owner_id bigint REFERENCES spec_owners)",
+		"CREATE TYPE spec_item AS (price bigint, active boolean, maker spec_maker, owner_id bigint)",
+		`CREATE TABLE spec_stores_embedded (id bigint PRIMARY KEY, a bigint, b bigint, flag boolean, name text, "user" text, "order" bigint, "createdAt" bigint, owner_id bigint, items spec_item[])`,
 	}
 	for _, row := range storeRows {
 		columns := fmt.Sprintf(
-			"%d, %s, %s, %s, %s, %s, %s, %s",
+			"%d, %s, %s, %s, %s, %s, %s, %s, %d",
 			row.id, literal(row.a), literal(row.b), literal(row.flag), literal(row.name),
-			literal(row.name), literal(row.a), literal(row.b),
+			literal(row.name), literal(row.a), literal(row.b), ownerOf(row.flag).id,
 		)
 		embedded := make([]string, 0, len(row.items))
 		for _, it := range row.items {
 			statements = append(statements, fmt.Sprintf(
-				"INSERT INTO spec_items VALUES (%d, %s, %s)", row.id, literal(it[0]), literal(it[1]),
+				"INSERT INTO spec_items VALUES (%d, %s, %s, ROW(%s)::spec_maker, %d)",
+				row.id, literal(it[0]), literal(it[1]), literal(makerName(it[0])), ownerOf(it[1]).id,
 			))
-			embedded = append(embedded, fmt.Sprintf("ROW(%s, %s)::spec_item", literal(it[0]), literal(it[1])))
+			embedded = append(embedded, fmt.Sprintf(
+				"ROW(%s, %s, ROW(%s)::spec_maker, %d)::spec_item",
+				literal(it[0]), literal(it[1]), literal(makerName(it[0])), ownerOf(it[1]).id,
+			))
 		}
 		statements = append(statements,
 			"INSERT INTO spec_stores VALUES ("+columns+")",
@@ -444,14 +514,22 @@ func selected(conn session.DbConnection, query string, params []any) ([]int, err
 }
 
 func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
-	relational := NewSchemaRegistry("spec_stores").RegisterRelational("items", "spec_items", "store_id", "id")
+	// The owner of an item, and of the store, is in a table of its own in
+	// either storage of the items.
+	withOwners := func(schema *SchemaRegistry) *SchemaRegistry {
+		return schema.
+			RegisterRelational("items.owner", "spec_owners", "id", "owner_id").
+			RegisterRelational("owner", "spec_owners", "id", "owner_id")
+	}
+	relational := withOwners(NewSchemaRegistry("spec_stores").RegisterRelational("items", "spec_items", "store_id", "id"))
+	embedded := withOwners(NewSchemaRegistry("spec_stores_embedded"))
 	storages := []struct {
 		name  string
 		table string
 		opts  []PostgresqlVisitorOption
 	}{
 		{"relational", "spec_stores", []PostgresqlVisitorOption{WithSchema(relational)}},
-		{"embedded", "spec_stores_embedded", nil},
+		{"embedded", "spec_stores_embedded", []PostgresqlVisitorOption{WithSchema(embedded)}},
 	}
 
 	withConnection(t, func(_ session.Session, conn session.DbConnection) error {

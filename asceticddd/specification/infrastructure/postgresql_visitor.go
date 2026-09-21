@@ -295,20 +295,94 @@ func (v *PostgresqlVisitor) VisitValue(n s.ValueNode) (SqlFragment, error) {
 }
 
 func (v *PostgresqlVisitor) VisitField(n s.FieldNode) (SqlFragment, error) {
-	if v.inWildcard && v.isItemReference(n.Object()) {
+	path := s.ExtractFieldPath(n)
+
+	// What the path starts at, not what the field's immediate parent is: the
+	// parent of `name` in `@.maker.name` is the object `maker`, so the item's
+	// alias was dropped and `"maker"."name"` written - the column of another
+	// table, if the query had one of that name.
+	if v.inWildcard && v.isItemReference(s.ExtractFieldRoot(n)) {
 		// Field of the current item in a wildcard: item.Price, item.Active, etc.
-		name, err := identifier(n.Name())
+		member, err := v.memberOfRow(quote(v.wildcardAlias), v.wildcardPath, path)
+		return SqlFragment{SQL: member}, err
+	}
+	// An object of the candidate kept in a table of its own
+	if len(path) > 1 && v.schema != nil && v.schema.IsRelational(path[0]) {
+		row, err := identifier(v.schema.GetParentRef())
 		if err != nil {
 			return SqlFragment{}, err
 		}
-		return SqlFragment{SQL: quote(v.wildcardAlias) + "." + name}, nil
+		member, err := v.memberOfRow(row, nil, path)
+		return SqlFragment{SQL: member}, err
 	}
-	// Normal field access
-	path, err := identifier(strings.Join(s.ExtractFieldPath(n), "."))
+	// Normal field access: from the candidate the dots stay, a qualified name
+	// - `"s"."price"` is the column `price` of `s`.
+	qualified, err := identifier(strings.Join(path, "."))
 	if err != nil {
 		return SqlFragment{}, err
 	}
-	return SqlFragment{SQL: path}, nil
+	return SqlFragment{SQL: qualified}, nil
+}
+
+// memberOfRow returns the member at names of the row written row, whose
+// object is named by logical in the schema.
+//
+// An object on the way to the member is looked up in the schema, as a
+// collection is, by the names that lead to it. Kept in a table of its own, it
+// is read through its key, by a subquery in the column's place: it has at most
+// the one row the key names, and is null if there is none, as a member of a
+// composite that is null is. Not mentioned, it is a composite kept in its row
+// - a Value Object - and the parentheses are what makes it that: with dots
+// alone PostgreSQL reads a schema, a table and a column, and there is no such
+// table.
+func (v *PostgresqlVisitor) memberOfRow(row string, logical, names []string) (string, error) {
+	name, err := identifier(names[0])
+	if err != nil {
+		return "", err
+	}
+	if len(names) == 1 {
+		return row + "." + name, nil
+	}
+
+	logical = append(append([]string{}, logical...), names[0])
+	fieldName := strings.Join(logical, ".")
+	if v.schema == nil || !v.schema.IsRelational(fieldName) {
+		return v.memberOfRow("("+row+"."+name+")", logical, names[1:])
+	}
+	mapping, _ := v.schema.Get(fieldName)
+
+	v.counters.wildcardCounter++
+	alias := mapping.Alias
+	if alias == "" {
+		alias = strings.ToLower(names[0])
+	}
+	aliasRef, err := identifier(fmt.Sprintf("%s_%d", alias, v.counters.wildcardCounter))
+	if err != nil {
+		return "", err
+	}
+	table, err := identifier(mapping.Table)
+	if err != nil {
+		return "", err
+	}
+	keys := make([]string, 0, len(mapping.ForeignKeys))
+	for _, fk := range mapping.ForeignKeys {
+		childColumn, err := identifier(fk.ChildColumn)
+		if err != nil {
+			return "", err
+		}
+		parentColumn, err := identifier(fk.ParentColumn)
+		if err != nil {
+			return "", err
+		}
+		keys = append(keys, fmt.Sprintf("%s.%s = %s.%s", aliasRef, childColumn, row, parentColumn))
+	}
+	member, err := v.memberOfRow(aliasRef, logical, names[1:])
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf(
+		"(SELECT %s FROM %s AS %s WHERE %s)", member, table, aliasRef, strings.Join(keys, " AND "),
+	), nil
 }
 
 func (v *PostgresqlVisitor) VisitInfix(n s.InfixNode) (SqlFragment, error) {

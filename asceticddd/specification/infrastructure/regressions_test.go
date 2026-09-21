@@ -219,6 +219,121 @@ func TestACollectionOfTheCandidateInsideAnotherJoinsToTheRoot(t *testing.T) {
 	}, WithSchema(schema))
 }
 
+// The visitor asked whether the field's immediate parent was the item, not
+// what its path started at: the parent of `name` in `@.maker.name` is the
+// object `maker`, so the item's alias was dropped and `"maker"."name"` written
+// - to PostgreSQL a table and a column, an error if there is no such table and
+// the column of another table if the query has one of that name. A member of
+// a Value Object inside an item is a member of a composite kept in the item's
+// row. The rows are in TestASpecificationSelectsTheRowsItIsSatisfiedBy.
+func TestAMemberOfAnObjectInsideAnItemIsAMemberOfAComposite(t *testing.T) {
+	maker := func(names ...string) s.Visitable {
+		var object s.EmptiableObject = s.Object(s.Item(), "maker")
+		for _, name := range names[:len(names)-1] {
+			object = s.Object(object, name)
+		}
+		return s.Equal(s.Field(object, names[len(names)-1]), s.Value("x"))
+	}
+	items := s.Object(s.GlobalScope(), "items")
+	checkSql(t, []sqlCase{
+		{
+			s.Wildcard(items, maker("name")),
+			`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE ("item_1"."maker")."name" = $1)`,
+		},
+		{
+			s.Wildcard(items, maker("country", "code")),
+			`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE (("item_1"."maker")."country")."code" = $1)`,
+		},
+		// The item of an inner collection, which is itself a member of the outer item.
+		{
+			s.Wildcard(items, s.Wildcard(s.Object(s.Item(), "parts"), maker("name"))),
+			`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE EXISTS (SELECT 1 FROM unnest("item_1"."parts") AS "part_2" WHERE ("part_2"."maker")."name" = $1))`,
+		},
+		// From the candidate the dots stay: a qualified name, the column `maker` of `s`.
+		{s.Equal(s.Field(s.Object(s.GlobalScope(), "s"), "maker"), s.Value("x")), `"s"."maker" = $1`},
+	})
+	// In a table of its own an item is a row as well, and its column a composite.
+	schema := NewSchemaRegistry("stores").WithParentAlias("s").
+		RegisterRelational("items", "store_items", "store_id", "id")
+	checkSql(t, []sqlCase{{
+		s.Wildcard(items, maker("name")),
+		`EXISTS (SELECT 1 FROM "store_items" AS "item_1" WHERE "item_1"."store_id" = "s"."id" AND ("item_1"."maker")."name" = $1)`,
+	}}, WithSchema(schema))
+}
+
+// An object on the way to a member is looked up in the schema, as a collection
+// is. Kept in a table of its own it is read through its key, by a subquery in
+// the column's place: at most the one row the key names, and null if there is
+// none. There was no way to say so: the dots were written as they stood, which
+// PostgreSQL reads as a table and a column.
+func TestAMemberOfAnObjectKeptInATableOfItsOwnIsReadThroughTheKey(t *testing.T) {
+	items := s.Object(s.GlobalScope(), "items")
+	ownerName := s.Field(s.Object(s.Item(), "owner"), "name")
+	named := s.Wildcard(items, s.Equal(ownerName, s.Value("ann")))
+	stores := func() *SchemaRegistry { return NewSchemaRegistry("stores").WithParentAlias("s") }
+
+	// Whether the items are an array or a table, their owner is a table.
+	checkSql(t, []sqlCase{{
+		named,
+		`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE ` +
+			`(SELECT "owner_2"."name" FROM "owners" AS "owner_2" ` +
+			`WHERE "owner_2"."id" = "item_1"."owner_id") = $1)`,
+	}}, WithSchema(stores().RegisterRelational("items.owner", "owners", "id", "owner_id")))
+
+	relational := stores().
+		RegisterRelational("items", "store_items", "store_id", "id").
+		Register("items.owner", CollectionMapping{
+			Storage:     StorageRelational,
+			Table:       "owners",
+			ForeignKeys: []ForeignKeyPair{{ChildColumn: "id", ParentColumn: "owner_id"}},
+			Alias:       "o",
+		})
+	checkSql(t, []sqlCase{{
+		named,
+		`EXISTS (SELECT 1 FROM "store_items" AS "item_1" ` +
+			`WHERE "item_1"."store_id" = "s"."id" AND ` +
+			`(SELECT "o_2"."name" FROM "owners" AS "o_2" ` +
+			`WHERE "o_2"."id" = "item_1"."owner_id") = $1)`,
+	}}, WithSchema(relational))
+
+	// A key of two columns; and what is inside the owner's row is a composite.
+	compositeKey := stores().RegisterRelationalComposite("items.owner", "public.owners", []ForeignKeyPair{
+		{ChildColumn: "tenant_id", ParentColumn: "tenant_id"},
+		{ChildColumn: "id", ParentColumn: "owner_id"},
+	})
+	city := s.Field(s.Object(s.Object(s.Item(), "owner"), "address"), "city")
+	checkSql(t, []sqlCase{{
+		s.Wildcard(items, s.IsNull(city)),
+		`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE ` +
+			`(SELECT ("owner_2"."address")."city" FROM "public"."owners" AS "owner_2" ` +
+			`WHERE "owner_2"."tenant_id" = "item_1"."tenant_id" ` +
+			`AND "owner_2"."id" = "item_1"."owner_id") IS NULL)`,
+	}}, WithSchema(compositeKey))
+
+	// Of the candidate itself, the key is the root row's; and each object read
+	// so has an alias of its own.
+	ofBoth := stores().
+		RegisterRelational("owner", "owners", "id", "owner_id").
+		RegisterRelational("items.owner", "owners", "id", "owner_id")
+	ofTheStore := s.Field(s.Object(s.GlobalScope(), "owner"), "name")
+	checkSql(t, []sqlCase{
+		{
+			s.Wildcard(items, s.Equal(ownerName, ofTheStore)),
+			`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE ` +
+				`(SELECT "owner_2"."name" FROM "owners" AS "owner_2" ` +
+				`WHERE "owner_2"."id" = "item_1"."owner_id") = ` +
+				`(SELECT "owner_3"."name" FROM "owners" AS "owner_3" ` +
+				`WHERE "owner_3"."id" = "s"."owner_id"))`,
+		},
+		// What the schema does not mention stays what the dots have meant.
+		{s.Equal(s.Field(s.Object(s.GlobalScope(), "s"), "name"), s.Value("x")), `"s"."name" = $1`},
+		{
+			s.Wildcard(items, s.Equal(s.Field(s.Object(s.Item(), "maker"), "name"), s.Value("x"))),
+			`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE ("item_1"."maker")."name" = $1)`,
+		},
+	}, WithSchema(ofBoth))
+}
+
 // A name was written into the query as it stood, and PostgreSQL reads a word
 // it knows as what it knows: `user = $1` compares the user of the session and
 // selects other rows than were asked for, `order > $1` does not parse. Which
