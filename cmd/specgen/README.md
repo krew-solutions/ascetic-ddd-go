@@ -234,6 +234,24 @@ that compiles, and a query that compares NULL and selects nothing.
   its guard is generated with it: `s.DeletedAt != nil && s.DeletedAt.After(since)`
   is `"DeletedAt" IS NOT NULL AND "DeletedAt" > $1`, under the names a context
   gives.
+- A member that is an `option.Option` is what it holds, or a null, to both
+  readers of a tree. What it holds is asked under a name:
+  `d.Discount.IsSomeAnd(func(v int) bool { return v > 10 })` is
+  `spec.And(spec.IsNotNull(d.Discount), spec.GreaterThan(d.Discount, 10))`, and
+  `IsNothingOr` is `spec.Or(spec.IsNull(..), ..)`; `v.Percent` is
+  `d.Discount.Percent`. The null test beside the predicate makes the whole of
+  two values, as it is in Go, so the function and its tree agree under a `!`
+  too, and nothing is unwrapped. A parameter that is an Option is asked the
+  same way. `d.Discount.IsNothing()` is `spec.IsNull(d.Discount)` and
+  `IsSome()` is `spec.IsNotNull`; `d.Discount.Unwrap()` is the member itself,
+  and `limit.Unwrap()` of a parameter is `spec.Value(limit)`, the Option, not
+  what it holds when the tree is built: the predicate unwraps it behind its
+  guard, and of a Nothing never does. `option.Some(x)` is `x`, and
+  `option.Nothing[T]()` is the null, so equality with it is the null test. The
+  two makers are told by what the file imports, under whatever name: another
+  package's `Some` makes another Option, which no reader of a tree reads, and
+  is refused. `UnwrapOr` and the rest have no node and are refused. See
+  `examples/specgen/deal.go`.
 - From the predicate of an inner collection the item of an outer one cannot be
   named: the tree has one item, the nearest. It used to become a field of the
   candidate.

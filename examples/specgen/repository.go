@@ -94,6 +94,10 @@ var organizations = mapping{
 	collections: columns{"Regions": "regions", "Categories": "categories", "Items": "items"},
 }
 
+var deals = mapping{
+	members: columns{"ID": "id", "Discount": "discount"},
+}
+
 // userSQL is the condition of a query for the users a specification is
 // satisfied by; storeSQL and organizationSQL are the same of their aggregates.
 func userSQL(specification spec.Visitable) (string, []any, error) {
@@ -106,4 +110,8 @@ func storeSQL(specification spec.Visitable) (string, []any, error) {
 
 func organizationSQL(specification spec.Visitable) (string, []any, error) {
 	return infra.Compile(organizations, specification)
+}
+
+func dealSQL(specification spec.Visitable) (string, []any, error) {
+	return infra.Compile(deals, specification)
 }

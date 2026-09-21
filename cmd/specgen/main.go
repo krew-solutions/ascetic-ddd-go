@@ -102,7 +102,10 @@ type SpecFunc struct {
 	Params []SpecParam
 	// Imports are the imports of the source that the types of Params are of.
 	Imports []string
-	Body    ast.Expr
+	// OptionPackage is what the source calls the package of Option; see
+	// optionPackageOf.
+	OptionPackage string
+	Body          ast.Expr
 	// Refused is why the function, marked as a specification, is not one: it
 	// is reported when the code is generated, and nothing is generated.
 	Refused error
@@ -183,13 +186,14 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 		returnExpr, refused := theReturnOf(funcDecl.Body)
 
 		specs = append(specs, SpecFunc{
-			Name:    funcDecl.Name.Name,
-			Doc:     funcDecl.Doc.Text(),
-			Param:   param.Names[0].Name,
-			Params:  params,
-			Imports: importsOf(file, funcDecl.Type.Params.List[1:]),
-			Body:    returnExpr,
-			Refused: refused,
+			Name:          funcDecl.Name.Name,
+			Doc:           funcDecl.Doc.Text(),
+			Param:         param.Names[0].Name,
+			Params:        params,
+			Imports:       importsOf(file, funcDecl.Type.Params.List[1:]),
+			OptionPackage: optionPackageOf(file),
+			Body:          returnExpr,
+			Refused:       refused,
 		})
 
 		return true
@@ -257,6 +261,27 @@ func importsOf(file *ast.File, fields []*ast.Field) []string {
 	return imports
 }
 
+// optionPackagePath is how the path of the package of Option ends, whatever
+// module it is in.
+const optionPackagePath = "asceticddd/option"
+
+// optionPackageOf returns what the file calls the package of Option: the name
+// it imports it under, "." if it takes its names for its own, and none if it
+// does not import it.
+func optionPackageOf(file *ast.File) string {
+	for _, spec := range file.Imports {
+		path := strings.Trim(spec.Path.Value, `"`)
+		if path != optionPackagePath && !strings.HasSuffix(path, "/"+optionPackagePath) {
+			continue
+		}
+		if spec.Name != nil {
+			return spec.Name.Name
+		}
+		return "option"
+	}
+	return ""
+}
+
 // generateCode generates the *_spec_gen.go file
 func generateCode(outputPath, pkgName, typeName string, specs []SpecFunc) error {
 	// Into memory first: a specification that is refused leaves no file
@@ -292,7 +317,7 @@ func renderCode(f io.Writer, pkgName, typeName string, specs []SpecFunc) error {
 
 	// Generate AST builder for each spec
 	for _, s := range specs {
-		visitor := NewSpecGenVisitor(typeName).withRoot(s.Param)
+		visitor := visitorOf(typeName, s)
 
 		// What cannot be a specification is reported where it stands.
 		if s.Refused != nil {
@@ -341,6 +366,39 @@ type SpecGenVisitor struct {
 	outerItems []string
 	// inWildcard indicates if we're inside a wildcard predicate
 	inWildcard bool
+	// optionPackage is what the source calls the package of Option; see
+	// optionPackageOf.
+	optionPackage string
+	// held is what an Option holds, under the name the predicate of IsSomeAnd
+	// or of IsNothingOr gives it.
+	held map[string]held
+}
+
+// held is what stands behind the name given to what an Option holds: the
+// Option, which is its value or the null.
+type held struct {
+	// scope and path are of a member of the candidate or of the item: where
+	// its path starts, and the names along it.
+	scope string
+	path  []string
+	// value is the code of a value from outside, a parameter.
+	value string
+}
+
+// code is the code of the node of the Option.
+func (h held) code() string {
+	if h.value != "" {
+		return h.value
+	}
+	return field(h.scope, h.path)
+}
+
+// field is the code of the member at the path from the scope.
+func field(scope string, path []string) string {
+	for _, name := range path[:len(path)-1] {
+		scope = fmt.Sprintf("spec.Object(%s, %q)", scope, name)
+	}
+	return fmt.Sprintf("spec.Field(%s, %q)", scope, path[len(path)-1])
 }
 
 // NewSpecGenVisitor creates a new visitor for the given type.
@@ -352,29 +410,66 @@ func NewSpecGenVisitor(typeName string) *SpecGenVisitor {
 	}
 }
 
+// visitorOf returns the visitor of a specification: it knows the candidate by
+// its name, and the package of Option by the name the source gives it.
+func visitorOf(typeName string, s SpecFunc) *SpecGenVisitor {
+	visitor := NewSpecGenVisitor(typeName).withRoot(s.Param)
+	visitor.optionPackage = s.OptionPackage
+	return visitor
+}
+
 // withRoot returns a new visitor that knows the candidate by its name.
 func (v *SpecGenVisitor) withRoot(rootName string) *SpecGenVisitor {
 	return &SpecGenVisitor{
-		typeName:   v.typeName,
-		rootName:   rootName,
-		itemName:   v.itemName,
-		outerItems: v.outerItems,
-		inWildcard: v.inWildcard,
+		typeName:      v.typeName,
+		rootName:      rootName,
+		itemName:      v.itemName,
+		outerItems:    v.outerItems,
+		inWildcard:    v.inWildcard,
+		optionPackage: v.optionPackage,
+		held:          v.held,
 	}
 }
 
+// withHeld returns a new visitor of a predicate of what an Option holds,
+// which it calls name.
+func (v *SpecGenVisitor) withHeld(name string, option held) *SpecGenVisitor {
+	next := *v
+	next.held = map[string]held{name: option}
+	for other, option := range v.held {
+		if other != name {
+			next.held[other] = option
+		}
+	}
+	return &next
+}
+
 // withWildcardContext returns a new visitor configured for wildcard context.
+// What the item so far holds goes out of reach with it; what the candidate
+// holds, or a value from outside, stays.
 func (v *SpecGenVisitor) withWildcardContext(itemName string) *SpecGenVisitor {
 	outerItems := v.outerItems
 	if v.inWildcard && v.itemName != itemName {
 		outerItems = append(append([]string{}, v.outerItems...), v.itemName)
 	}
+	kept := map[string]held{}
+	for name, option := range v.held {
+		switch {
+		case name == itemName:
+		case option.scope == "spec.Item()":
+			outerItems = append(append([]string{}, outerItems...), name)
+		default:
+			kept[name] = option
+		}
+	}
 	return &SpecGenVisitor{
-		typeName:   v.typeName,
-		rootName:   v.rootName,
-		itemName:   itemName,
-		outerItems: outerItems,
-		inWildcard: true,
+		typeName:      v.typeName,
+		rootName:      v.rootName,
+		itemName:      itemName,
+		outerItems:    outerItems,
+		inWildcard:    true,
+		optionPackage: v.optionPackage,
+		held:          kept,
 	}
 }
 
@@ -424,34 +519,90 @@ func isNil(expr ast.Expr) bool {
 
 // isOutside tells whether the expression is a name from outside the
 // predicate: what it is equal to is known when the tree is built, not when it
-// is generated.
-func isOutside(expr ast.Expr) bool {
+// is generated. The name of what a member holds is the member's.
+func (v *SpecGenVisitor) isOutside(expr ast.Expr) bool {
 	ident, ok := expr.(*ast.Ident)
-	return ok && ident.Name != "nil" && ident.Name != "true" && ident.Name != "false"
+	if !ok || ident.Name == "nil" || ident.Name == "true" || ident.Name == "false" {
+		return false
+	}
+	option, isHeld := v.held[ident.Name]
+	return !isHeld || option.value != ""
+}
+
+// optionMaker tells which maker of an Option is called, "Some" or "Nothing";
+// none if the call is of neither. A maker is told by what the source imports,
+// not by its spelling: another package's Some makes another Option, which no
+// reader of a tree reads.
+func (v *SpecGenVisitor) optionMaker(call *ast.CallExpr) string {
+	fun := call.Fun
+	if explicit, ok := fun.(*ast.IndexExpr); ok { // Nothing[T]
+		fun = explicit.X
+	}
+	var name *ast.Ident
+	switch f := fun.(type) {
+	case *ast.Ident:
+		if v.optionPackage != "." {
+			return ""
+		}
+		name = f
+	case *ast.SelectorExpr:
+		// A name declared in the source - a parameter called `option` - is
+		// not the package.
+		pkg, ok := f.X.(*ast.Ident)
+		if !ok || pkg.Obj != nil || v.optionPackage == "." || pkg.Name != v.optionPackage {
+			return ""
+		}
+		name = f.Sel
+	default:
+		return ""
+	}
+	if name.Name == "Some" || name.Name == "Nothing" {
+		return name.Name
+	}
+	return ""
+}
+
+// heldBySome returns what `option.Some(x)` holds, x, and any other expression as
+// it is: an Option is what it holds, or a null, to both readers of a tree.
+func (v *SpecGenVisitor) heldBySome(expr ast.Expr) ast.Expr {
+	call, ok := expr.(*ast.CallExpr)
+	if ok && v.optionMaker(call) == "Some" && len(call.Args) == 1 {
+		return v.heldBySome(call.Args[0])
+	}
+	return expr
+}
+
+// isNull tells whether the expression is the null: the nil literal, or an
+// Option that holds nothing.
+func (v *SpecGenVisitor) isNull(expr ast.Expr) bool {
+	call, ok := expr.(*ast.CallExpr)
+	return isNil(expr) || ok && v.optionMaker(call) == "Nothing" && len(call.Args) == 0
 }
 
 // equality generates `==` or `!=`. With nil it is the null test: written as
-// it stands it is `a = NULL`, which is null and true of nothing. With a name
-// from outside it is decided when the tree is built.
+// it stands it is `a = NULL`, which is null and true of nothing. So it is with
+// an Option that holds nothing. With a name from outside it is decided when
+// the tree is built.
 func (v *SpecGenVisitor) equality(x, y ast.Expr, operator, comparison, nullTest string) (string, error) {
-	if isNil(x) && isNil(y) {
+	x, y = v.heldBySome(x), v.heldBySome(y)
+	if v.isNull(x) && v.isNull(y) {
 		return "", unsupported(x, "nil is compared with nil")
 	}
-	if isNil(x) {
+	if v.isNull(x) {
 		x, y = y, x
 	}
 	left, err := v.Visit(x)
 	if err != nil {
 		return "", err
 	}
-	if isNil(y) {
+	if v.isNull(y) {
 		return fmt.Sprintf("%s(%s)", nullTest, left), nil
 	}
 	right, err := v.Visit(y)
 	if err != nil {
 		return "", err
 	}
-	if isOutside(x) || isOutside(y) {
+	if v.isOutside(x) || v.isOutside(y) {
 		return fmt.Sprintf("spec.EqualityOrNullTest(%q, %s, %s)", operator, left, right), nil
 	}
 	return fmt.Sprintf("%s(%s, %s)", comparison, left, right), nil
@@ -566,6 +717,15 @@ func (v *SpecGenVisitor) scopeOf(base *ast.Ident) (string, error) {
 
 // VisitSelectorExpr handles field access (e.g., u.Age, item.Price, u.Profile.Age).
 func (v *SpecGenVisitor) VisitSelectorExpr(expr *ast.SelectorExpr) (string, error) {
+	scope, path, err := v.memberOf(expr)
+	if err != nil {
+		return "", err
+	}
+	return field(scope, path), nil
+}
+
+// memberOf returns where the path of a member starts, and the names along it.
+func (v *SpecGenVisitor) memberOf(expr *ast.SelectorExpr) (string, []string, error) {
 	// Build the chain of field accesses
 	var path []string
 	var baseIdent *ast.Ident
@@ -585,28 +745,42 @@ func (v *SpecGenVisitor) VisitSelectorExpr(expr *ast.SelectorExpr) (string, erro
 			baseIdent = x
 		default:
 			// Unknown base
-			return "", unsupported(current.X, "unsupported selector base %T", current.X)
+			return "", nil, unsupported(current.X, "unsupported selector base %T", current.X)
 		}
 		break
+	}
+
+	// A member of what an Option holds is a member of the Option's.
+	if option, ok := v.held[baseIdent.Name]; ok {
+		if option.value != "" {
+			return "", nil, unsupported(expr, "a member of what an Option from outside holds is not a value the tree can name")
+		}
+		return option.scope, append(append([]string{}, option.path...), path...), nil
 	}
 
 	// Determine the scope based on context
 	scope, err := v.scopeOf(baseIdent)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
-
-	// Build nested Object chain for all but the last field
-	for i := 0; i < len(path)-1; i++ {
-		scope = fmt.Sprintf("spec.Object(%s, %q)", scope, path[i])
-	}
-
-	// Last element is the field
-	return fmt.Sprintf("spec.Field(%s, %q)", scope, path[len(path)-1]), nil
+	return scope, path, nil
 }
 
 // VisitCallExpr handles function calls (Any, All, IsNull, method calls).
 func (v *SpecGenVisitor) VisitCallExpr(expr *ast.CallExpr) (string, error) {
+	switch v.optionMaker(expr) {
+	case "Some":
+		if len(expr.Args) != 1 {
+			return "", unsupported(expr, "Some requires exactly 1 argument")
+		}
+		return v.Visit(expr.Args[0])
+	case "Nothing":
+		if len(expr.Args) != 0 {
+			return "", unsupported(expr, "Nothing takes no arguments")
+		}
+		return "spec.Value(nil)", nil
+	}
+
 	switch fun := expr.Fun.(type) {
 	case *ast.Ident:
 		switch fun.Name {
@@ -621,6 +795,20 @@ func (v *SpecGenVisitor) VisitCallExpr(expr *ast.CallExpr) (string, error) {
 			return v.visitIsNull(expr)
 		case "IsNotNull":
 			return v.visitIsNotNull(expr)
+
+		// An Option is what it holds, or a null, to both readers of a tree:
+		// to ask one whether it holds anything is the null test, and what it
+		// holds is the member itself.
+		case "IsNothing":
+			return v.visitOptionTest(expr, fun, "spec.IsNull")
+		case "IsSome":
+			return v.visitOptionTest(expr, fun, "spec.IsNotNull")
+		case "Unwrap":
+			return v.visitUnwrap(expr, fun)
+		case "IsSomeAnd":
+			return v.visitHeld(expr, fun, "spec.And", "spec.IsNotNull")
+		case "IsNothingOr":
+			return v.visitHeld(expr, fun, "spec.Or", "spec.IsNull")
 
 		// Value Object comparison methods
 		case "Equal", "Equals", "Eq":
@@ -655,8 +843,16 @@ func (v *SpecGenVisitor) VisitIdent(expr *ast.Ident) (string, error) {
 	// constant or a variable of the package - which is a value. It used to be
 	// read as a field of the candidate of that name: `u.Email.Equal(email)`
 	// compiled to `Email = email`.
+	if option, ok := v.held[expr.Name]; ok {
+		return option.code(), nil
+	}
 	if expr.Name == v.rootName || (v.inWildcard && expr.Name == v.itemName) {
 		return "", unsupported(expr, "%q as a whole is not a value: name a member of it", expr.Name)
+	}
+	for _, outer := range v.outerItems {
+		if expr.Name == outer {
+			return "", unsupported(expr, "%q is of the item of an outer collection: only the nearest item can be named", expr.Name)
+		}
 	}
 	return fmt.Sprintf("spec.Value(%s)", expr.Name), nil
 }
@@ -769,6 +965,87 @@ func (v *SpecGenVisitor) visitIsNotNull(expr *ast.CallExpr) (string, error) {
 		return "", err
 	}
 	return fmt.Sprintf("spec.IsNotNull(%s)", operand), nil
+}
+
+// visitOptionTest handles option.IsNothing() and option.IsSome() calls.
+func (v *SpecGenVisitor) visitOptionTest(expr *ast.CallExpr, sel *ast.SelectorExpr, nullTest string) (string, error) {
+	if len(expr.Args) != 0 {
+		return "", unsupported(expr, "%s takes no arguments", sel.Sel.Name)
+	}
+	operand, err := v.Visit(sel.X)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s(%s)", nullTest, operand), nil
+}
+
+// visitUnwrap handles option.Unwrap() calls: what an Option holds is the
+// Option itself, a member or a value from outside, which is its value or the
+// null. Not what a parameter holds when the tree is built: the predicate
+// unwraps it behind its guard, and of a Nothing never does.
+func (v *SpecGenVisitor) visitUnwrap(expr *ast.CallExpr, sel *ast.SelectorExpr) (string, error) {
+	if len(expr.Args) != 0 {
+		return "", unsupported(expr, "Unwrap takes no arguments")
+	}
+	return v.Visit(sel.X)
+}
+
+// visitHeld handles option.IsSomeAnd(func(held T) bool { return predicate }):
+// the Option is not null and the predicate is true of it; and IsNothingOr: it
+// is null, or the predicate is. The name the predicate gives to what is held
+// stands for the Option.
+//
+// The null test beside the predicate makes the whole of two values, as it is
+// in Go: of a Nothing the predicate is null, and `false AND null` is false,
+// `true OR null` true. So the function and its tree agree under a `!` too,
+// and nothing is unwrapped.
+func (v *SpecGenVisitor) visitHeld(expr *ast.CallExpr, sel *ast.SelectorExpr, join, nullTest string) (string, error) {
+	if len(expr.Args) != 1 {
+		return "", unsupported(expr, "%s takes the predicate of what the Option holds", sel.Sel.Name)
+	}
+	predicate, ok := expr.Args[0].(*ast.FuncLit)
+	if !ok {
+		return "", unsupported(expr.Args[0], "the predicate of %s is a func literal", sel.Sel.Name)
+	}
+	params := predicate.Type.Params.List
+	if len(params) != 1 || len(params[0].Names) != 1 {
+		return "", unsupported(predicate, "the predicate of %s takes what the Option holds", sel.Sel.Name)
+	}
+	if len(predicate.Body.List) != 1 {
+		return "", unsupported(predicate, "the predicate of %s is one return", sel.Sel.Name)
+	}
+	returned, ok := predicate.Body.List[0].(*ast.ReturnStmt)
+	if !ok || len(returned.Results) != 1 {
+		return "", unsupported(predicate, "the predicate of %s is one return of one value", sel.Sel.Name)
+	}
+
+	var option held
+	switch x := sel.X.(type) {
+	case *ast.SelectorExpr:
+		scope, path, err := v.memberOf(x)
+		if err != nil {
+			return "", err
+		}
+		option = held{scope: scope, path: path}
+	case *ast.Ident:
+		if known, ok := v.held[x.Name]; ok {
+			option = known
+			break
+		}
+		value, err := v.VisitIdent(x)
+		if err != nil {
+			return "", err
+		}
+		option = held{value: value}
+	default:
+		return "", unsupported(sel.X, "an Option asked for what it holds is a member or a parameter")
+	}
+
+	body, err := v.withHeld(params[0].Names[0].Name, option).Visit(returned.Results[0])
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s(%s(%s), %s)", join, nullTest, option.code(), body), nil
 }
 
 // visitMethodEquality handles Value Object method calls like receiver.Equal(arg).

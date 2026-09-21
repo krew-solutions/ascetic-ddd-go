@@ -62,6 +62,24 @@ func TestNothing(t *testing.T) {
 	})
 }
 
+func TestIsSomeAnd(t *testing.T) {
+	over := func(held int) bool { return held > 10 }
+	never := func(int) bool { panic("asked of nothing") }
+
+	assert.True(t, Some(11).IsSomeAnd(over))
+	assert.False(t, Some(5).IsSomeAnd(over))
+	assert.False(t, Nothing[int]().IsSomeAnd(never))
+}
+
+func TestIsNothingOr(t *testing.T) {
+	over := func(held int) bool { return held > 10 }
+	never := func(int) bool { panic("asked of nothing") }
+
+	assert.True(t, Some(11).IsNothingOr(over))
+	assert.False(t, Some(5).IsNothingOr(over))
+	assert.True(t, Nothing[int]().IsNothingOr(never))
+}
+
 func TestUnwrap(t *testing.T) {
 	t.Run("some returns value", func(t *testing.T) {
 		assert.Equal(t, 42, Some(42).Unwrap())

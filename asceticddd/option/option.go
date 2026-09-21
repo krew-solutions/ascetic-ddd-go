@@ -28,6 +28,18 @@ func (o Option[T]) IsNothing() bool {
 	return !o.valid
 }
 
+// IsSomeAnd returns true if the Option contains a value and the value
+// satisfies the predicate.
+func (o Option[T]) IsSomeAnd(f func(T) bool) bool {
+	return o.valid && f(o.val)
+}
+
+// IsNothingOr returns true if the Option does not contain a value, or the
+// value satisfies the predicate.
+func (o Option[T]) IsNothingOr(f func(T) bool) bool {
+	return !o.valid || f(o.val)
+}
+
 // Any returns the contained value as any, and whether there is one: for a
 // reader that does not know T, as a reader of a specification does not.
 func (o Option[T]) Any() (any, bool) {

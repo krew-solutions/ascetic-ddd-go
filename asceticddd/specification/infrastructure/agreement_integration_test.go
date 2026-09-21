@@ -647,6 +647,9 @@ func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
 		return s.Wildcard(s.Object(s.GlobalScope(), "items"), predicate)
 	}
 	over := func(percent int) s.Visitable { return s.GreaterThan(member, s.Value(discount{percent: percent})) }
+	bothOver := func(limit option.Option[discount]) s.Visitable {
+		return s.And(s.IsNotNull(s.Value(limit)), s.And(s.IsNotNull(member), s.GreaterThan(member, s.Value(limit))))
+	}
 	cases := []struct {
 		specification s.Visitable
 		want          []int
@@ -662,6 +665,13 @@ func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
 		{some(s.Equal(member, s.Value(fifteen))), []int{1, 2}},
 		{some(s.Is(member, s.Value(nothing))), []int{1, 2, 3}},
 		{some(s.Equal(member, s.Value(nothing))), []int{}},
+		// What two Options hold, asked under names - the tree IsSomeAnd is
+		// generated as, one of the two from outside: of two values, so its
+		// negation is true where a none makes it false.
+		{some(bothOver(option.Some(discount{percent: 10}))), []int{1, 2}},
+		{some(bothOver(nothing)), []int{}},
+		{s.Not(some(bothOver(nothing))), []int{1, 2, 3}},
+		{some(s.Not(bothOver(option.Some(discount{percent: 10})))), []int{1, 2, 3}},
 	}
 	reg := operators.NewDefaultRegistry()
 	registerDiscounts(reg)
