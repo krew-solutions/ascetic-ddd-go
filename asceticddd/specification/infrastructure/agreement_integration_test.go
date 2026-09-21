@@ -47,7 +47,7 @@ func constantCases() []s.Visitable {
 	seven, half, yes, no := 7, 0.5, true, false
 	var noNumber *int
 	var noFlag *bool
-	return []s.Visitable{
+	written := []s.Visitable{
 		// Arithmetic, and the parentheses that keep its shape
 		s.Sub(v(10), s.Sub(v(4), v(3))),
 		s.Sub(s.Sub(v(10), v(4)), v(3)),
@@ -157,6 +157,31 @@ func constantCases() []s.Visitable {
 		s.Equal(s.Is(t(), null()), f()),
 		s.Is(s.Equal(v(1), v(1)), t()),
 	}
+
+	// Floats at their edges, every pair under every operator. What the server
+	// makes of each - a value, "out of range" for a result too large or too
+	// small to be one, "division by zero" - is the server's to say, and the
+	// evaluator's to repeat: a zero from operands that are not zero is an
+	// underflow, a NaN divided by zero is a NaN, one divided by infinity is a
+	// zero and no underflow.
+	edges := []float64{
+		0, 1, -1, 1e300, 1e-300, math.MaxFloat64, 2.2250738585072014e-308,
+		math.Inf(1), math.Inf(-1), nan,
+	}
+	operators := []func(left, right s.Visitable) s.Visitable{
+		func(l, r s.Visitable) s.Visitable { return s.Add(l, r) },
+		func(l, r s.Visitable) s.Visitable { return s.Sub(l, r) },
+		func(l, r s.Visitable) s.Visitable { return s.Mul(l, r) },
+		func(l, r s.Visitable) s.Visitable { return s.Div(l, r) },
+	}
+	for _, left := range edges {
+		for _, right := range edges {
+			for _, operator := range operators {
+				written = append(written, operator(s.Value(left), s.Value(right)))
+			}
+		}
+	}
+	return written
 }
 
 // same tells whether the evaluator's value is the one PostgreSQL answered.

@@ -25,6 +25,7 @@ func registerComparison[T cmp.Ordered](reg *OperatorRegistry) {
 var (
 	errIntegerOutOfRange = errors.New("bigint out of range")
 	errFloatOutOfRange   = errors.New("value out of range: overflow")
+	errFloatUnderflow    = errors.New("value out of range: underflow")
 	errDivisionByZero    = errors.New("division by zero")
 )
 
@@ -112,6 +113,37 @@ func finite(value float64, operands ...float64) (any, error) {
 	return nil, errFloatOutOfRange
 }
 
+// product returns the product of two floats, which must not be an underflow
+// either: a zero of operands that are not zero. IEEE arithmetic rounds a
+// result too small to be a float to zero in silence, and PostgreSQL has "value
+// out of range: underflow" for it, as it has for one too large.
+func product(a, b float64) (any, error) {
+	value := a * b
+	if value == 0 && a != 0 && b != 0 {
+		return nil, errFloatUnderflow
+	}
+	return finite(value, a, b)
+}
+
+// quotient returns the quotient of two floats, as PostgreSQL has it. A NaN
+// divided by zero is a NaN, as it is divided by anything; any other number
+// divided by zero is the error. A zero of a dividend that is not zero is an
+// underflow, unless the divisor is infinite: one divided by infinity is a
+// zero, and right.
+func quotient(a, b float64) (any, error) {
+	if b == 0 {
+		if math.IsNaN(a) {
+			return a, nil
+		}
+		return nil, errDivisionByZero
+	}
+	value := a / b
+	if value == 0 && a != 0 && !math.IsInf(b, 0) {
+		return nil, errFloatUnderflow
+	}
+	return finite(value, a, b)
+}
+
 // compareFloat64 orders floats as PostgreSQL does: a NaN equals a NaN and is
 // greater than anything else.
 func compareFloat64(a, b float64) int {
@@ -145,13 +177,8 @@ func registerOrder[T any](reg *OperatorRegistry, compare func(a, b T) int) {
 func registerFloatArithmetic(reg *OperatorRegistry) {
 	RegisterBinary[float64, float64](reg, OperatorAdd, func(a, b float64) (any, error) { return finite(a+b, a, b) })
 	RegisterBinary[float64, float64](reg, OperatorSub, func(a, b float64) (any, error) { return finite(a-b, a, b) })
-	RegisterBinary[float64, float64](reg, OperatorMul, func(a, b float64) (any, error) { return finite(a*b, a, b) })
-	RegisterBinary[float64, float64](reg, OperatorDiv, func(a, b float64) (any, error) {
-		if b == 0 {
-			return nil, errDivisionByZero
-		}
-		return finite(a/b, a, b)
-	})
+	RegisterBinary[float64, float64](reg, OperatorMul, product)
+	RegisterBinary[float64, float64](reg, OperatorDiv, quotient)
 	RegisterUnary[float64](reg, OperatorNeg, func(a float64) (any, error) { return -a, nil })
 }
 
@@ -182,15 +209,8 @@ func registerFloatPair[L, R interface{ ~int | ~int64 | ~float64 }](reg *Operator
 	RegisterBinary[L, R](reg, OperatorSub, func(a L, b R) (any, error) {
 		return finite(float64(a)-float64(b), float64(a), float64(b))
 	})
-	RegisterBinary[L, R](reg, OperatorMul, func(a L, b R) (any, error) {
-		return finite(float64(a)*float64(b), float64(a), float64(b))
-	})
-	RegisterBinary[L, R](reg, OperatorDiv, func(a L, b R) (any, error) {
-		if b == 0 {
-			return nil, errDivisionByZero
-		}
-		return finite(float64(a)/float64(b), float64(a), float64(b))
-	})
+	RegisterBinary[L, R](reg, OperatorMul, func(a L, b R) (any, error) { return product(float64(a), float64(b)) })
+	RegisterBinary[L, R](reg, OperatorDiv, func(a L, b R) (any, error) { return quotient(float64(a), float64(b)) })
 	registerOrderOf[L, R](reg, func(a L, b R) int { return compareFloat64(float64(a), float64(b)) })
 }
 
