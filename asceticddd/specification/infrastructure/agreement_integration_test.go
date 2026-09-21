@@ -496,6 +496,131 @@ func selected(conn session.DbConnection, query string, params []any) ([]int, err
 	return ids, rows.Err()
 }
 
+// discount is a Value Object, which a specification compares as a whole. Its
+// special case answers for itself, as Fowler's Special Case does: it is equal
+// to itself and to no discount, and less than any. Nothing of it is null to
+// the evaluator.
+type discount struct {
+	percent int
+	none    bool
+}
+
+func registerDiscounts(reg *operators.OperatorRegistry) {
+	rank := func(d discount) int {
+		if d.none {
+			return -1
+		}
+		return d.percent
+	}
+	operators.RegisterBinary[discount, discount](reg, operators.OperatorEq, func(a, b discount) (any, error) { return a == b, nil })
+	operators.RegisterBinary[discount, discount](reg, operators.OperatorNe, func(a, b discount) (any, error) { return a != b, nil })
+	operators.RegisterBinary[discount, discount](reg, operators.OperatorGt, func(a, b discount) (any, error) { return rank(a) > rank(b), nil })
+}
+
+// discountsContext is what the storage has for them: a discount is its percent
+// in a column, and the special case is that column's null.
+type discountsContext struct{ ContextDefaults }
+
+func (discountsContext) AttrNode(path []string) (Mapped, error) {
+	return nil, fmt.Errorf("no such member: %s", strings.Join(path, "."))
+}
+
+func (discountsContext) ItemAttrNode(path []string) (Mapped, error) {
+	if len(path) == 1 && path[0] == "discount" {
+		return Scalar(s.Field(s.Item(), "discount_percent")), nil
+	}
+	return nil, fmt.Errorf("no such member of an item: %s", strings.Join(path, "."))
+}
+
+func (discountsContext) ValueNode(val any) (Mapped, error) {
+	if d, ok := val.(discount); ok {
+		if d.none {
+			return Scalar(s.Value(nil)), nil
+		}
+		return Scalar(s.Value(d.percent)), nil
+	}
+	return Scalar(s.Value(val)), nil
+}
+
+// A special case that answers for itself is equal to itself, and the storage
+// has a null for it: `discount = $1` with a null is true of nothing, so the
+// server found no shop where the evaluator found all three. Equality with a
+// value the mapping made the storage's null is the null test.
+//
+// What stays the server's own: a null compared with a value is unknown to it,
+// and so is the negation of that, where the special case answers false and
+// true. A special case kept as a value, and not as a null, has none of this.
+func TestEqualityWithASpecialCaseKeptAsANullIsTheNullTest(t *testing.T) {
+	fifteen, none := discount{percent: 15}, discount{none: true}
+	shop := func(discounts ...discount) s.Context {
+		items := make([]s.Context, 0, len(discounts))
+		for _, d := range discounts {
+			items = append(items, rowContext{"discount": d})
+		}
+		return rowContext{"items": s.NewCollectionContext(items)}
+	}
+	shops := map[int]s.Context{1: shop(fifteen, none), 2: shop(none, fifteen), 3: shop(none)}
+	member := s.Field(s.Item(), "discount")
+	some := func(predicate s.Visitable) s.Visitable {
+		return s.Wildcard(s.Object(s.GlobalScope(), "items"), predicate)
+	}
+	over := func(percent int) s.Visitable { return s.GreaterThan(member, s.Value(discount{percent: percent})) }
+	cases := []struct {
+		specification s.Visitable
+		inMemory      []int
+		onTheServer   []int
+	}{
+		{some(s.Equal(member, s.Value(none))), []int{1, 2, 3}, []int{1, 2, 3}},
+		{some(s.Equal(s.Value(none), member)), []int{1, 2, 3}, []int{1, 2, 3}},
+		{some(s.NotEqual(member, s.Value(none))), []int{1, 2}, []int{1, 2}},
+		{some(over(10)), []int{1, 2}, []int{1, 2}},
+		// The server's own logic of a null, which the null test does not reach.
+		{some(s.Not(over(10))), []int{1, 2, 3}, []int{}},
+		{some(s.NotEqual(member, s.Value(fifteen))), []int{1, 2, 3}, []int{}},
+	}
+	reg := operators.NewDefaultRegistry()
+	registerDiscounts(reg)
+
+	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
+		for _, statement := range []string{
+			"CREATE TYPE spec_answering AS (price bigint, discount_percent bigint)",
+			"CREATE TABLE spec_answering_shops (id bigint, items spec_answering[])",
+			`INSERT INTO spec_answering_shops VALUES
+				(1, ARRAY[ROW(900, 15), ROW(100, NULL)]::spec_answering[]),
+				(2, ARRAY[ROW(100, NULL), ROW(900, 15)]::spec_answering[]),
+				(3, ARRAY[ROW(100, NULL)]::spec_answering[])`,
+		} {
+			if _, err := conn.Exec(statement); err != nil {
+				return fmt.Errorf("%s: %w", statement, err)
+			}
+		}
+		for _, c := range cases {
+			satisfied := []int{}
+			for id := 1; id <= 3; id++ {
+				ok, err := s.NewEvaluateVisitor(shops[id], reg).Evaluate(c.specification)
+				if err != nil {
+					return fmt.Errorf("the evaluator, on shop %d: %w", id, err)
+				}
+				if ok {
+					satisfied = append(satisfied, id)
+				}
+			}
+			sql, params, err := Compile(discountsContext{}, c.specification)
+			if err != nil {
+				return err
+			}
+			selected, err := selected(conn, "SELECT id FROM spec_answering_shops WHERE "+sql+" ORDER BY id", params)
+			if err != nil {
+				return fmt.Errorf("%s: %w", sql, err)
+			}
+			if !reflect.DeepEqual(satisfied, c.inMemory) || !reflect.DeepEqual(selected, c.onTheServer) {
+				t.Errorf("%s %v: the evaluator %v, want %v; PostgreSQL %v, want %v", sql, params, satisfied, c.inMemory, selected, c.onTheServer)
+			}
+		}
+		return nil
+	})
+}
+
 // Why a type is said only where nothing stands beside the constant. A time is
 // written as a timestamp with zone or without, whichever the column is. Said
 // to be timestamptz beside a column without zone, it would be compared in the

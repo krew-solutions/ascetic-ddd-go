@@ -106,6 +106,76 @@ func TestTheUnaryMinusIsSpelled(t *testing.T) {
 	}
 }
 
+type somebody struct{ id int }
+
+// nobody is the special case: an owner that is nobody, equal to itself in the
+// domain.
+type nobody struct{}
+
+// pair is known by two numbers, of which the second may be nobody's.
+type pair struct {
+	a int
+	b *int
+}
+
+type ownersContext struct{ ContextDefaults }
+
+func (ownersContext) AttrNode(path []string) (Mapped, error) {
+	if len(path) == 1 && path[0] == "pair" {
+		return CompositeExpression(Scalar(field("a")), Scalar(field("b"))), nil
+	}
+	return Scalar(field(strings.Join(path, "."))), nil
+}
+
+func (ownersContext) ValueNode(val any) (Mapped, error) {
+	switch v := val.(type) {
+	case somebody:
+		return Scalar(s.Value(v.id)), nil
+	case nobody:
+		return Scalar(s.Value(nil)), nil
+	case pair:
+		return CompositeExpression(Scalar(s.Value(v.a)), Scalar(s.Value(v.b))), nil
+	default:
+		return Scalar(s.Value(val)), nil
+	}
+}
+
+// A value of the domain that the storage keeps as a null - a special case that
+// answers for itself in the domain - is equal to itself there, and `owner = $1`
+// with a null is true of nothing: the server selected no row where the
+// evaluator was satisfied. The transformer tests for it, where both operands
+// are mapped and the node is built; the Context maps operands and knows nothing
+// of operators. Only a null the mapping made: a value that was null in the
+// domain already stays compared. The rows are in
+// TestEqualityWithASpecialCaseKeptAsANullIsTheNullTest.
+func TestEqualityWithWhatTheMappingMadeANullIsTheNullTest(t *testing.T) {
+	owner := field("owner")
+	for _, c := range []struct {
+		node s.Visitable
+		want string
+	}{
+		// Somebody is compared, as any value is.
+		{s.Equal(owner, s.Value(somebody{7})), `"owner" = $1`},
+		{s.Equal(owner, s.Value(nobody{})), `"owner" IS NULL`},
+		{s.Equal(s.Value(nobody{}), owner), `"owner" IS NULL`},
+		{s.NotEqual(owner, s.Value(nobody{})), `"owner" IS NOT NULL`},
+		{s.Equal(s.Value(nobody{}), s.Value(nobody{})), "$1::text IS NULL"},
+		// Under any other operator it is the null it was made.
+		{s.GreaterThan(owner, s.Value(nobody{})), `"owner" > $1`},
+		// A null of the domain's own stays compared.
+		{s.Equal(owner, s.Value(nil)), `"owner" = $1`},
+		// A part of a composite is tested for as a whole is.
+		{s.Equal(field("pair"), s.Value(pair{a: 1})), `"a" = $1 AND "b" IS NULL`},
+	} {
+		t.Run(c.want, func(t *testing.T) {
+			sql, _, err := Compile(ownersContext{}, c.node)
+			if err != nil || sql != c.want {
+				t.Errorf("got  %s, %v", sql, err)
+			}
+		})
+	}
+}
+
 // A constant is a parameter, and the server finds its type from what stands
 // beside it. Where every operand of an operator is a constant there is nothing
 // beside it - "operator is not unique: unknown + unknown" - so there the text

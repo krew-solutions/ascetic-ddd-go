@@ -165,6 +165,54 @@ func (v *TransformVisitor) VisitPostfix(n s.PostfixNode) (Mapped, error) {
 	return Scalar(s.NewPostfixNode(operand, n.Operator(), n.Associativity())), nil
 }
 
+// nullTest returns the null test an equality stands for, if it stands for one.
+//
+// A value of the domain that the storage keeps as a null - a special case that
+// answers for itself, `discount == NoDiscount` - is equal to itself in the
+// domain, and `discount = $1` with a null is true of nothing. It is tested
+// for: IS NULL, and IS NOT NULL of `!=`.
+//
+// Only a null the mapping made: a value that was null in the domain already
+// stays compared, as it is in the tree. The Context maps operands and knows
+// nothing of operators; it is here, where both operands are mapped and the
+// node is built, that the operator is seen.
+func nullTest(n s.InfixNode, left, right Mapped) (s.Visitable, bool) {
+	test := s.IsNull
+	switch n.Operator() {
+	case operators.OperatorEq:
+	case operators.OperatorNe:
+		test = s.IsNotNull
+	default:
+		return nil, false
+	}
+	for _, side := range [][3]any{{n.Right(), right, left}, {n.Left(), left, right}} {
+		if !madeNull(side[0].(s.Visitable), side[1].(Mapped)) {
+			continue
+		}
+		other, ok := side[2].(ScalarExpression)
+		if !ok {
+			continue
+		}
+		return test(other.Node()), true
+	}
+	return nil, false
+}
+
+// madeNull tells whether the mapping made a null of an operand that was a
+// value, and not a null, in the domain.
+func madeNull(operand s.Visitable, mapped Mapped) bool {
+	value, ok := operand.(s.ValueNode)
+	if !ok || operators.IsNull(value.Value()) {
+		return false
+	}
+	scalar, ok := mapped.(ScalarExpression)
+	if !ok {
+		return false
+	}
+	made, ok := scalar.Node().(s.ValueNode)
+	return ok && operators.IsNull(made.Value())
+}
+
 func (v *TransformVisitor) VisitInfix(n s.InfixNode) (Mapped, error) {
 	left, err := s.Accept[Mapped](n.Left(), v)
 	if err != nil {
@@ -173,6 +221,12 @@ func (v *TransformVisitor) VisitInfix(n s.InfixNode) (Mapped, error) {
 	right, err := s.Accept[Mapped](n.Right(), v)
 	if err != nil {
 		return nil, err
+	}
+
+	// Equality with a value the mapping made the storage's null is the null
+	// test of the other operand.
+	if tested, ok := nullTest(n, left, right); ok {
+		return Scalar(tested), nil
 	}
 
 	// A composite on either side: one on the right alone used to go into the

@@ -2,6 +2,7 @@ package specification
 
 import (
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
 // Mapped is what a field or a value of the domain is in the storage: one
@@ -79,7 +80,9 @@ func equalParts(left, right Mapped) (s.Visitable, error) {
 	switch l := left.(type) {
 	case ScalarExpression:
 		if r, ok := right.(ScalarExpression); ok {
-			return s.Equal(l.Node(), r.Node()), nil
+			// A part the mapping made the storage's null is tested for, as a
+			// whole is: `b = $1` with a null is true of nothing.
+			return s.EqualityOrNullTest(operators.OperatorEq, l.Node(), r.Node()), nil
 		}
 	case CompositeExpressionNode:
 		if r, ok := right.(CompositeExpressionNode); ok {
