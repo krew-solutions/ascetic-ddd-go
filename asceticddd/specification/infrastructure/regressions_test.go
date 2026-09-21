@@ -101,9 +101,44 @@ func TestTheUnaryMinusIsSpelled(t *testing.T) {
 		{s.Not(s.Not(a)), `NOT NOT "a"`},
 	})
 	sql, params, err := CompileToSQL(s.Neg(s.Value(5)))
-	if err != nil || sql != "-$1" || !reflect.DeepEqual(params, []any{5}) {
+	if err != nil || sql != "-$1::bigint" || !reflect.DeepEqual(params, []any{5}) {
 		t.Errorf("got %q, %v, %v", sql, params, err)
 	}
+}
+
+// A constant is a parameter, and the server finds its type from what stands
+// beside it. Where every operand of an operator is a constant there is nothing
+// beside it - "operator is not unique: unknown + unknown" - so there the text
+// says the type, by the kind of the value. Beside a column it does not: the
+// value adapts to the column, which a type said would take away.
+func TestAConstantWithNothingBesideItHasItsTypeSaid(t *testing.T) {
+	price := field("price")
+	null := func() s.Visitable { return s.Value(nil) }
+	checkSql(t, []sqlCase{
+		// Beside a column, or beside what has a type already: as it was.
+		{s.GreaterThan(price, s.Value(1)), `"price" > $1`},
+		{s.GreaterThan(s.Add(price, s.Value(1)), s.Value(2)), `"price" + $1 > $2`},
+		// Both operands constants.
+		{s.GreaterThan(price, s.Add(s.Value(1), s.Value(2))), `"price" > $1::bigint + $2::bigint`},
+		{s.LessThan(s.Value(1), s.Value(2.5)), "$1::bigint < $2::double precision"},
+		{s.Equal(s.Value("a"), s.Value("b")), "$1::text = $2::text"},
+		// What was typed so is a type for what stands beside it.
+		{s.Mul(s.Add(s.Value(1), s.Value(2)), s.Value(3)), "($1::bigint + $2::bigint) * $3"},
+		// PostgreSQL shifts a bigint by an integer.
+		{s.LeftShift(s.Value(1), s.Value(4)), "$1::bigint << $2::integer"},
+		// Alone under its operator.
+		{s.Neg(s.Value(5)), "-$1::bigint"},
+		{s.Not(s.Value(true)), "NOT $1::boolean"},
+		{s.IsNull(s.Value(7)), "$1::bigint IS NULL"},
+		// A null has no kind. Beside a constant it takes that one's type from
+		// the server; alone, what its operator is of.
+		{s.Add(null(), s.Value(1)), "$1 + $2::bigint"},
+		{s.Add(null(), null()), "$1::bigint + $2::bigint"},
+		{s.Equal(null(), null()), "$1 = $2"},
+		{s.IsNull(null()), "$1::text IS NULL"},
+		{s.Neg(null()), "-$1::bigint"},
+		{s.Not(null()), "NOT $1"},
+	})
 }
 
 // IS takes a keyword and not a parameter: `x IS $1` is a syntax error.

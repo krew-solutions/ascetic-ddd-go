@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -24,52 +24,6 @@ import (
 // errRollback undoes what a test did to the database.
 var errRollback = errors.New("rollback")
 
-// constantCase is an expression of constants, with what the server is told of
-// its parameters: a constant expression gives it nothing to infer a type from.
-type constantCase struct {
-	node s.Visitable
-	// nullType is the type of the nulls of the case.
-	nullType string
-	// types are the types of the parameters, where they are not what the
-	// values say: PostgreSQL shifts a bigint by an integer.
-	types []string
-}
-
-func number(node s.Visitable) constantCase  { return constantCase{node: node, nullType: "bigint"} }
-func boolean(node s.Visitable) constantCase { return constantCase{node: node, nullType: "bool"} }
-func shift(node s.Visitable) constantCase {
-	return constantCase{node: node, types: []string{"bigint", "integer"}}
-}
-
-func typeOf(value any, nullType string) string {
-	// A pointer is sent as what it points at, and a nil one as a null.
-	switch operators.Indirect(value).(type) {
-	case nil:
-		return nullType
-	case bool:
-		return "bool"
-	case int, int64:
-		return "bigint"
-	case float64:
-		return "float8"
-	case string:
-		return "text"
-	default:
-		panic(fmt.Sprintf("no type for %T", value))
-	}
-}
-
-var parameterPattern = regexp.MustCompile(`\$\d+`)
-
-// typed writes the type of each parameter after it.
-func typed(sql string, types []string) string {
-	i := 0
-	return parameterPattern.ReplaceAllStringFunc(sql, func(parameter string) string {
-		i++
-		return parameter + "::" + types[i-1]
-	})
-}
-
 // failureOf names the failure of the evaluator as PostgreSQL names its own.
 func failureOf(err error) string {
 	switch {
@@ -84,7 +38,7 @@ func failureOf(err error) string {
 	}
 }
 
-func constantCases() []constantCase {
+func constantCases() []s.Visitable {
 	v := s.Value
 	null := func() s.Visitable { return s.Value(nil) }
 	t, f := func() s.Visitable { return s.Value(true) }, func() s.Visitable { return s.Value(false) }
@@ -93,115 +47,115 @@ func constantCases() []constantCase {
 	seven, half, yes, no := 7, 0.5, true, false
 	var noNumber *int
 	var noFlag *bool
-	return []constantCase{
+	return []s.Visitable{
 		// Arithmetic, and the parentheses that keep its shape
-		number(s.Sub(v(10), s.Sub(v(4), v(3)))),
-		number(s.Sub(s.Sub(v(10), v(4)), v(3))),
-		number(s.Sub(v(10), s.Add(v(4), v(3)))),
-		number(s.Div(v(100), s.Div(v(10), v(5)))),
-		number(s.Div(s.Mul(v(7), v(3)), v(2))),
-		number(s.Mul(s.Add(v(1), v(2)), v(3))),
-		number(s.Add(v(1), s.Mul(v(2), v(3)))),
-		number(s.Div(v(7), v(2))),
-		number(s.Div(v(-7), v(2))),
-		number(s.Mod(v(-7), v(2))),
-		number(s.Mod(v(7), v(-2))),
-		number(s.Mod(v(min), v(-1))),
-		number(s.Neg(s.Neg(v(5)))),
-		number(s.Sub(v(5), s.Neg(v(3)))),
-		number(s.Neg(s.Add(v(1), v(2)))),
-		number(s.Div(v(7.0), v(2))),
-		number(s.Add(v(1), v(0.5))),
-		number(s.Mul(v(2.5), v(4))),
-		number(s.Add(v(int64(1)), v(2))),
+		s.Sub(v(10), s.Sub(v(4), v(3))),
+		s.Sub(s.Sub(v(10), v(4)), v(3)),
+		s.Sub(v(10), s.Add(v(4), v(3))),
+		s.Div(v(100), s.Div(v(10), v(5))),
+		s.Div(s.Mul(v(7), v(3)), v(2)),
+		s.Mul(s.Add(v(1), v(2)), v(3)),
+		s.Add(v(1), s.Mul(v(2), v(3))),
+		s.Div(v(7), v(2)),
+		s.Div(v(-7), v(2)),
+		s.Mod(v(-7), v(2)),
+		s.Mod(v(7), v(-2)),
+		s.Mod(v(min), v(-1)),
+		s.Neg(s.Neg(v(5))),
+		s.Sub(v(5), s.Neg(v(3))),
+		s.Neg(s.Add(v(1), v(2))),
+		s.Div(v(7.0), v(2)),
+		s.Add(v(1), v(0.5)),
+		s.Mul(v(2.5), v(4)),
+		s.Add(v(int64(1)), v(2)),
 		// Pointers: optional values, as the driver takes them
-		number(s.Add(v(&seven), v(2))),
-		number(s.Sub(v(&seven), v(&seven))),
-		number(s.Equal(v(&seven), v(7))),
-		number(s.LessThan(v(&half), v(&seven))),
-		number(s.Equal(v(noNumber), v(1))),
-		number(s.Add(v(1), v(noNumber))),
-		number(s.IsNull(v(noNumber))),
-		number(s.IsNotNull(v(&seven))),
-		number(s.Is(v(noNumber), v(noNumber))),
-		number(s.Is(v(&seven), v(noNumber))),
-		boolean(s.And(v(noFlag), v(&no))),
-		boolean(s.Or(v(noFlag), v(&yes))),
-		boolean(s.Not(v(noFlag))),
-		boolean(s.And(v(&yes), s.Not(v(&no)))),
-		shift(s.LeftShift(v(1), v(3))),
-		shift(s.LeftShift(v(1), v(64))),
-		shift(s.LeftShift(v(1), v(-1))),
-		shift(s.LeftShift(v(1), v(63))),
-		shift(s.RightShift(v(8), v(65))),
-		shift(s.RightShift(v(-8), v(1))),
+		s.Add(v(&seven), v(2)),
+		s.Sub(v(&seven), v(&seven)),
+		s.Equal(v(&seven), v(7)),
+		s.LessThan(v(&half), v(&seven)),
+		s.Equal(v(noNumber), v(1)),
+		s.Add(v(1), v(noNumber)),
+		s.IsNull(v(noNumber)),
+		s.IsNotNull(v(&seven)),
+		s.Is(v(noNumber), v(noNumber)),
+		s.Is(v(&seven), v(noNumber)),
+		s.And(v(noFlag), v(&no)),
+		s.Or(v(noFlag), v(&yes)),
+		s.Not(v(noFlag)),
+		s.And(v(&yes), s.Not(v(&no))),
+		s.LeftShift(v(1), v(3)),
+		s.LeftShift(v(1), v(64)),
+		s.LeftShift(v(1), v(-1)),
+		s.LeftShift(v(1), v(63)),
+		s.RightShift(v(8), v(65)),
+		s.RightShift(v(-8), v(1)),
 		// Where it fails
-		number(s.Div(v(1), v(0))),
-		number(s.Mod(v(1), v(0))),
-		number(s.Div(v(1.0), v(0.0))),
-		number(s.Add(v(max), v(1))),
-		number(s.Sub(v(min), v(1))),
-		number(s.Mul(v(max), v(2))),
-		number(s.Div(v(min), v(-1))),
-		number(s.Neg(v(min))),
-		number(s.Mul(v(math.MaxFloat64), v(2.0))),
+		s.Div(v(1), v(0)),
+		s.Mod(v(1), v(0)),
+		s.Div(v(1.0), v(0.0)),
+		s.Add(v(max), v(1)),
+		s.Sub(v(min), v(1)),
+		s.Mul(v(max), v(2)),
+		s.Div(v(min), v(-1)),
+		s.Neg(v(min)),
+		s.Mul(v(math.MaxFloat64), v(2.0)),
 		// What is not defined here is not defined there
-		number(s.Add(v("a"), v("b"))),
-		number(s.Mod(v(5.5), v(2))),
-		number(s.Add(v(true), v(1))),
-		number(s.Neg(v("a"))),
-		number(s.Equal(v("a"), v(1))),
-		number(s.LessThan(v(true), v(2))),
-		number(s.Is(v("a"), v(1))),
+		s.Add(v("a"), v("b")),
+		s.Mod(v(5.5), v(2)),
+		s.Add(v(true), v(1)),
+		s.Neg(v("a")),
+		s.Equal(v("a"), v(1)),
+		s.LessThan(v(true), v(2)),
+		s.Is(v("a"), v(1)),
 		// Comparisons
-		number(s.Equal(v(1), v(1.0))),
-		number(s.LessThan(v(1), v(1.5))),
-		number(s.GreaterThanEqual(v(2), v(2))),
-		number(s.LessThanEqual(v(3), v(2))),
-		number(s.NotEqual(v("a"), v("b"))),
-		number(s.LessThan(v("a"), v("b"))),
-		number(s.GreaterThan(v(true), v(false))),
-		number(s.Equal(v(nan), v(nan))),
-		number(s.GreaterThan(v(nan), v(math.MaxFloat64))),
-		number(s.LessThanEqual(v(1.0), v(nan))),
-		number(s.Equal(v(math.Copysign(0, -1)), v(0.0))),
-		number(s.Equal(s.Equal(v(1), v(1)), v(true))),
-		number(s.Equal(v(true), s.Equal(v(1), v(2)))),
+		s.Equal(v(1), v(1.0)),
+		s.LessThan(v(1), v(1.5)),
+		s.GreaterThanEqual(v(2), v(2)),
+		s.LessThanEqual(v(3), v(2)),
+		s.NotEqual(v("a"), v("b")),
+		s.LessThan(v("a"), v("b")),
+		s.GreaterThan(v(true), v(false)),
+		s.Equal(v(nan), v(nan)),
+		s.GreaterThan(v(nan), v(math.MaxFloat64)),
+		s.LessThanEqual(v(1.0), v(nan)),
+		s.Equal(v(math.Copysign(0, -1)), v(0.0)),
+		s.Equal(s.Equal(v(1), v(1)), v(true)),
+		s.Equal(v(true), s.Equal(v(1), v(2))),
 		// Nulls
-		number(s.Equal(null(), v(1))),
-		number(s.Equal(null(), null())),
-		number(s.NotEqual(v(1), null())),
-		number(s.Add(v(1), null())),
-		number(s.Neg(null())),
-		number(s.Div(null(), v(0))),
-		boolean(s.Not(null())),
-		boolean(s.And(null(), f())),
-		boolean(s.And(f(), null())),
-		boolean(s.And(null(), t())),
-		boolean(s.And(null(), null())),
-		boolean(s.Or(null(), t())),
-		boolean(s.Or(t(), null())),
-		boolean(s.Or(null(), f())),
-		boolean(s.And(s.Or(t(), f()), f())),
-		boolean(s.Or(t(), s.And(f(), f()))),
-		boolean(s.And(t(), s.And(t(), f()))),
-		boolean(s.Not(s.And(t(), f()))),
-		boolean(s.Not(s.Not(t()))),
-		boolean(s.IsNull(s.Or(null(), f()))),
-		boolean(s.IsNull(s.IsNull(null()))),
-		boolean(s.Equal(s.IsNull(null()), t())),
-		number(s.IsNull(s.Equal(v(1), null()))),
-		number(s.IsNotNull(s.Equal(v(1), null()))),
-		boolean(s.Not(s.IsNull(null()))),
+		s.Equal(null(), v(1)),
+		s.Equal(null(), null()),
+		s.NotEqual(v(1), null()),
+		s.Add(v(1), null()),
+		s.Neg(null()),
+		s.Div(null(), v(0)),
+		s.Not(null()),
+		s.And(null(), f()),
+		s.And(f(), null()),
+		s.And(null(), t()),
+		s.And(null(), null()),
+		s.Or(null(), t()),
+		s.Or(t(), null()),
+		s.Or(null(), f()),
+		s.And(s.Or(t(), f()), f()),
+		s.Or(t(), s.And(f(), f())),
+		s.And(t(), s.And(t(), f())),
+		s.Not(s.And(t(), f())),
+		s.Not(s.Not(t())),
+		s.IsNull(s.Or(null(), f())),
+		s.IsNull(s.IsNull(null())),
+		s.Equal(s.IsNull(null()), t()),
+		s.IsNull(s.Equal(v(1), null())),
+		s.IsNotNull(s.Equal(v(1), null())),
+		s.Not(s.IsNull(null())),
 		// IS
-		boolean(s.Is(t(), t())),
-		boolean(s.Is(t(), f())),
-		boolean(s.Is(null(), null())),
-		boolean(s.Is(null(), t())),
-		number(s.Is(v(1), null())),
-		number(s.Is(v(1), v(1))),
-		boolean(s.Equal(s.Is(t(), null()), f())),
-		boolean(s.Is(s.Equal(v(1), v(1)), t())),
+		s.Is(t(), t()),
+		s.Is(t(), f()),
+		s.Is(null(), null()),
+		s.Is(null(), t()),
+		s.Is(v(1), null()),
+		s.Is(v(1), v(1)),
+		s.Equal(s.Is(t(), null()), f()),
+		s.Is(s.Equal(v(1), v(1)), t()),
 	}
 }
 
@@ -240,19 +194,17 @@ func withConnection(t *testing.T, do func(tx session.Session, conn session.DbCon
 func TestAConstantExpressionHasOneValueForBothReaders(t *testing.T) {
 	withConnection(t, func(tx session.Session, _ session.DbConnection) error {
 		for _, c := range constantCases() {
-			sql, params, err := CompileToSQL(c.node)
+			sql, params, err := CompileToSQL(c)
 			if err != nil {
 				return err
 			}
-			types := c.types
-			if types == nil {
-				for _, param := range params {
-					types = append(types, typeOf(param, c.nullType))
-				}
-			}
-			query := "SELECT (" + typed(sql, types) + ")"
+			// Sent as a user sends it, the types the server's to find: this
+			// test used to write a type after every parameter itself, and so
+			// did not see that where every operand is a constant the server
+			// has nothing to find them by.
+			query := "SELECT (" + sql + ")"
 
-			evaluated, failure := s.Accept[any](c.node, s.NewEvaluateVisitor(rowContext{}, operators.NewDefaultRegistry()))
+			evaluated, failure := s.Accept[any](c, s.NewEvaluateVisitor(rowContext{}, operators.NewDefaultRegistry()))
 
 			// A transaction of its own: a failure is one of the answers, and
 			// must not take the connection with it.
@@ -438,6 +390,12 @@ func rowSpecifications() []s.Visitable {
 		s.Equal(ownerNameOfStore(), s.Value("bob")),
 		s.And(s.IsNull(ownerNameOfStore()), s.IsNotNull(field("a"))),
 		some(s.Equal(ownerNameOfItem(), ownerNameOfStore())),
+		// Constants with nothing but constants beside them: their types are
+		// said in the text, for the server has nothing to find them by.
+		s.GreaterThan(field("a"), s.Sub(s.Value(4), s.Value(3))),
+		some(s.GreaterThan(item("price"), s.Mul(s.Value(100), s.Value(5)))),
+		s.LessThan(field("a"), s.Neg(s.Value(-2))),
+		s.Or(s.IsNull(null()), field("flag")),
 		// A name is the column's, whatever else PostgreSQL knows by it.
 		s.Equal(field("user"), s.Value("one")),
 		s.GreaterThan(field("order"), s.Value(0)),
@@ -511,6 +469,45 @@ func selected(conn session.DbConnection, query string, params []any) ([]int, err
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// Why a type is said only where nothing stands beside the constant. A time is
+// written as a timestamp with zone or without, whichever the column is. Said
+// to be timestamptz beside a column without zone, it would be compared in the
+// session's time zone, and the row would not be found.
+func TestAConstantBesideAColumnTakesTheColumnsType(t *testing.T) {
+	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
+		for _, statement := range []string{
+			"SET LOCAL TIME ZONE 'Asia/Tokyo'",
+			"CREATE TABLE spec_moments (id bigint, at timestamp, zoned timestamptz, small smallint)",
+			"INSERT INTO spec_moments VALUES (1, '2023-11-14 22:13:20', '2023-11-14 22:13:20+00', 7)",
+		} {
+			if _, err := conn.Exec(statement); err != nil {
+				return fmt.Errorf("%s: %w", statement, err)
+			}
+		}
+		noon := time.Unix(1_700_000_000, 0).UTC()
+		for _, specification := range []s.Visitable{
+			s.Equal(field("at"), s.Value(noon)),
+			s.Equal(field("zoned"), s.Value(noon)),
+			s.Equal(field("small"), s.Value(7)),
+			// And where nothing stands beside them, the constants say their own.
+			s.Equal(field("small"), s.Add(s.Value(3), s.Value(4))),
+		} {
+			sql, params, err := CompileToSQL(specification)
+			if err != nil {
+				return err
+			}
+			ids, err := selected(conn, "SELECT id FROM spec_moments WHERE "+sql, params)
+			if err != nil {
+				return fmt.Errorf("%s: %w", sql, err)
+			}
+			if len(ids) != 1 {
+				t.Errorf("%s %v: selected %v", sql, params, ids)
+			}
+		}
+		return nil
+	})
 }
 
 func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {

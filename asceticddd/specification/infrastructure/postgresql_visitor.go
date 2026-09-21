@@ -402,6 +402,9 @@ func (v *PostgresqlVisitor) VisitInfix(n s.InfixNode) (SqlFragment, error) {
 		return SqlFragment{}, err
 	}
 
+	ofLeft, ofRight := typesOfBoth(n.Left(), n.Operator(), n.Right())
+	left.SQL, right.SQL = ofType(left.SQL, ofLeft), ofType(right.SQL, ofRight)
+
 	sql := fmt.Sprintf("%s %s %s", left.SQL, spell(n.Operator()), right.SQL)
 	return SqlFragment{
 		SQL:    v.wrap(innerPrec, sql),
@@ -419,6 +422,7 @@ func (v *PostgresqlVisitor) VisitPrefix(n s.PrefixNode) (SqlFragment, error) {
 	if err != nil {
 		return SqlFragment{}, err
 	}
+	operand.SQL = ofType(operand.SQL, typeUnderPrefix(op, n.Operand()))
 
 	var sql string
 	if op == operators.OperatorNeg {
@@ -438,6 +442,7 @@ func (v *PostgresqlVisitor) VisitPostfix(n s.PostfixNode) (SqlFragment, error) {
 	if err != nil {
 		return SqlFragment{}, err
 	}
+	operand.SQL = ofType(operand.SQL, typeUnderPostfix(n.Operand()))
 	sql := fmt.Sprintf("%s %s", operand.SQL, spell(n.Operator()))
 	return SqlFragment{SQL: v.wrap(innerPrec, sql), Params: operand.Params}, nil
 }
