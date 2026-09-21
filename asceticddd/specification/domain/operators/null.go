@@ -25,6 +25,33 @@ func IsNull(value any) bool {
 
 // Indirect returns what a pointer points at, through as many pointers as
 // there are, and nil for a nil one. What is not a pointer is returned as it is.
+// optional is a value that may hold one or nothing: option.Option[T] of any T.
+type optional interface {
+	Any() (any, bool)
+}
+
+// ReadOption returns what an Option holds, or the null it is if it holds
+// nothing; one inside another is read through. Any other value is returned as
+// it is.
+//
+// A member of an aggregate may be an Option of a value, and so may a constant
+// of a specification. To a reader of the tree it is the value or a null: taken
+// for the value itself it had no operator, IS NULL was false of a Nothing, and
+// as a parameter it reached the driver as the text "Some({15})". It is read
+// where a value comes to a reader - from the candidate, from a constant - so
+// that nothing after meets an Option.
+func ReadOption(value any) any {
+	for {
+		held, ok := value.(optional)
+		if !ok {
+			return value
+		}
+		if value, ok = held.Any(); !ok {
+			return nil
+		}
+	}
+}
+
 func Indirect(value any) any {
 	// The usual values are not pointers, and are told apart without reflection.
 	switch value.(type) {

@@ -88,11 +88,13 @@ func (v *EvaluateVisitor) VisitField(n FieldNode) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return objCtx.(Context).Get(n.Name())
+	value, err := objCtx.(Context).Get(n.Name())
+	// An Option of a value is the value, or a null.
+	return operators.ReadOption(value), err
 }
 
 func (v *EvaluateVisitor) VisitValue(n ValueNode) (any, error) {
-	return n.Value(), nil
+	return operators.ReadOption(n.Value()), nil
 }
 
 func (v *EvaluateVisitor) VisitCollection(n CollectionNode) (any, error) {

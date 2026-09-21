@@ -33,6 +33,22 @@ func TestSome(t *testing.T) {
 	})
 }
 
+func TestAny(t *testing.T) {
+	val, ok := Some(42).Any()
+	assert.True(t, ok)
+	assert.Equal(t, 42, val)
+
+	val, ok = Nothing[int]().Any()
+	assert.False(t, ok)
+	assert.Nil(t, val)
+
+	// For a reader that does not know T: through an interface.
+	var reader interface{ Any() (any, bool) } = Some("hello")
+	val, ok = reader.Any()
+	assert.True(t, ok)
+	assert.Equal(t, "hello", val)
+}
+
 func TestNothing(t *testing.T) {
 	t.Run("int", func(t *testing.T) {
 		o := Nothing[int]()

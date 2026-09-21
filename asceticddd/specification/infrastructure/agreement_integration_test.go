@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/option"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
@@ -615,6 +616,90 @@ func TestEqualityWithASpecialCaseKeptAsANullIsTheNullTest(t *testing.T) {
 			}
 			if !reflect.DeepEqual(satisfied, c.inMemory) || !reflect.DeepEqual(selected, c.onTheServer) {
 				t.Errorf("%s %v: the evaluator %v, want %v; PostgreSQL %v, want %v", sql, params, satisfied, c.inMemory, selected, c.onTheServer)
+			}
+		}
+		return nil
+	})
+}
+
+// A member of an aggregate may be an Option of a Value Object,
+// option.Some(discount{15}) or option.Nothing[discount](). The evaluator took
+// the wrapper for the value: there is no operator of an Option, and IS NULL
+// was false of a Nothing. It is read as what it holds, or as a null - where a
+// value comes to a reader: from the candidate, and from a constant of the
+// specification.
+//
+// A null on both sides, so the two readers agree on every specification, the
+// negation of a comparison included: where a special case kept as a null
+// differs from the server, an Option does not.
+func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
+	fifteen, nothing := option.Some(discount{percent: 15}), option.Nothing[discount]()
+	shop := func(discounts ...option.Option[discount]) s.Context {
+		items := make([]s.Context, 0, len(discounts))
+		for _, d := range discounts {
+			items = append(items, rowContext{"discount": d})
+		}
+		return rowContext{"items": s.NewCollectionContext(items)}
+	}
+	shops := map[int]s.Context{1: shop(fifteen, nothing), 2: shop(nothing, fifteen), 3: shop(nothing)}
+	member := s.Field(s.Item(), "discount")
+	some := func(predicate s.Visitable) s.Visitable {
+		return s.Wildcard(s.Object(s.GlobalScope(), "items"), predicate)
+	}
+	over := func(percent int) s.Visitable { return s.GreaterThan(member, s.Value(discount{percent: percent})) }
+	cases := []struct {
+		specification s.Visitable
+		want          []int
+	}{
+		{some(over(10)), []int{1, 2}},
+		{some(s.Equal(member, s.Value(discount{percent: 15}))), []int{1, 2}},
+		{some(s.IsNull(member)), []int{1, 2, 3}},
+		{s.Not(some(over(10))), []int{3}},
+		// A null to both readers: unknown, and so is its negation.
+		{some(s.Not(over(10))), []int{}},
+		{some(s.NotEqual(member, s.Value(discount{percent: 15}))), []int{}},
+		// A constant of the specification may be an Option as well.
+		{some(s.Equal(member, s.Value(fifteen))), []int{1, 2}},
+		{some(s.Is(member, s.Value(nothing))), []int{1, 2, 3}},
+		{some(s.Equal(member, s.Value(nothing))), []int{}},
+	}
+	reg := operators.NewDefaultRegistry()
+	registerDiscounts(reg)
+
+	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
+		for _, statement := range []string{
+			"CREATE TYPE spec_optional AS (price bigint, discount_percent bigint)",
+			"CREATE TABLE spec_optional_shops (id bigint, items spec_optional[])",
+			`INSERT INTO spec_optional_shops VALUES
+				(1, ARRAY[ROW(900, 15), ROW(100, NULL)]::spec_optional[]),
+				(2, ARRAY[ROW(100, NULL), ROW(900, 15)]::spec_optional[]),
+				(3, ARRAY[ROW(100, NULL)]::spec_optional[])`,
+		} {
+			if _, err := conn.Exec(statement); err != nil {
+				return fmt.Errorf("%s: %w", statement, err)
+			}
+		}
+		for _, c := range cases {
+			satisfied := []any{}
+			for id := 1; id <= 3; id++ {
+				ok, err := s.NewEvaluateVisitor(shops[id], reg).Evaluate(c.specification)
+				if err != nil {
+					satisfied = append(satisfied, err.Error())
+				} else if ok {
+					satisfied = append(satisfied, id)
+				}
+			}
+			sql, params, err := Compile(discountsContext{}, c.specification)
+			if err != nil {
+				t.Errorf("%v: the transformer: %v", c.want, err)
+				continue
+			}
+			selected, err := selected(conn, "SELECT id FROM spec_optional_shops WHERE "+sql+" ORDER BY id", params)
+			if err != nil {
+				return fmt.Errorf("%s %v: %w", sql, params, err)
+			}
+			if fmt.Sprint(satisfied) != fmt.Sprint(c.want) || !reflect.DeepEqual(selected, c.want) {
+				t.Errorf("%s %v: the evaluator %v, PostgreSQL %v, want %v", sql, params, satisfied, selected, c.want)
 			}
 		}
 		return nil

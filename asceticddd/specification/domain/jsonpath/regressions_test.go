@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/option"
 	spec "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 )
 
@@ -428,5 +429,33 @@ func TestAParameterMayBeAPointer(t *testing.T) {
 	)
 	if err != nil || !matched {
 		t.Errorf("got %v, %v", matched, err)
+	}
+}
+
+// A template is bound to what the application has, and that may be an Option.
+// Bound to a Nothing an equality is the null test, as it is bound to a nil:
+// the rule asked whether the wrapper was nil, and built a comparison that is
+// true of nothing. Bound to a Some it compares what that holds.
+func TestAParameterMayBeAnOption(t *testing.T) {
+	deleted := bound(t, "$[?@.deleted_at == %s]", option.Nothing[string]())
+	if want := spec.IsNull(field("deleted_at")); !spec.SameTree(deleted, want) {
+		t.Errorf("got %v, want %v", spec.Describe(deleted), spec.Describe(want))
+	}
+
+	named, err := Parse("$[?@.name == %s]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, c := range map[string]struct {
+		member any
+		param  any
+	}{
+		"a parameter": {"ann", option.Some("ann")},
+		"a member":    {option.Some("ann"), "ann"},
+	} {
+		matched, err := named.Match(NewDictContext(map[string]any{"name": c.member}), c.param)
+		if err != nil || !matched {
+			t.Errorf("%s: got %v, %v", name, matched, err)
+		}
 	}
 }

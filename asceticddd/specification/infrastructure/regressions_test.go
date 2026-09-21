@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/option"
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
@@ -171,6 +172,36 @@ func TestEqualityWithWhatTheMappingMadeANullIsTheNullTest(t *testing.T) {
 			sql, _, err := Compile(ownersContext{}, c.node)
 			if err != nil || sql != c.want {
 				t.Errorf("got  %s, %v", sql, err)
+			}
+		})
+	}
+}
+
+// A constant of a specification may be an Option of a value. The transformer
+// handed the wrapper to the Context, which knows the domain's values and not
+// their wrappers, and it reached the driver as the text "Some({7})". It is
+// read first: the Context is asked of what a Some holds, and a Nothing is the
+// null it is in any storage - the domain's own null, so it stays compared, and
+// is not taken for a value the mapping made a null of.
+func TestTheContextIsAskedOfWhatAnOptionHolds(t *testing.T) {
+	owner := field("owner")
+	for _, c := range []struct {
+		node   s.Visitable
+		want   string
+		params []any
+	}{
+		{s.Equal(owner, s.Value(option.Some(somebody{7}))), `"owner" = $1`, []any{7}},
+		{s.Equal(owner, s.Value(option.Some(option.Some(somebody{7})))), `"owner" = $1`, []any{7}},
+		// The domain's own null: compared, as a nil is.
+		{s.Equal(owner, s.Value(option.Nothing[somebody]())), `"owner" = $1`, []any{nil}},
+		{s.Is(owner, s.Value(option.Nothing[somebody]())), `"owner" IS NOT DISTINCT FROM $1`, []any{nil}},
+		// What it holds may be a special case, which the mapping makes a null of.
+		{s.Equal(owner, s.Value(option.Some(nobody{}))), `"owner" IS NULL`, nil},
+	} {
+		t.Run(c.want, func(t *testing.T) {
+			sql, params, err := Compile(ownersContext{}, c.node)
+			if err != nil || sql != c.want || !reflect.DeepEqual(params, c.params) {
+				t.Errorf("got  %s, %v, %v", sql, params, err)
 			}
 		})
 	}

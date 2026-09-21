@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/option"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
 
@@ -22,6 +23,45 @@ func evaluated(t *testing.T, ctx Context, node Visitable) (any, error) {
 // failing is a Visitable that must not be evaluated.
 func failing() Visitable {
 	return Field(GlobalScope(), "not_there")
+}
+
+// A member of an aggregate may be an Option of a value, and so may a constant
+// of a specification. The evaluator took the wrapper for the value: there is
+// no operator of an Option, and IS NULL was false of a Nothing. It is read as
+// what it holds, or as a null, where a value comes to the evaluator: from the
+// candidate, and from a constant.
+func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
+	price := Field(GlobalScope(), "price")
+	fifteen, nothing := option.Some(15), option.Nothing[int]()
+	for _, c := range []struct {
+		name string
+		ctx  testContext
+		node Visitable
+		want any
+	}{
+		{"a member", testContext{"price": fifteen}, GreaterThan(price, Value(10)), true},
+		{"a member, equal", testContext{"price": fifteen}, Equal(price, Value(15)), true},
+		{"a member that is there is not null", testContext{"price": fifteen}, IsNull(price), false},
+		// A Nothing is a null: unknown to a comparison, and to its negation.
+		{"nothing, compared", testContext{"price": nothing}, GreaterThan(price, Value(10)), nil},
+		{"nothing, compared and negated", testContext{"price": nothing}, Not(GreaterThan(price, Value(10))), nil},
+		{"nothing is null", testContext{"price": nothing}, IsNull(price), true},
+		{"nothing is not not null", testContext{"price": nothing}, IsNotNull(price), false},
+		{"a constant", testContext{"price": 15}, Equal(price, Value(fifteen)), true},
+		{"a constant and a member", testContext{"price": fifteen}, Equal(price, Value(fifteen)), true},
+		{"a constant that is nothing", testContext{"price": 15}, Equal(price, Value(nothing)), nil},
+		{"IS of two nothings", testContext{"price": nothing}, Is(price, Value(nothing)), true},
+		// One inside another is read through.
+		{"nested", testContext{"price": option.Some(fifteen)}, Equal(price, Value(15)), true},
+		{"nested nothing", testContext{"price": option.Some(nothing)}, IsNull(price), true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := evaluated(t, c.ctx, c.node)
+			if err != nil || got != c.want {
+				t.Errorf("got %v, %v, want %v", got, err, c.want)
+			}
+		})
+	}
 }
 
 func TestNegIsAnOperatorOfItsOwn(t *testing.T) {

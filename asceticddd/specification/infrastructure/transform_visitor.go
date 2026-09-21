@@ -146,7 +146,13 @@ func (v *TransformVisitor) VisitField(n s.FieldNode) (Mapped, error) {
 }
 
 func (v *TransformVisitor) VisitValue(n s.ValueNode) (Mapped, error) {
-	return v.context.ValueNode(n.Value())
+	// An Option of a value is the value, which the Context maps, or the null
+	// it is in any storage: a Context is asked of the domain's values.
+	value := operators.ReadOption(n.Value())
+	if value == nil && n.Value() != nil {
+		return Scalar(s.Value(nil)), nil
+	}
+	return v.context.ValueNode(value)
 }
 
 func (v *TransformVisitor) VisitPrefix(n s.PrefixNode) (Mapped, error) {
@@ -202,7 +208,7 @@ func nullTest(n s.InfixNode, left, right Mapped) (s.Visitable, bool) {
 // value, and not a null, in the domain.
 func madeNull(operand s.Visitable, mapped Mapped) bool {
 	value, ok := operand.(s.ValueNode)
-	if !ok || operators.IsNull(value.Value()) {
+	if !ok || operators.IsNull(operators.ReadOption(value.Value())) {
 		return false
 	}
 	scalar, ok := mapped.(ScalarExpression)

@@ -28,6 +28,15 @@ func (o Option[T]) IsNothing() bool {
 	return !o.valid
 }
 
+// Any returns the contained value as any, and whether there is one: for a
+// reader that does not know T, as a reader of a specification does not.
+func (o Option[T]) Any() (any, bool) {
+	if !o.valid {
+		return nil, false
+	}
+	return o.val, true
+}
+
 // Unwrap returns the contained value.
 // Panics if the Option is Nothing.
 func (o Option[T]) Unwrap() T {
