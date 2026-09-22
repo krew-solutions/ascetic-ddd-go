@@ -174,7 +174,10 @@ specgen -type=TypeName
   // generated:
   func DearSinceSpecAST(since time.Time, min int) spec.Visitable
   ```
-- Functions must have `//spec:sql` comment
+- Functions must have `//spec:sql` comment: that line, as a directive is
+  written. A comment that mentions the marker does not mark the function, nor
+  does an example in its doc; written with a space, `// spec:sql`, the marker
+  marks nothing and specgen says so.
 - Function body must contain a single return statement
 - Type `T` must be in the same package. Its fields need not be exported: the
   generator reads the source, and the generated file is of the same package,

@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -50,26 +51,15 @@ func main() {
 
 	// Parse Go files in the directory
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		// Skip generated files and test files
-		name := fi.Name()
-		return !strings.HasSuffix(name, "_test.go") &&
-			!strings.HasSuffix(name, "_gen.go") &&
-			strings.HasSuffix(name, ".go")
-	}, parser.ParseComments)
+	pkgs, err := parser.ParseDir(fset, dir, sourceFiles, parser.ParseComments)
 	if err != nil {
 		log.Fatalf("Failed to parse directory: %v", err)
 	}
 
 	// Find specification functions
-	var specs []SpecFunc
-	var pkgName string
-
-	for name, pkg := range pkgs {
-		pkgName = name
-		for _, file := range pkg.Files {
-			specs = append(specs, findSpecFunctions(fset, file, *typeFlag)...)
-		}
+	pkgName, specs, err := collect(fset, pkgs, *typeFlag)
+	if err != nil {
+		log.Fatalf("%v", err)
 	}
 
 	if len(specs) == 0 {
@@ -89,6 +79,55 @@ func main() {
 	}
 
 	log.Printf("Generated %s with %d specifications", outputPath, len(specs))
+}
+
+// sourceFiles tells which files of the directory are read: not the generated
+// ones, not the tests.
+func sourceFiles(fi os.FileInfo) bool {
+	name := fi.Name()
+	return !strings.HasSuffix(name, "_test.go") &&
+		!strings.HasSuffix(name, "_gen.go") &&
+		strings.HasSuffix(name, ".go")
+}
+
+// collect finds the specifications of the type in the packages of a
+// directory, in the order of their files, and names the package the
+// generated file is of: the package of the specifications.
+//
+// The parser does not read build tags, so a directory may hold more than one
+// package - a tool under `//go:build ignore` beside the package - and both
+// are maps. The generated file used to be of whichever package came last,
+// `package main` in a package called shop, and its functions came in the
+// order the files did that run.
+func collect(fset *token.FileSet, pkgs map[string]*ast.Package, typeName string) (string, []SpecFunc, error) {
+	var pkgName string
+	var specs []SpecFunc
+	for _, name := range sorted(pkgs) {
+		pkg := pkgs[name]
+		var found []SpecFunc
+		for _, path := range sorted(pkg.Files) {
+			found = append(found, findSpecFunctions(fset, pkg.Files[path], typeName)...)
+		}
+		if len(found) == 0 {
+			continue
+		}
+		if pkgName != "" {
+			return "", nil, fmt.Errorf("specifications of %s in two packages, %s and %s: one file is generated, of one package", typeName, pkgName, name)
+		}
+		pkgName = name
+		specs = found
+	}
+	return pkgName, specs, nil
+}
+
+// sorted returns the keys of a map in order.
+func sorted[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // SpecFunc represents a specification function
@@ -128,20 +167,7 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 			return true
 		}
 
-		// Check if function has //spec:sql comment
-		if funcDecl.Doc == nil {
-			return true
-		}
-
-		hasSpecComment := false
-		for _, comment := range funcDecl.Doc.List {
-			if strings.Contains(comment.Text, "spec:sql") {
-				hasSpecComment = true
-				break
-			}
-		}
-
-		if !hasSpecComment {
+		if !marked(funcDecl) {
 			return true
 		}
 
@@ -200,6 +226,27 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 	})
 
 	return specs
+}
+
+// marked tells whether the function is marked as a specification: a line of
+// its doc comment is `//spec:sql`, as a directive is written. A comment that
+// mentioned the marker, or showed it in an example, used to mark the
+// function as well. The marker written with a space, `// spec:sql`, marks
+// nothing and is said so.
+func marked(funcDecl *ast.FuncDecl) bool {
+	if funcDecl.Doc == nil {
+		return false
+	}
+	for _, comment := range funcDecl.Doc.List {
+		text := strings.TrimRight(comment.Text, " \t")
+		if text == "//spec:sql" {
+			return true
+		}
+		if strings.TrimSpace(strings.TrimPrefix(text, "//")) == "spec:sql" {
+			log.Printf("Warning: %s: the marker is the line //spec:sql, without a space", funcDecl.Name.Name)
+		}
+	}
+	return false
 }
 
 // theReturnOf returns what a body of one return statement returns.
