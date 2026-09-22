@@ -23,6 +23,9 @@ func (c dealContext) Get(field string) (any, error) {
 
 // The function and the tree generated from it agree on a member that is an
 // Option, held or not; and the tree compiles to the null test.
+// The specification as a type is the pair a repository takes.
+var _ spec.Specification[Deal] = DiscountedOver{}
+
 func TestAnOptionInAPredicate(t *testing.T) {
 	five, nothing := option.Some(5), option.Nothing[int]()
 	cases := []struct {
@@ -45,6 +48,9 @@ func TestAnOptionInAPredicate(t *testing.T) {
 		{"undiscounted or under ten", UndiscountedOrUnderSpec, UndiscountedOrUnderSpecAST(), `"discount" IS NULL OR "discount" < $1`},
 		{"guarded over five", func(d Deal) bool { return GuardedOverSpec(d, five) }, GuardedOverSpecAST(five), `$1::bigint IS NOT NULL AND "discount" IS NOT NULL AND "discount" > $2`},
 		{"guarded over nothing", func(d Deal) bool { return GuardedOverSpec(d, nothing) }, GuardedOverSpecAST(nothing), `$1::text IS NOT NULL AND "discount" IS NOT NULL AND "discount" > $2`},
+		// The same predicate as a type: the field of the receiver is the constant.
+		{"as a type, over five", DiscountedOver{five}.IsSatisfiedBy, DiscountedOver{five}.Expression(), `$1::bigint IS NOT NULL AND "discount" IS NOT NULL AND "discount" > $2`},
+		{"as a type, over nothing", DiscountedOver{nothing}.IsSatisfiedBy, DiscountedOver{nothing}.Expression(), `$1::text IS NOT NULL AND "discount" IS NOT NULL AND "discount" > $2`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

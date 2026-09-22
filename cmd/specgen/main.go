@@ -136,6 +136,9 @@ type SpecFunc struct {
 	Doc  string
 	// Param is the name the predicate gives to its candidate.
 	Param string
+	// Receiver is the receiver of a predicate written as a method: the
+	// specification, whose fields are its constants. Nil for a function.
+	Receiver *Receiver
 	// Params are the parameters of the predicate after its candidate: values
 	// of the specification, given when its tree is built.
 	Params []SpecParam
@@ -157,6 +160,24 @@ type SpecParam struct {
 	Type string
 }
 
+// Receiver is the receiver of `IsSatisfiedBy`: its name, if it has one, and
+// its type as the source spells it, `Dearer` or `*Dearer`.
+type Receiver struct {
+	Name string
+	Type string
+}
+
+// generatedName is the name a receiver or a parameter has in the generated
+// code. The generated file imports the package as `spec`, so an author's
+// `spec` is written as `spec_` there: it used to be written as it was, in
+// code that did not compile.
+func generatedName(name string) string {
+	if name == "spec" {
+		return "spec_"
+	}
+	return name
+}
+
 // findSpecFunctions finds all functions with //spec:sql comment
 func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []SpecFunc {
 	var specs []SpecFunc
@@ -169,6 +190,25 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 
 		if !marked(funcDecl) {
 			return true
+		}
+
+		// A method is the predicate of a specification type: IsSatisfiedBy,
+		// of the candidate alone; the receiver's fields are the constants.
+		// It used to be generated as a function, its receiver dropped.
+		var receiver *Receiver
+		if funcDecl.Recv != nil {
+			if funcDecl.Name.Name != "IsSatisfiedBy" {
+				log.Printf("Warning: %s: the method of a specification is IsSatisfiedBy, of which Expression is generated", funcDecl.Name.Name)
+				return true
+			}
+			if funcDecl.Type.Params != nil && len(funcDecl.Type.Params.List) > 1 {
+				log.Printf("Warning: IsSatisfiedBy of %s takes the candidate alone: the constants of a specification are its fields", types.ExprString(funcDecl.Recv.List[0].Type))
+				return true
+			}
+			receiver = &Receiver{Type: types.ExprString(funcDecl.Recv.List[0].Type)}
+			if names := funcDecl.Recv.List[0].Names; len(names) == 1 {
+				receiver.Name = names[0].Name
+			}
 		}
 
 		// Validate function signature: func(T, ...) bool. A specification with
@@ -215,6 +255,7 @@ func findSpecFunctions(fset *token.FileSet, file *ast.File, typeName string) []S
 			Name:          funcDecl.Name.Name,
 			Doc:           funcDecl.Doc.Text(),
 			Param:         param.Names[0].Name,
+			Receiver:      receiver,
 			Params:        params,
 			Imports:       importsOf(file, funcDecl.Type.Params.List[1:]),
 			OptionPackage: optionPackageOf(file),
@@ -375,11 +416,22 @@ func renderCode(f io.Writer, pkgName, typeName string, specs []SpecFunc) error {
 			return fmt.Errorf("%s: %w", s.Name, err)
 		}
 
+		if s.Receiver != nil {
+			// The tree of a specification type: with IsSatisfiedBy, the
+			// pair a repository takes.
+			receiver := strings.TrimSpace(generatedName(s.Receiver.Name) + " " + s.Receiver.Type)
+			fmt.Fprintf(f, "// Expression is IsSatisfiedBy as a tree: to compile, or to evaluate.\n")
+			fmt.Fprintf(f, "func (%s) Expression() spec.Visitable {\n", receiver)
+			fmt.Fprintf(f, "\treturn %s\n", body)
+			fmt.Fprintf(f, "}\n\n")
+			continue
+		}
+
 		// Generate AST function
 		fmt.Fprintf(f, "// %sAST returns AST for %s\n", s.Name, s.Name)
 		declared := make([]string, 0, len(s.Params))
 		for _, param := range s.Params {
-			declared = append(declared, param.Name+" "+param.Type)
+			declared = append(declared, generatedName(param.Name)+" "+param.Type)
 		}
 		signature := strings.Join(declared, ", ")
 
@@ -419,6 +471,10 @@ type SpecGenVisitor struct {
 	// held is what an Option holds, under the name the predicate of IsSomeAnd
 	// or of IsNothingOr gives it.
 	held map[string]held
+	// receiverName is what a method calls its receiver, the specification:
+	// a path from it is a value, a constant of the specification. Empty
+	// for a function, and for a receiver without a name.
+	receiverName string
 }
 
 // held is what stands behind the name given to what an Option holds: the
@@ -462,6 +518,9 @@ func NewSpecGenVisitor(typeName string) *SpecGenVisitor {
 func visitorOf(typeName string, s SpecFunc) *SpecGenVisitor {
 	visitor := NewSpecGenVisitor(typeName).withRoot(s.Param)
 	visitor.optionPackage = s.OptionPackage
+	if s.Receiver != nil {
+		visitor.receiverName = s.Receiver.Name
+	}
 	return visitor
 }
 
@@ -475,6 +534,7 @@ func (v *SpecGenVisitor) withRoot(rootName string) *SpecGenVisitor {
 		inWildcard:    v.inWildcard,
 		optionPackage: v.optionPackage,
 		held:          v.held,
+		receiverName:  v.receiverName,
 	}
 }
 
@@ -517,6 +577,7 @@ func (v *SpecGenVisitor) withWildcardContext(itemName string) *SpecGenVisitor {
 		inWildcard:    true,
 		optionPackage: v.optionPackage,
 		held:          kept,
+		receiverName:  v.receiverName,
 	}
 }
 
@@ -565,15 +626,58 @@ func isNil(expr ast.Expr) bool {
 }
 
 // isOutside tells whether the expression is a name from outside the
-// predicate: what it is equal to is known when the tree is built, not when it
-// is generated. The name of what a member holds is the member's.
+// predicate, or a field of the receiver: what it is equal to is known when
+// the tree is built, not when it is generated. The name of what a member
+// holds is the member's.
 func (v *SpecGenVisitor) isOutside(expr ast.Expr) bool {
+	if _, ok := v.ofReceiver(expr); ok {
+		return true
+	}
 	ident, ok := expr.(*ast.Ident)
 	if !ok || ident.Name == "nil" || ident.Name == "true" || ident.Name == "false" {
 		return false
 	}
 	option, isHeld := v.held[ident.Name]
 	return !isHeld || option.value != ""
+}
+
+// isReceiver tells whether the name is the receiver's, here: a name is the
+// nearest of that name, and an item or what is held may be called the same.
+func (v *SpecGenVisitor) isReceiver(name string) bool {
+	if v.receiverName == "" || name != v.receiverName {
+		return false
+	}
+	if _, isHeld := v.held[name]; isHeld {
+		return false
+	}
+	return !(v.inWildcard && name == v.itemName)
+}
+
+// ofReceiver returns the code of a field of the receiver, reached by fields:
+// a value, as the tree function writes it. Not the receiver as a whole, which
+// is not a value.
+func (v *SpecGenVisitor) ofReceiver(expr ast.Expr) (string, bool) {
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return "", false
+	}
+	var path []string
+	current := sel
+	for {
+		path = append([]string{current.Sel.Name}, path...)
+		switch x := current.X.(type) {
+		case *ast.SelectorExpr:
+			current = x
+			continue
+		case *ast.Ident:
+			if !v.isReceiver(x.Name) {
+				return "", false
+			}
+			return fmt.Sprintf("spec.Value(%s.%s)", generatedName(x.Name), strings.Join(path, ".")), true
+		default:
+			return "", false
+		}
+	}
 }
 
 // optionMaker tells which maker of an Option is called, "Some" or "Nothing";
@@ -764,6 +868,9 @@ func (v *SpecGenVisitor) scopeOf(base *ast.Ident) (string, error) {
 
 // VisitSelectorExpr handles field access (e.g., u.Age, item.Price, u.Profile.Age).
 func (v *SpecGenVisitor) VisitSelectorExpr(expr *ast.SelectorExpr) (string, error) {
+	if value, ok := v.ofReceiver(expr); ok {
+		return value, nil
+	}
 	scope, path, err := v.memberOf(expr)
 	if err != nil {
 		return "", err
@@ -795,6 +902,10 @@ func (v *SpecGenVisitor) memberOf(expr *ast.SelectorExpr) (string, []string, err
 			return "", nil, unsupported(current.X, "unsupported selector base %T", current.X)
 		}
 		break
+	}
+
+	if v.isReceiver(baseIdent.Name) {
+		return "", nil, unsupported(expr, "%q is the specification: its fields are values, not members of the candidate", baseIdent.Name)
 	}
 
 	// A member of what an Option holds is a member of the Option's.
@@ -893,7 +1004,7 @@ func (v *SpecGenVisitor) VisitIdent(expr *ast.Ident) (string, error) {
 	if option, ok := v.held[expr.Name]; ok {
 		return option.code(), nil
 	}
-	if expr.Name == v.rootName || (v.inWildcard && expr.Name == v.itemName) {
+	if expr.Name == v.rootName || (v.inWildcard && expr.Name == v.itemName) || v.isReceiver(expr.Name) {
 		return "", unsupported(expr, "%q as a whole is not a value: name a member of it", expr.Name)
 	}
 	for _, outer := range v.outerItems {
@@ -901,7 +1012,7 @@ func (v *SpecGenVisitor) VisitIdent(expr *ast.Ident) (string, error) {
 			return "", unsupported(expr, "%q is of the item of an outer collection: only the nearest item can be named", expr.Name)
 		}
 	}
-	return fmt.Sprintf("spec.Value(%s)", expr.Name), nil
+	return fmt.Sprintf("spec.Value(%s)", generatedName(expr.Name)), nil
 }
 
 // VisitParenExpr handles parenthesized expressions.
@@ -1069,6 +1180,10 @@ func (v *SpecGenVisitor) visitHeld(expr *ast.CallExpr, sel *ast.SelectorExpr, jo
 	var option held
 	switch x := sel.X.(type) {
 	case *ast.SelectorExpr:
+		if value, ok := v.ofReceiver(x); ok {
+			option = held{value: value}
+			break
+		}
 		scope, path, err := v.memberOf(x)
 		if err != nil {
 			return "", err

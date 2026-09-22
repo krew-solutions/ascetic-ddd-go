@@ -43,6 +43,11 @@ func DiscountedOverSpecAST(limit option.Option[int]) spec.Visitable {
 	return spec.And(spec.IsNotNull(spec.Value(limit)), spec.And(spec.IsNotNull(spec.Field(spec.GlobalScope(), "Discount")), spec.GreaterThan(spec.Field(spec.GlobalScope(), "Discount"), spec.Value(limit))))
 }
 
+// Expression is IsSatisfiedBy as a tree: to compile, or to evaluate.
+func (over DiscountedOver) Expression() spec.Visitable {
+	return spec.And(spec.IsNotNull(spec.Value(over.Limit)), spec.And(spec.IsNotNull(spec.Field(spec.GlobalScope(), "Discount")), spec.GreaterThan(spec.Field(spec.GlobalScope(), "Discount"), spec.Value(over.Limit))))
+}
+
 // NotDiscountedOverSpecAST returns AST for NotDiscountedOverSpec
 func NotDiscountedOverSpecAST(limit option.Option[int]) spec.Visitable {
 	return spec.Not(spec.And(spec.IsNotNull(spec.Value(limit)), spec.And(spec.IsNotNull(spec.Field(spec.GlobalScope(), "Discount")), spec.GreaterThan(spec.Field(spec.GlobalScope(), "Discount"), spec.Value(limit)))))

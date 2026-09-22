@@ -88,6 +88,40 @@ func (userContext) ValueNode(val any) (infra.Mapped, error) {
 `infra.Compile(context, tree, infra.WithSchema(schema))` takes the schema of
 the collections kept in tables of their own as well.
 
+### A specification as a type
+
+A specification with constants is a type the author writes: its fields are
+the constants, and `IsSatisfiedBy`, marked the same way, is its predicate.
+`Expression` is generated from it.
+
+```go
+type DearSince struct {
+    Since time.Time
+    Min   int
+}
+
+//spec:sql
+func (c DearSince) IsSatisfiedBy(s Store) bool {
+    return s.Price > c.Min && s.CreatedAt.After(c.Since)
+}
+
+// generated:
+func (c DearSince) Expression() spec.Visitable
+```
+
+The pair is `spec.Specification[Store]`, which a repository takes: it
+compiles `Expression()` with its context. A field of the receiver is a value,
+as a parameter of a function is - equality with one is decided when the tree
+is built, an `Option` among them is asked what it holds - and it may be
+reached by fields, `c.Limits.Min`. The receiver as a whole is not a value,
+nor is a method of it. `IsSatisfiedBy` takes the candidate alone; a method of
+another name, or with a parameter beside the candidate, is skipped and said
+so. A specification is not composed of others in its body - a call is not a
+tree - but of their trees: `spec.And(a.Expression(), b.Expression())`.
+
+A receiver or a parameter called `spec` is written as `spec_` in the
+generated file, which imports the package under that name.
+
 A name is written into the query between quotes, as it is: `"Age"` is not the
 column `age`. A `...SQL()` used to be generated, which compiled the tree under
 the names of Go's fields; it found a column only while PostgreSQL folded an
@@ -165,7 +199,8 @@ specgen -type=TypeName
 - Functions must have signature: `func(T) bool`, or `func(T, ...) bool`: what
   follows the candidate are the parameters of the specification, and the
   generated `...AST` takes the same. A parameter must have a name and may not
-  be variadic.
+  be variadic. A method is `func (c C) IsSatisfiedBy(T) bool`, of which
+  `Expression` is generated; see "A specification as a type".
 
   ```go
   //spec:sql
@@ -202,6 +237,8 @@ See [examples/specgen](../../examples/specgen) for a complete working example.
 - Cannot access external variables (closures): a value comes as a parameter
   of the function, or as a constant or a variable of the package
 - Cannot call methods (only field access)
+- A method marked as a specification is `IsSatisfiedBy`; its receiver is the
+  specification, and the fields of the receiver its constants
 - Single return statement only
 
 These limitations are intentional - specifications should be pure boolean expressions.

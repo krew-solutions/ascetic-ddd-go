@@ -66,6 +66,20 @@ func DiscountedOverSpec(d Deal, limit option.Option[int]) bool {
 	})
 }
 
+// DiscountedOver is the same specification as a type: its fields are its
+// constants, IsSatisfiedBy is its predicate, and Expression is generated from
+// it. The pair is spec.Specification[Deal], which a repository takes.
+type DiscountedOver struct {
+	Limit option.Option[int]
+}
+
+//spec:sql
+func (over DiscountedOver) IsSatisfiedBy(d Deal) bool {
+	return over.Limit.IsSomeAnd(func(limit int) bool {
+		return d.Discount.IsSomeAnd(func(discount int) bool { return discount > limit })
+	})
+}
+
 // NotDiscountedOverSpec is the same under a `!`: true of a deal without a
 // discount, and of any deal where no limit is given.
 //
