@@ -105,16 +105,15 @@ func TestGenerated(t *testing.T) {
 // in a comment: a specification that compiles, and is null.
 func TestWhatCannotBeATreeIsReportedWhereItStands(t *testing.T) {
 	cases := map[string]string{
-		"a bitwise operator":    "s.Flags & 1 == 1",
-		"a call":                "len(s.Items) > 0",
-		"an index":              "s.Items[0].Active",
-		"a composite literal":   "s.Owner == Owner{}",
-		"a wrong predicate":     "Any(s.Items, isActive)",
-		"inside a predicate":    "Any(s.Items, func(item Item) bool { return item.Flags | 1 == 1 })",
-		"another name's member": "other.Balance > 0",
-		// The tree has one "@", the nearest: it became a field of the candidate.
-		"the item of an outer collection": "Any(s.Categories, func(c Category) bool { return Any(c.Items, func(i Item) bool { return i.Name == c.Name }) })",
-		"the candidate as a value":        "s == nil",
+		"a bitwise operator":       "s.Flags & 1 == 1",
+		"a call":                   "len(s.Items) > 0",
+		"an index":                 "s.Items[0].Active",
+		"a composite literal":      "s.Owner == Owner{}",
+		"a wrong predicate":        "Any(s.Items, isActive)",
+		"inside a predicate":       "Any(s.Items, func(item Item) bool { return item.Flags | 1 == 1 })",
+		"another name's member":    "other.Balance > 0",
+		"the candidate as a value": "s == nil",
+		"an outer item as a value": "Any(s.Categories, func(c Category) bool { return Any(c.Items, func(i Item) bool { return i.Owner == c }) })",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

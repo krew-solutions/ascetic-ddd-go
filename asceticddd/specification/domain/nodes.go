@@ -497,11 +497,31 @@ func (n CollectionNode) Predicate() Visitable {
 
 func (CollectionNode) visitableNode() {}
 
+// Item is the item under test in the nearest enclosing collection: JSONPath's
+// `@`.
 func Item() ItemNode {
 	return ItemNode{}
 }
 
-type ItemNode struct{}
+// OuterItem is the item under test in an enclosing collection, by how far out
+// that one is: OuterItem(0) is Item(), OuterItem(1) the item of the collection
+// enclosing that one, which the text of JSONPath cannot name and a predicate
+// written in Go can - the category, from the predicate of its products.
+func OuterItem(depth int) ItemNode {
+	if depth < 0 {
+		panic("the depth of an item is how far out its collection is")
+	}
+	return ItemNode{depth: depth}
+}
+
+type ItemNode struct {
+	depth int
+}
+
+// Depth is how far out the item's collection is: 0 for the nearest.
+func (n ItemNode) Depth() int {
+	return n.depth
+}
 
 func (n ItemNode) Parent() EmptiableObject {
 	return GlobalScope() // FIXME: is it correct?

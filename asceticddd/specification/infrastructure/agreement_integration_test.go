@@ -818,3 +818,109 @@ func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
 		return nil
 	})
 }
+
+// The item of an enclosing collection, named from an inner predicate by how
+// far out it is: the category's limit beside the price of its product,
+// OuterItem(1). In either storage - arrays nested in a composite, or tables
+// that point at one another - the enclosing item's row is in scope of the
+// inner query. And the shop's own limit beside them, which used to be written
+// unqualified and read by PostgreSQL from the innermost row that has a column
+// of that name: the category's, not the shop's.
+func TestTheItemOfAnEnclosingCollectionIsNamedFromAnInnerPredicate(t *testing.T) {
+	type category struct {
+		limit  any
+		prices []any
+	}
+	shop := func(limit any, categories ...category) s.Context {
+		contexts := make([]s.Context, 0, len(categories))
+		for _, c := range categories {
+			products := make([]s.Context, 0, len(c.prices))
+			for _, price := range c.prices {
+				products = append(products, rowContext{"price": price})
+			}
+			contexts = append(contexts, rowContext{"limit": c.limit, "products": s.NewCollectionContext(products)})
+		}
+		return rowContext{"limit": limit, "categories": s.NewCollectionContext(contexts)}
+	}
+	shops := map[int]s.Context{
+		1: shop(50, category{10, []any{5, 20}}, category{100, []any{30}}),
+		2: shop(50, category{100, []any{30, nil}}),
+		3: shop(5, category{nil, []any{30}}),
+		4: shop(50),
+	}
+	price := s.Field(s.Item(), "price")
+	categoryLimit := s.Field(s.OuterItem(1), "limit")
+	shopLimit := s.Field(s.GlobalScope(), "limit")
+	overItsCategory := func(predicate s.Visitable) s.Visitable {
+		return s.Wildcard(s.Object(s.GlobalScope(), "categories"), s.Wildcard(s.Object(s.Item(), "products"), predicate))
+	}
+	cases := []struct {
+		specification s.Visitable
+		want          []int
+	}{
+		{overItsCategory(s.GreaterThan(price, categoryLimit)), []int{1}},
+		{overItsCategory(s.LessThan(price, categoryLimit)), []int{1, 2}},
+		{overItsCategory(s.GreaterThan(price, shopLimit)), []int{3}},
+		{overItsCategory(s.And(s.GreaterThan(price, categoryLimit), s.LessThan(categoryLimit, shopLimit))), []int{1}},
+		{overItsCategory(s.IsNull(categoryLimit)), []int{3}},
+		// Of a null limit the comparison is null, and so is its negation: no
+		// product of shop 3 is a witness, and the shop is selected.
+		{s.Not(overItsCategory(s.Not(s.GreaterThan(price, categoryLimit)))), []int{3, 4}},
+	}
+	embedded := NewSchemaRegistry("spec_shops")
+	relational := NewSchemaRegistry("spec_shops").
+		RegisterRelational("categories", "spec_categories", "shop_id", "id").
+		RegisterRelational("categories.products", "spec_products", "category_id", "id")
+	reg := operators.NewDefaultRegistry()
+
+	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
+		for _, statement := range []string{
+			"CREATE TYPE spec_product AS (price bigint)",
+			`CREATE TYPE spec_category AS ("limit" bigint, products spec_product[])`,
+			`CREATE TABLE spec_shops (id bigint, "limit" bigint, categories spec_category[])`,
+			`CREATE TABLE spec_categories (id bigint, shop_id bigint, "limit" bigint)`,
+			"CREATE TABLE spec_products (category_id bigint, price bigint)",
+			`INSERT INTO spec_shops VALUES
+				(1, 50, ARRAY[ROW(10, ARRAY[ROW(5), ROW(20)]::spec_product[]),
+				              ROW(100, ARRAY[ROW(30)]::spec_product[])]::spec_category[]),
+				(2, 50, ARRAY[ROW(100, ARRAY[ROW(30), ROW(NULL)]::spec_product[])]::spec_category[]),
+				(3, 5, ARRAY[ROW(NULL, ARRAY[ROW(30)]::spec_product[])]::spec_category[]),
+				(4, 50, '{}')`,
+			"INSERT INTO spec_categories VALUES (11, 1, 10), (12, 1, 100), (21, 2, 100), (31, 3, NULL)",
+			"INSERT INTO spec_products VALUES (11, 5), (11, 20), (12, 30), (21, 30), (21, NULL), (31, 30)",
+		} {
+			if _, err := conn.Exec(statement); err != nil {
+				return fmt.Errorf("%s: %w", statement, err)
+			}
+		}
+		for _, c := range cases {
+			satisfied := []int{}
+			for id := 1; id <= 4; id++ {
+				ok, err := s.NewEvaluateVisitor(shops[id], reg).Evaluate(c.specification)
+				if err != nil {
+					return err
+				}
+				if ok {
+					satisfied = append(satisfied, id)
+				}
+			}
+			if !reflect.DeepEqual(satisfied, c.want) {
+				t.Errorf("%v: the evaluator %v", c.want, satisfied)
+			}
+			for storage, schema := range map[string]*SchemaRegistry{"embedded": embedded, "relational": relational} {
+				sql, params, err := CompileToSQL(c.specification, WithSchema(schema))
+				if err != nil {
+					return err
+				}
+				rows, err := selected(conn, "SELECT id FROM spec_shops WHERE "+sql+" ORDER BY id", params)
+				if err != nil {
+					return fmt.Errorf("%s: %s: %w", storage, sql, err)
+				}
+				if !reflect.DeepEqual(rows, c.want) {
+					t.Errorf("%s: %s %v: PostgreSQL %v, want %v", storage, sql, params, rows, c.want)
+				}
+			}
+		}
+		return nil
+	})
+}

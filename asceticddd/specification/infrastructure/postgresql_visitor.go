@@ -1,6 +1,7 @@
 package specification
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -189,13 +190,52 @@ type PostgresqlVisitor struct {
 	outerPrecedence int
 	// outerApart tells whether an operand as tight as the outer operator is
 	// parenthesised: it is on the side the operator does not group to.
-	outerApart    bool
-	inWildcard    bool
-	wildcardAlias string
-	// wildcardPath is the names from the aggregate to the collection of the
-	// current item, through the collections on the way: what a schema names
-	// it by.
-	wildcardPath []string
+	outerApart bool
+	// wildcards is the collection whose item is under test, last, and before
+	// it the enclosing ones: OuterItem(depth) is the item of the one depth
+	// steps out.
+	wildcards []wildcard
+}
+
+// wildcard is a collection whose predicate is being compiled: what its item's
+// row is called in the query, and the names from the aggregate to it, through
+// the collections on the way - what a schema names it by.
+type wildcard struct {
+	alias string
+	path  []string
+}
+
+// inWildcard tells whether this is the predicate of a collection.
+func (v *PostgresqlVisitor) inWildcard() bool {
+	return len(v.wildcards) > 0
+}
+
+// wildcardOf returns the collection whose item is item: the one its depth
+// steps out.
+func (v *PostgresqlVisitor) wildcardOf(item s.ItemNode) (wildcard, error) {
+	if item.Depth() >= len(v.wildcards) {
+		return wildcard{}, fmt.Errorf("no current item in context: the item %d collections out", item.Depth())
+	}
+	return v.wildcards[len(v.wildcards)-1-item.Depth()], nil
+}
+
+// candidatesColumn returns the column name of the candidate's row, inside the
+// predicate of a collection. Unqualified, PostgreSQL reads it from the
+// innermost row that has a column of that name, and a category with a `limit`
+// of its own hid the shop's. The row is what the schema calls it.
+func (v *PostgresqlVisitor) candidatesColumn(name string) (string, error) {
+	if v.schema == nil {
+		return "", errors.New("a member of the candidate inside a collection's predicate needs the candidate's table: compile with a schema")
+	}
+	row, err := identifier(v.schema.GetParentRef())
+	if err != nil {
+		return "", err
+	}
+	column, err := identifier(name)
+	if err != nil {
+		return "", err
+	}
+	return row + "." + column, nil
 }
 
 // Compile is the typed entry point for top-level callers.
@@ -213,9 +253,7 @@ func (v *PostgresqlVisitor) atPrecedence(prec int, apart bool) *PostgresqlVisito
 		precedenceMapping: v.precedenceMapping,
 		outerPrecedence:   prec,
 		outerApart:        apart,
-		inWildcard:        v.inWildcard,
-		wildcardAlias:     v.wildcardAlias,
-		wildcardPath:      v.wildcardPath,
+		wildcards:         v.wildcards,
 	}
 }
 
@@ -228,9 +266,7 @@ func (v *PostgresqlVisitor) enterWildcard(alias string, path []string, prec int)
 		schema:            v.schema,
 		precedenceMapping: v.precedenceMapping,
 		outerPrecedence:   prec,
-		inWildcard:        true,
-		wildcardAlias:     alias,
-		wildcardPath:      path,
+		wildcards:         append(append([]wildcard{}, v.wildcards...), wildcard{alias: alias, path: path}),
 	}
 }
 
@@ -301,9 +337,13 @@ func (v *PostgresqlVisitor) VisitField(n s.FieldNode) (SqlFragment, error) {
 	// parent of `name` in `@.maker.name` is the object `maker`, so the item's
 	// alias was dropped and `"maker"."name"` written - the column of another
 	// table, if the query had one of that name.
-	if v.inWildcard && v.isItemReference(s.ExtractFieldRoot(n)) {
-		// Field of the current item in a wildcard: item.Price, item.Active, etc.
-		member, err := v.memberOfRow(quote(v.wildcardAlias), v.wildcardPath, path)
+	if root, ok := s.ExtractFieldRoot(n).(s.ItemNode); ok {
+		// Field of an item: item.Price, item.Active, etc.
+		w, err := v.wildcardOf(root)
+		if err != nil {
+			return SqlFragment{}, err
+		}
+		member, err := v.memberOfRow(quote(w.alias), w.path, path)
 		return SqlFragment{SQL: member}, err
 	}
 	// An object of the candidate kept in a table of its own
@@ -314,6 +354,12 @@ func (v *PostgresqlVisitor) VisitField(n s.FieldNode) (SqlFragment, error) {
 		}
 		member, err := v.memberOfRow(row, nil, path)
 		return SqlFragment{SQL: member}, err
+	}
+	// Inside a collection's predicate the candidate's column is qualified
+	// with its row; a name of several parts the author qualified.
+	if v.inWildcard() && len(path) == 1 && !strings.Contains(path[0], ".") {
+		column, err := v.candidatesColumn(path[0])
+		return SqlFragment{SQL: column}, err
 	}
 	// Normal field access: from the candidate the dots stay, a qualified name
 	// - `"s"."price"` is the column `price` of `s`.
@@ -559,8 +605,10 @@ func (v *PostgresqlVisitor) getParentRefForRelational(n s.CollectionNode) string
 	// the outer wildcard alias. A collection of the candidate named inside
 	// the predicate of another is joined to the root row: it used to be
 	// joined to the enclosing item, whatever it was a collection of.
-	if v.inWildcard && v.isItemReference(v.extractRoot(n)) {
-		return v.wildcardAlias
+	if root, ok := v.extractRoot(n).(s.ItemNode); ok {
+		if w, err := v.wildcardOf(root); err == nil {
+			return w.alias
+		}
 	}
 	// Otherwise, use schema's parent reference.
 	if v.schema != nil {
@@ -600,8 +648,10 @@ func (v *PostgresqlVisitor) extractLogicalPath(n s.CollectionNode) []string {
 		parent = parent.Parent()
 	}
 	// A path from the current item goes on from the path to its collection.
-	if v.inWildcard && v.isItemReference(parent) {
-		return append(append([]string{}, v.wildcardPath...), parts...)
+	if root, ok := parent.(s.ItemNode); ok {
+		if w, err := v.wildcardOf(root); err == nil {
+			return append(append([]string{}, w.path...), parts...)
+		}
 	}
 	return parts
 }
@@ -617,19 +667,26 @@ func (v *PostgresqlVisitor) extractCollectionPath(n s.CollectionNode) (string, e
 		parent = parent.Parent()
 	}
 
-	// If we're in a wildcard context and parent is Item(), prefix with current alias.
-	// This handles nested wildcards: category.Items instead of just Items.
-	if v.inWildcard && v.isItemReference(parent) {
+	// A collection of an item is under the alias of that item's row. This
+	// handles nested wildcards: category.Items instead of just Items.
+	if root, ok := parent.(s.ItemNode); ok {
+		w, err := v.wildcardOf(root)
+		if err != nil {
+			return "", err
+		}
 		if len(parts) > 0 {
 			path, err := identifier(strings.Join(parts, "."))
 			if err != nil {
 				return "", err
 			}
-			return quote(v.wildcardAlias) + "." + path, nil
+			return quote(w.alias) + "." + path, nil
 		}
-		return quote(v.wildcardAlias), nil
+		return quote(w.alias), nil
 	}
 
+	if v.inWildcard() && len(parts) == 1 && !strings.Contains(parts[0], ".") {
+		return v.candidatesColumn(parts[0])
+	}
 	return identifier(strings.Join(parts, "."))
 }
 
@@ -641,10 +698,4 @@ func (v *PostgresqlVisitor) extractCollectionName(n s.CollectionNode) string {
 		return inflection.Singular(parent.Name())
 	}
 	return "item" // fallback
-}
-
-// isItemReference checks if the object is Item() (current item in wildcard).
-func (v *PostgresqlVisitor) isItemReference(obj s.EmptiableObject) bool {
-	_, isItem := obj.(s.ItemNode)
-	return isItem
 }

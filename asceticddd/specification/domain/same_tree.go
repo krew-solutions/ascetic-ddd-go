@@ -54,8 +54,11 @@ func (describeVisitor) VisitGlobalScope(GlobalScopeNode) (Description, error) {
 	return Description{"$"}, nil
 }
 
-func (describeVisitor) VisitItem(ItemNode) (Description, error) {
-	return Description{"@"}, nil
+func (describeVisitor) VisitItem(n ItemNode) (Description, error) {
+	if n.Depth() == 0 {
+		return Description{"@"}, nil
+	}
+	return Description{fmt.Sprintf("@%d", n.Depth())}, nil
 }
 
 func (describeVisitor) VisitObject(n ObjectNode) (Description, error) {

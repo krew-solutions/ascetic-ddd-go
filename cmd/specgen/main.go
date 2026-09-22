@@ -459,12 +459,10 @@ type SpecGenVisitor struct {
 	// empty if it is not known, and then any name that is not an item's is
 	// taken for it.
 	rootName string
-	// itemName is the current item variable name in wildcard context (e.g., "item")
-	itemName string
-	// outerItems are the item names of the enclosing collections.
-	outerItems []string
-	// inWildcard indicates if we're inside a wildcard predicate
-	inWildcard bool
+	// items are the names the predicates of the enclosing collections give
+	// their items, the nearest last: the tree names each by how far out it
+	// is, spec.OuterItem(depth).
+	items []string
 	// optionPackage is what the source calls the package of Option; see
 	// optionPackageOf.
 	optionPackage string
@@ -480,12 +478,27 @@ type SpecGenVisitor struct {
 // held is what stands behind the name given to what an Option holds: the
 // Option, which is its value or the null.
 type held struct {
-	// scope and path are of a member of the candidate or of the item: where
-	// its path starts, and the names along it.
-	scope string
-	path  []string
+	// scope and path are of a member of the candidate or of an item: where
+	// its path starts, and the names along it. Of an item, itemDepth is how
+	// far out its collection is.
+	scope     string
+	itemDepth int
+	path      []string
 	// value is the code of a value from outside, a parameter.
 	value string
+}
+
+// ofItem returns a member of the item depth collections out.
+func heldOfItem(depth int, path []string) held {
+	return held{scope: itemScope(depth), itemDepth: depth, path: path}
+}
+
+// furtherIn returns the same member, seen from one collection further in.
+func (h held) furtherIn() held {
+	if h.value != "" || h.scope == "spec.GlobalScope()" {
+		return h
+	}
+	return heldOfItem(h.itemDepth+1, h.path)
 }
 
 // code is the code of the node of the Option.
@@ -507,9 +520,8 @@ func field(scope string, path []string) string {
 // NewSpecGenVisitor creates a new visitor for the given type.
 func NewSpecGenVisitor(typeName string) *SpecGenVisitor {
 	return &SpecGenVisitor{
-		typeName:   typeName,
-		itemName:   "",
-		inWildcard: false,
+		typeName: typeName,
+		items:    nil,
 	}
 }
 
@@ -529,9 +541,7 @@ func (v *SpecGenVisitor) withRoot(rootName string) *SpecGenVisitor {
 	return &SpecGenVisitor{
 		typeName:      v.typeName,
 		rootName:      rootName,
-		itemName:      v.itemName,
-		outerItems:    v.outerItems,
-		inWildcard:    v.inWildcard,
+		items:         v.items,
 		optionPackage: v.optionPackage,
 		held:          v.held,
 		receiverName:  v.receiverName,
@@ -552,33 +562,58 @@ func (v *SpecGenVisitor) withHeld(name string, option held) *SpecGenVisitor {
 }
 
 // withWildcardContext returns a new visitor configured for wildcard context.
-// What the item so far holds goes out of reach with it; what the candidate
-// holds, or a value from outside, stays.
+// What is held so far is one collection further out from here.
 func (v *SpecGenVisitor) withWildcardContext(itemName string) *SpecGenVisitor {
-	outerItems := v.outerItems
-	if v.inWildcard && v.itemName != itemName {
-		outerItems = append(append([]string{}, v.outerItems...), v.itemName)
-	}
 	kept := map[string]held{}
 	for name, option := range v.held {
-		switch {
-		case name == itemName:
-		case option.scope == "spec.Item()":
-			outerItems = append(append([]string{}, outerItems...), name)
-		default:
-			kept[name] = option
+		if name != itemName {
+			kept[name] = option.furtherIn()
 		}
 	}
 	return &SpecGenVisitor{
 		typeName:      v.typeName,
 		rootName:      v.rootName,
-		itemName:      itemName,
-		outerItems:    outerItems,
-		inWildcard:    true,
+		items:         append(append([]string{}, v.items...), itemName),
 		optionPackage: v.optionPackage,
 		held:          kept,
 		receiverName:  v.receiverName,
 	}
+}
+
+// heldMember returns the member at the path from the scope, as what an
+// Option holds: of an item, with how far out its collection is.
+func (v *SpecGenVisitor) heldMember(scope string, path []string) held {
+	for depth := range v.items {
+		if scope == itemScope(depth) {
+			return heldOfItem(depth, path)
+		}
+	}
+	return held{scope: scope, path: path}
+}
+
+// inWildcard tells whether this is the predicate of a collection.
+func (v *SpecGenVisitor) inWildcard() bool {
+	return len(v.items) > 0
+}
+
+// itemDepth returns how far out the collection whose item is called name is:
+// 0 the nearest; -1 if no item is called so. A name is the nearest of that
+// name.
+func (v *SpecGenVisitor) itemDepth(name string) int {
+	for depth := range v.items {
+		if v.items[len(v.items)-1-depth] == name {
+			return depth
+		}
+	}
+	return -1
+}
+
+// itemScope is the code of the item depth collections out.
+func itemScope(depth int) string {
+	if depth == 0 {
+		return "spec.Item()"
+	}
+	return fmt.Sprintf("spec.OuterItem(%d)", depth)
 }
 
 // UnsupportedError is a construct that cannot be a specification, where it
@@ -650,7 +685,7 @@ func (v *SpecGenVisitor) isReceiver(name string) bool {
 	if _, isHeld := v.held[name]; isHeld {
 		return false
 	}
-	return !(v.inWildcard && name == v.itemName)
+	return v.itemDepth(name) < 0
 }
 
 // ofReceiver returns the code of a field of the receiver, reached by fields:
@@ -843,21 +878,15 @@ func (v *SpecGenVisitor) VisitUnaryExpr(expr *ast.UnaryExpr) (string, error) {
 	}
 }
 
-// scopeOf returns the scope a base identifier stands for: the item of the
-// nearest collection, or the candidate.
+// scopeOf returns the scope a base identifier stands for: the item of an
+// enclosing collection, by how far out it is, or the candidate.
 //
 // A name that is neither used to be read as the candidate: the item of an
 // outer collection named from the predicate of an inner one, which the tree
-// cannot name - it has one "@", the nearest - became a field of the candidate.
+// could not name, became a field of the candidate.
 func (v *SpecGenVisitor) scopeOf(base *ast.Ident) (string, error) {
-	if v.inWildcard && base.Name == v.itemName {
-		// Inside wildcard, referring to item
-		return "spec.Item()", nil
-	}
-	for _, outer := range v.outerItems {
-		if base.Name == outer {
-			return "", unsupported(base, "%q is the item of an outer collection: only the nearest item can be named", base.Name)
-		}
+	if depth := v.itemDepth(base.Name); depth >= 0 {
+		return itemScope(depth), nil
 	}
 	if v.rootName != "" && base.Name != v.rootName {
 		return "", unsupported(base, "%q is neither the candidate %q nor the item of a collection", base.Name, v.rootName)
@@ -1004,13 +1033,8 @@ func (v *SpecGenVisitor) VisitIdent(expr *ast.Ident) (string, error) {
 	if option, ok := v.held[expr.Name]; ok {
 		return option.code(), nil
 	}
-	if expr.Name == v.rootName || (v.inWildcard && expr.Name == v.itemName) || v.isReceiver(expr.Name) {
+	if expr.Name == v.rootName || v.itemDepth(expr.Name) >= 0 || v.isReceiver(expr.Name) {
 		return "", unsupported(expr, "%q as a whole is not a value: name a member of it", expr.Name)
-	}
-	for _, outer := range v.outerItems {
-		if expr.Name == outer {
-			return "", unsupported(expr, "%q is of the item of an outer collection: only the nearest item can be named", expr.Name)
-		}
 	}
 	return fmt.Sprintf("spec.Value(%s)", generatedName(expr.Name)), nil
 }
@@ -1188,7 +1212,7 @@ func (v *SpecGenVisitor) visitHeld(expr *ast.CallExpr, sel *ast.SelectorExpr, jo
 		if err != nil {
 			return "", err
 		}
-		option = held{scope: scope, path: path}
+		option = v.heldMember(scope, path)
 	case *ast.Ident:
 		if known, ok := v.held[x.Name]; ok {
 			option = known

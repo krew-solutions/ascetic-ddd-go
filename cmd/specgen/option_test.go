@@ -237,8 +237,6 @@ func TestWhatAnOptionHoldsIsOutOfReachWhereTheOptionIs(t *testing.T) {
 		"no predicate":                                  "s.Discount.IsSomeAnd()",
 		"an Option that is a call":                      "find(s).IsSomeAnd(func(d int) bool { return d > 10 })",
 		"a member of what an Option from outside holds": "limit.IsSomeAnd(func(held Money) bool { return s.Price > held.Amount })",
-		// What the item of an outer collection holds is a member of it.
-		"what an outer item holds": "Any(s.Items, func(i Item) bool { return i.Discount.IsSomeAnd(func(d int) bool { return Any(i.Tags, func(t Tag) bool { return t.Weight > d }) }) })",
 	} {
 		t.Run(name, func(t *testing.T) {
 			got, err := generatedOf(t, "", body)

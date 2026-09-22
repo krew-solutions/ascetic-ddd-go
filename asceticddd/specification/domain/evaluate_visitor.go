@@ -19,9 +19,11 @@ type Context interface {
 // Fields are immutable per call; collection iteration creates a sub-visitor
 // via withItem() rather than mutating in place.
 type EvaluateVisitor struct {
-	context     Context
-	currentItem Context
-	registry    *operators.OperatorRegistry
+	context Context
+	// items is the item under test, last, and before it the items of the
+	// enclosing collections: OuterItem(depth) is the one depth steps out.
+	items    []Context
+	registry *operators.OperatorRegistry
 }
 
 func NewEvaluateVisitor(context Context, registry *operators.OperatorRegistry) *EvaluateVisitor {
@@ -35,9 +37,9 @@ func NewEvaluateVisitor(context Context, registry *operators.OperatorRegistry) *
 // Used during wildcard iteration to scope @ to the current collection element.
 func (v *EvaluateVisitor) withItem(item Context) *EvaluateVisitor {
 	return &EvaluateVisitor{
-		context:     v.context,
-		currentItem: item,
-		registry:    v.registry,
+		context:  v.context,
+		items:    append(append([]Context{}, v.items...), item),
+		registry: v.registry,
 	}
 }
 
@@ -76,11 +78,11 @@ func (v *EvaluateVisitor) VisitObject(n ObjectNode) (any, error) {
 	return ctx, nil
 }
 
-func (v *EvaluateVisitor) VisitItem(_ ItemNode) (any, error) {
-	if v.currentItem == nil {
+func (v *EvaluateVisitor) VisitItem(n ItemNode) (any, error) {
+	if n.Depth() >= len(v.items) {
 		return nil, errors.New("no current item in context")
 	}
-	return v.currentItem, nil
+	return v.items[len(v.items)-1-n.Depth()], nil
 }
 
 func (v *EvaluateVisitor) VisitField(n FieldNode) (any, error) {

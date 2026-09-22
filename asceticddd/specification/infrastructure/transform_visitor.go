@@ -67,6 +67,35 @@ func objectChain(root s.EmptiableObject, names []string) s.EmptiableObject {
 	return result
 }
 
+// rerootedObject returns the object at the same names from root.
+func rerootedObject(obj s.EmptiableObject, root s.EmptiableObject) s.EmptiableObject {
+	return objectChain(root, s.ExtractObjectPath(obj))
+}
+
+// atTheItem returns what the mapping said, where the member was. A mapping
+// names the column of an item's member from Item(), not knowing how far out
+// the item is - the category, from the predicate of its products - so the
+// transformer puts it at the item of the member it was asked about, a part
+// of a composite as a whole. A node the mapping did not root at the item -
+// a value, a column of the candidate - is what it said.
+func atTheItem(mapped Mapped, item s.ItemNode) Mapped {
+	switch m := mapped.(type) {
+	case CompositeExpressionNode:
+		parts := make([]Mapped, 0, len(m.nodes))
+		for _, part := range m.nodes {
+			parts = append(parts, atTheItem(part, item))
+		}
+		return CompositeExpression(parts...)
+	case ScalarExpression:
+		if field, ok := m.node.(s.FieldNode); ok {
+			if _, ok := s.ExtractFieldRoot(field).(s.ItemNode); ok {
+				return Scalar(s.Field(rerootedObject(field.Object(), item), field.Name()))
+			}
+		}
+	}
+	return mapped
+}
+
 // node returns a node, which a composite is not. Where one node is needed -
 // under any operator but = and !=, as a predicate, as the whole
 // specification - a composite is an error.
@@ -128,8 +157,15 @@ func (v *TransformVisitor) VisitCollection(n s.CollectionNode) (Mapped, error) {
 }
 
 func (v *TransformVisitor) transformCollectionParent(parent s.EmptiableObject) (s.EmptiableObject, error) {
-	if _, ok := s.ExtractObjectRoot(parent).(s.ItemNode); ok {
-		return v.context.ItemCollectionNode(s.ExtractObjectPath(parent))
+	if root, ok := s.ExtractObjectRoot(parent).(s.ItemNode); ok {
+		mapped, err := v.context.ItemCollectionNode(s.ExtractObjectPath(parent))
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := s.ExtractObjectRoot(mapped).(s.ItemNode); ok {
+			return rerootedObject(mapped, root), nil
+		}
+		return mapped, nil
 	}
 	return v.context.CollectionNode(s.ExtractObjectPath(parent))
 }
@@ -139,8 +175,12 @@ func (v *TransformVisitor) VisitItem(n s.ItemNode) (Mapped, error) {
 }
 
 func (v *TransformVisitor) VisitField(n s.FieldNode) (Mapped, error) {
-	if _, ok := s.ExtractFieldRoot(n).(s.ItemNode); ok {
-		return v.context.ItemAttrNode(s.ExtractFieldPath(n))
+	if root, ok := s.ExtractFieldRoot(n).(s.ItemNode); ok {
+		mapped, err := v.context.ItemAttrNode(s.ExtractFieldPath(n))
+		if err != nil {
+			return nil, err
+		}
+		return atTheItem(mapped, root), nil
 	}
 	return v.context.AttrNode(s.ExtractFieldPath(n))
 }

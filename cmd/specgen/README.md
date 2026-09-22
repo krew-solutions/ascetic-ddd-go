@@ -292,9 +292,11 @@ that compiles, and a query that compares NULL and selects nothing.
   package's `Some` makes another Option, which no reader of a tree reads, and
   is refused. `UnwrapOr` and the rest have no node and are refused. See
   `examples/specgen/deal.go`.
-- From the predicate of an inner collection the item of an outer one cannot be
-  named: the tree has one item, the nearest. It used to become a field of the
-  candidate.
+- From the predicate of an inner collection the item of an outer one is named
+  by how far out it is: `c.Limit` inside `Any(c.Items, func(i Item) bool {...})`
+  is `spec.Field(spec.OuterItem(1), "Limit")`, and so is what that item holds.
+  A name is the nearest of that name, as Go reads it. It used to be refused,
+  and before that to become a field of the candidate.
 
 ## Future Enhancements
 
