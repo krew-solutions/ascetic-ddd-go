@@ -523,6 +523,14 @@ func (v *PostgresqlVisitor) VisitInfix(n s.InfixNode) (SqlFragment, error) {
 	regroups := regrouping[n.Operator()]
 	leftSub := v.atPrecedence(innerPrec, !regroups && n.Associativity() != s.LeftAssociative)
 	rightSub := v.atPrecedence(innerPrec, !regroups && n.Associativity() != s.RightAssociative)
+	ofLeft, ofRight := typesOfBoth(n.Left(), n.Operator(), n.Right())
+	if isACountToCast(n.Operator(), n.Right()) {
+		// A cast binds tighter than any operator: the count is compiled
+		// under the cast's precedence, so what is not an atom is
+		// parenthesised, `("b" + $1)::integer`.
+		rightSub = v.atPrecedence(v.precedenceMapping[":: LEFT"], false)
+		ofRight = "integer"
+	}
 
 	left, err := s.Accept[SqlFragment](n.Left(), leftSub)
 	if err != nil {
@@ -532,8 +540,6 @@ func (v *PostgresqlVisitor) VisitInfix(n s.InfixNode) (SqlFragment, error) {
 	if err != nil {
 		return SqlFragment{}, err
 	}
-
-	ofLeft, ofRight := typesOfBoth(n.Left(), n.Operator(), n.Right())
 	left.SQL, right.SQL = ofType(left.SQL, ofLeft), ofType(right.SQL, ofRight)
 
 	sql := fmt.Sprintf("%s %s %s", left.SQL, spell(n.Operator()), right.SQL)

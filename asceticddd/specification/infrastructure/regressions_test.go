@@ -72,8 +72,8 @@ func TestParenthesesAreWritten(t *testing.T) {
 		{s.IsNull(s.Or(a, b)), `("a" OR "b") IS NULL`},
 		{s.IsNull(s.Equal(a, b)), `"a" = "b" IS NULL`},
 		{s.Neg(s.Add(a, b)), `-("a" + "b")`},
-		{s.LeftShift(s.Add(a, b), c), `"a" + "b" << "c"`},
-		{s.Add(a, s.LeftShift(b, c)), `"a" + ("b" << "c")`},
+		{s.LeftShift(s.Add(a, b), c), `"a" + "b" << "c"::integer`},
+		{s.Add(a, s.LeftShift(b, c)), `"a" + ("b" << "c"::integer)`},
 		{s.Equal(s.Is(a, b), c), `("a" IS NOT DISTINCT FROM "b") = "c"`},
 	})
 }
@@ -558,6 +558,30 @@ func TestAMemberOfAnObjectKeptInATableOfItsOwnIsReadThroughTheKey(t *testing.T) 
 			`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE ("item_1"."maker")."name" = $1)`,
 		},
 	}, WithSchema(ofBoth))
+}
+
+// PostgreSQL shifts by an integer and by nothing else: `bigint << bigint` is
+// "operator does not exist", and a column is a bigint more often than not. A
+// constant as the count is inferred by the server from the operator, and
+// where nothing stands beside it was said an integer already; a column or an
+// expression as the count has a type of its own, which the server will not
+// convert, so it is cast. A cast binds tighter than any operator, so what is
+// not an atom is parenthesised. The rows are in
+// TestTheCountOfAShiftIsAnIntegerWhateverItsColumnIs.
+func TestTheCountOfAShiftIsAnInteger(t *testing.T) {
+	a, b, c := field("a"), field("b"), field("c")
+	checkSql(t, []sqlCase{
+		// A column or an expression is cast.
+		{s.LeftShift(a, b), `"a" << "b"::integer`},
+		{s.RightShift(a, s.Add(b, s.Value(1))), `"a" >> ("b" + $1)::integer`},
+		{s.LeftShift(a, s.LeftShift(b, c)), `"a" << ("b" << "c"::integer)::integer`},
+		{s.LeftShift(a, s.Neg(b)), `"a" << (-"b")::integer`},
+		{s.LeftShift(s.Add(a, b), c), `"a" + "b" << "c"::integer`},
+		// A constant is inferred, as it was.
+		{s.LeftShift(a, s.Value(3)), `"a" << $1`},
+		{s.LeftShift(s.Value(1), s.Value(4)), `$1::bigint << $2::integer`},
+		{s.RightShift(s.Value(64), b), `$1 >> "b"::integer`},
+	})
 }
 
 // A name was written into the query as it stood, and PostgreSQL reads a word

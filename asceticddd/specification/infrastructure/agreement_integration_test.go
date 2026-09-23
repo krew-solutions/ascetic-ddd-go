@@ -775,6 +775,73 @@ func TestAConstantBesideAColumnTakesTheColumnsType(t *testing.T) {
 	})
 }
 
+// PostgreSQL shifts by an integer and by nothing else: a bigint column as the
+// count was "operator does not exist: bigint << bigint". Both readers take
+// the count modulo 64, a negative one included.
+func TestTheCountOfAShiftIsAnIntegerWhateverItsColumnIs(t *testing.T) {
+	rows := map[int]rowContext{
+		1: {"n": 1, "count": 3, "small": 3},
+		2: {"n": 1, "count": 64, "small": 64},
+		3: {"n": 1, "count": -1, "small": -1},
+		4: {"n": 1, "count": nil, "small": nil},
+		5: {"n": 8, "count": 62, "small": nil},
+	}
+	n, count, small := field("n"), field("count"), field("small")
+	cases := []struct {
+		specification s.Visitable
+		want          []int
+	}{
+		{s.Equal(s.LeftShift(n, count), s.Value(8)), []int{1}},
+		// 64 is no shift at all, and -1 is one by 63.
+		{s.Equal(s.LeftShift(n, count), s.Value(1)), []int{2}},
+		{s.Equal(s.LeftShift(n, count), s.Value(math.MinInt64)), []int{3}},
+		{s.IsNull(s.LeftShift(n, count)), []int{4}},
+		{s.IsNull(s.LeftShift(n, small)), []int{4, 5}},
+		{s.Equal(s.LeftShift(n, small), s.Value(8)), []int{1}},
+		// An expression as the count, and a constant shifted by a column.
+		{s.Equal(s.LeftShift(n, s.Add(count, s.Value(1))), s.Value(16)), []int{1}},
+		{s.Equal(s.RightShift(s.Value(64), count), s.Value(8)), []int{1}},
+	}
+	reg := operators.NewDefaultRegistry()
+	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
+		if _, err := conn.Exec("CREATE TABLE spec_shifts (id bigint, n bigint, count bigint, small smallint)"); err != nil {
+			return err
+		}
+		for id, row := range rows {
+			if _, err := conn.Exec("INSERT INTO spec_shifts VALUES ($1, $2, $3, $4)", id, row["n"], row["count"], row["small"]); err != nil {
+				return err
+			}
+		}
+		for _, c := range cases {
+			satisfied := []int{}
+			for id := 1; id <= len(rows); id++ {
+				ok, err := s.NewEvaluateVisitor(rows[id], reg).Evaluate(c.specification)
+				if err != nil {
+					return fmt.Errorf("the evaluator, on row %d: %w", id, err)
+				}
+				if ok {
+					satisfied = append(satisfied, id)
+				}
+			}
+			if !reflect.DeepEqual(satisfied, c.want) {
+				t.Errorf("%v: the evaluator %v", c.want, satisfied)
+			}
+			sql, params, err := CompileToSQL(c.specification)
+			if err != nil {
+				return err
+			}
+			ids, err := selected(conn, "SELECT id FROM spec_shifts WHERE "+sql+" ORDER BY id", params)
+			if err != nil {
+				return fmt.Errorf("%s: %w", sql, err)
+			}
+			if !reflect.DeepEqual(ids, c.want) {
+				t.Errorf("%s %v: PostgreSQL %v, want %v", sql, params, ids, c.want)
+			}
+		}
+		return nil
+	})
+}
+
 func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
 	// The schema is the storage's keys; the tree reaches the compiler in the
 	// storage's names, which a mapping gives it: the items are a table of

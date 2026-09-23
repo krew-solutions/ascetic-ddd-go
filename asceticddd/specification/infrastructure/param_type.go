@@ -122,6 +122,22 @@ func typesOfBoth(left s.Visitable, op operators.Operator, right s.Visitable) (st
 	return ofLeft, ofRight
 }
 
+// isACountToCast reports whether right is the count of a shift that must be
+// said an integer. PostgreSQL shifts by an integer and by nothing else: a
+// column as the count, a bigint more often than not, is "operator does not
+// exist: bigint << bigint". A constant there is inferred, or was said an
+// integer already where nothing stands beside it; a column or an expression
+// has a type of its own, which the server will not convert, so it is cast.
+// The cast takes nothing away - the operator has the count an integer
+// already - and turns a column of any integer type into the one it has.
+func isACountToCast(op operators.Operator, right s.Visitable) bool {
+	if op != operators.OperatorLshift && op != operators.OperatorRshift {
+		return false
+	}
+	_, isConstant := constant(right)
+	return !isConstant
+}
+
 // ofType returns the text with its type said, if there is one to say: a cast
 // binds tighter than any operator, so what was an atom is one still.
 func ofType(sql, said string) string {
