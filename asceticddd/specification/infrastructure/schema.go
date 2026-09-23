@@ -1,6 +1,9 @@
 package specification
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // A schema is the foreign keys of a storage, as `\d` shows them, and nothing
 // of any aggregate or query: a key is on a table, of columns, and references
@@ -18,9 +21,10 @@ import "strings"
 // ForeignKey is `Table (Columns) REFERENCES ReferencedTable (ReferencedColumns)`.
 //
 // A key has at least one column: without any, every row of the table would
-// belong to every row it references. Table is a table; or, for a key on a
-// row of an array in a composite, which has no table, the array's column by
-// its table, `stores.items`.
+// belong to every row it references; and as many referenced columns as
+// columns. Key refuses any other where it is declared. Table is a table; or,
+// for a key on a row of an array in a composite, which has no table, the
+// array's column by its table, `stores.items`.
 type ForeignKey struct {
 	// ConstraintName is the key's name where the storage gives it one:
 	// `CONSTRAINT name`. Empty, the key is named as PostgreSQL names it.
@@ -84,9 +88,28 @@ func (r *SchemaRegistry) ForeignKey(table, column, referencedTable, referencedCo
 }
 
 // Key registers a key as built: composite, or named.
+//
+// A key of no columns, or whose columns and referenced columns disagree in
+// number, is a mistake in the program's constants - a schema is declared,
+// not read - and is refused where it is declared, in PostgreSQL's words,
+// rather than at the first query that joins by it.
 func (r *SchemaRegistry) Key(key ForeignKey) *SchemaRegistry {
+	if len(key.Columns) == 0 {
+		panic(key.ddl() + ": a foreign key has at least one column")
+	}
+	if len(key.Columns) != len(key.ReferencedColumns) {
+		panic(key.ddl() + ": number of referencing and referenced columns for foreign key disagree")
+	}
 	r.keys = append(r.keys, key)
 	return r
+}
+
+// ddl is the key as `\d` shows it.
+func (k ForeignKey) ddl() string {
+	return fmt.Sprintf(
+		"%s (%s) REFERENCES %s (%s)",
+		k.Table, strings.Join(k.Columns, ", "), k.ReferencedTable, strings.Join(k.ReferencedColumns, ", "),
+	)
 }
 
 // KeyNamed returns the key called name, if there is one.

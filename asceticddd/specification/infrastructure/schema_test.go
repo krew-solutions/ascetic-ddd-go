@@ -289,3 +289,36 @@ func TestSchemaRegistry_NestedRelationalWithCompositeFK(t *testing.T) {
 		t.Errorf("unexpected SQL:\nexpected: %s\ngot:      %s", expectedSQL, sql)
 	}
 }
+
+// A key whose columns and referenced columns disagree in number, or that has
+// none, was registered as it was and failed at the first query that joined
+// by it: an index out of range in the compiler, or `WHERE  AND` at the
+// server. A schema is declared, not read: such a key is refused where it is
+// declared, in PostgreSQL's words.
+func TestAKeyWhoseColumnsDisagreeIsRefusedWhereItIsDeclared(t *testing.T) {
+	panicOf := func(do func()) (recovered any) {
+		defer func() { recovered = recover() }()
+		do()
+		return nil
+	}
+	cases := []struct {
+		key  ForeignKey
+		want string
+	}{
+		{
+			ForeignKey{Table: "items", Columns: []string{"tenant_id", "store_id"}, ReferencedTable: "stores", ReferencedColumns: []string{"id"}},
+			"items (tenant_id, store_id) REFERENCES stores (id): number of referencing and referenced columns for foreign key disagree",
+		},
+		{
+			ForeignKey{Table: "items", ReferencedTable: "stores", ReferencedColumns: []string{"id"}},
+			"items () REFERENCES stores (id): a foreign key has at least one column",
+		},
+	}
+	for _, c := range cases {
+		if got := panicOf(func() { NewSchemaRegistry("stores").Key(c.key) }); got != c.want {
+			t.Errorf("got  %v\nwant %q", got, c.want)
+		}
+	}
+	// A key as it can be created is registered.
+	NewSchemaRegistry("stores").Key(ForeignKey{Table: "items", Columns: []string{"store_id"}, ReferencedTable: "stores", ReferencedColumns: []string{"id"}})
+}
