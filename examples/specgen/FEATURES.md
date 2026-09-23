@@ -512,7 +512,7 @@ for _, store := range stores {
     }
 }
 
-// SQL (when needed): in the repository, with its context - repository.go
+// SQL (when needed): in the repository, with its mapping - repository.go
 sql, params, _ := infra.Compile(stores, ActiveStoreSpecAST())
 db.Query("SELECT * FROM stores WHERE " + sql, params...)
 ```

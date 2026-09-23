@@ -9,12 +9,12 @@ import (
 func TestSchemaRegistry_RelationalSimpleFK(t *testing.T) {
 	// Setup: stores table with items in separate table
 	schema := NewSchemaRegistry("stores").
-		WithParentAlias("s").
-		RegisterRelational("Items", "items", "store_id", "id")
+		WithAlias("s").
+		ForeignKey("items", "store_id", "stores", "id")
 
-	// AST: spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.GreaterThan(spec.Field(spec.Item(), "Price"), spec.Value(1000)))
+	// AST: spec.Wildcard(spec.Object(spec.GlobalScope(), "items"), spec.GreaterThan(spec.Field(spec.Item(), "Price"), spec.Value(1000)))
 	ast := s.Wildcard(
-		s.Object(s.GlobalScope(), "Items"),
+		s.Object(s.GlobalScope(), "items"),
 		s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(1000)),
 	)
 
@@ -39,15 +39,15 @@ func TestSchemaRegistry_RelationalCompositeFK(t *testing.T) {
 	// Setup: multi-tenant stores table with items in separate table
 	// FK: (tenant_id, store_id) -> (tenant_id, id)
 	schema := NewSchemaRegistry("stores").
-		WithParentAlias("s").
-		RegisterRelationalComposite("Items", "items", []ForeignKeyPair{
-			{ChildColumn: "tenant_id", ParentColumn: "tenant_id"},
-			{ChildColumn: "store_id", ParentColumn: "id"},
+		WithAlias("s").
+		Key(ForeignKey{
+			Table: "items", Columns: []string{"tenant_id", "store_id"},
+			ReferencedTable: "stores", ReferencedColumns: []string{"tenant_id", "id"},
 		})
 
-	// AST: spec.Wildcard(spec.Object(spec.GlobalScope(), "Items"), spec.GreaterThan(spec.Field(spec.Item(), "Price"), spec.Value(1000)))
+	// AST: spec.Wildcard(spec.Object(spec.GlobalScope(), "items"), spec.GreaterThan(spec.Field(spec.Item(), "Price"), spec.Value(1000)))
 	ast := s.Wildcard(
-		s.Object(s.GlobalScope(), "Items"),
+		s.Object(s.GlobalScope(), "items"),
 		s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(1000)),
 	)
 
@@ -72,15 +72,14 @@ func TestSchemaRegistry_RelationalTripleCompositeFK(t *testing.T) {
 	// Setup: multi-tenant, multi-region stores with items
 	// FK: (tenant_id, region_id, store_id) -> (tenant_id, region_id, id)
 	schema := NewSchemaRegistry("stores").
-		WithParentAlias("s").
-		RegisterRelationalComposite("Items", "items", []ForeignKeyPair{
-			{ChildColumn: "tenant_id", ParentColumn: "tenant_id"},
-			{ChildColumn: "region_id", ParentColumn: "region_id"},
-			{ChildColumn: "store_id", ParentColumn: "id"},
+		WithAlias("s").
+		Key(ForeignKey{
+			Table: "items", Columns: []string{"tenant_id", "region_id", "store_id"},
+			ReferencedTable: "stores", ReferencedColumns: []string{"tenant_id", "region_id", "id"},
 		})
 
 	ast := s.Wildcard(
-		s.Object(s.GlobalScope(), "Items"),
+		s.Object(s.GlobalScope(), "items"),
 		s.Equal(s.Field(s.Item(), "Active"), s.Value(true)),
 	)
 
@@ -97,34 +96,9 @@ func TestSchemaRegistry_RelationalTripleCompositeFK(t *testing.T) {
 	}
 }
 
-func TestSchemaRegistry_EmbeddedCollection(t *testing.T) {
-	// Setup: stores with embedded Items (JSONB)
-	schema := NewSchemaRegistry("stores").
-		WithParentAlias("s").
-		RegisterEmbedded("Items")
-
-	ast := s.Wildcard(
-		s.Object(s.GlobalScope(), "Items"),
-		s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(1000)),
-	)
-
-	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	fragment, err := visitor.Compile(ast)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	sql := fragment.SQL
-
-	// Should use unnest for embedded collections
-	expectedSQL := `EXISTS (SELECT 1 FROM unnest("Items") AS "item_1" WHERE "item_1"."Price" > $1)`
-	if sql != expectedSQL {
-		t.Errorf("unexpected SQL:\nexpected: %s\ngot:      %s", expectedSQL, sql)
-	}
-}
-
 func TestSchemaRegistry_DefaultToEmbedded(t *testing.T) {
-	// Setup: schema without any collection registered (should default to embedded)
-	schema := NewSchemaRegistry("stores").WithParentAlias("s")
+	// Setup: a collection the schema does not mention is an array in the row
+	schema := NewSchemaRegistry("stores").WithAlias("s")
 
 	ast := s.Wildcard(
 		s.Object(s.GlobalScope(), "Items"),
@@ -169,11 +143,11 @@ func TestSchemaRegistry_NoSchema(t *testing.T) {
 func TestSchemaRegistry_RelationalWithComplexPredicate(t *testing.T) {
 	// Setup: relational with AND predicate
 	schema := NewSchemaRegistry("stores").
-		WithParentAlias("s").
-		RegisterRelational("Items", "items", "store_id", "id")
+		WithAlias("s").
+		ForeignKey("items", "store_id", "stores", "id")
 
 	ast := s.Wildcard(
-		s.Object(s.GlobalScope(), "Items"),
+		s.Object(s.GlobalScope(), "items"),
 		s.And(
 			s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(1000)),
 			s.Equal(s.Field(s.Item(), "Active"), s.Value(true)),
@@ -200,13 +174,12 @@ func TestSchemaRegistry_RelationalWithComplexPredicate(t *testing.T) {
 func TestSchemaRegistry_MixedCollections(t *testing.T) {
 	// Setup: one embedded, one relational
 	schema := NewSchemaRegistry("stores").
-		WithParentAlias("s").
-		RegisterEmbedded("Tags").
-		RegisterRelational("Items", "items", "store_id", "id")
+		WithAlias("s").
+		ForeignKey("items", "store_id", "stores", "id")
 
 	// Test relational
 	ast1 := s.Wildcard(
-		s.Object(s.GlobalScope(), "Items"),
+		s.Object(s.GlobalScope(), "items"),
 		s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(100)),
 	)
 
@@ -238,22 +211,23 @@ func TestSchemaRegistry_NestedRelationalCollections(t *testing.T) {
 	// stores.id -> categories.store_id
 	// categories.id -> items.category_id
 	schema := NewSchemaRegistry("stores").
-		WithParentAlias("s").
-		RegisterRelational("Categories", "categories", "store_id", "id").
-		RegisterRelational("Categories.Items", "items", "category_id", "id")
+		WithAlias("s").
+		ForeignKey("categories", "store_id", "stores", "id").
+		// A relation is of a row: the items of a row of categories.
+		ForeignKey("items", "category_id", "categories", "id")
 
 	// AST: Store has Category that has Item with Price > 1000
 	// spec.Wildcard(
-	//   spec.Object(spec.GlobalScope(), "Categories"),
+	//   spec.Object(spec.GlobalScope(), "categories"),
 	//   spec.Wildcard(
-	//     spec.Object(spec.Item(), "Items"),
+	//     spec.Object(spec.Item(), "items"),
 	//     spec.GreaterThan(spec.Field(spec.Item(), "Price"), spec.Value(1000)),
 	//   ),
 	// )
 	ast := s.Wildcard(
-		s.Object(s.GlobalScope(), "Categories"),
+		s.Object(s.GlobalScope(), "categories"),
 		s.Wildcard(
-			s.Object(s.Item(), "Items"),
+			s.Object(s.Item(), "items"),
 			s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(1000)),
 		),
 	)
@@ -285,20 +259,20 @@ func TestSchemaRegistry_NestedRelationalWithCompositeFK(t *testing.T) {
 	// Multi-tenant: stores -> categories -> items
 	// All with tenant_id
 	schema := NewSchemaRegistry("stores").
-		WithParentAlias("s").
-		RegisterRelationalComposite("Categories", "categories", []ForeignKeyPair{
-			{ChildColumn: "tenant_id", ParentColumn: "tenant_id"},
-			{ChildColumn: "store_id", ParentColumn: "id"},
+		WithAlias("s").
+		Key(ForeignKey{
+			Table: "categories", Columns: []string{"tenant_id", "store_id"},
+			ReferencedTable: "stores", ReferencedColumns: []string{"tenant_id", "id"},
 		}).
-		RegisterRelationalComposite("Categories.Items", "items", []ForeignKeyPair{
-			{ChildColumn: "tenant_id", ParentColumn: "tenant_id"},
-			{ChildColumn: "category_id", ParentColumn: "id"},
+		Key(ForeignKey{
+			Table: "items", Columns: []string{"tenant_id", "category_id"},
+			ReferencedTable: "categories", ReferencedColumns: []string{"tenant_id", "id"},
 		})
 
 	ast := s.Wildcard(
-		s.Object(s.GlobalScope(), "Categories"),
+		s.Object(s.GlobalScope(), "categories"),
 		s.Wildcard(
-			s.Object(s.Item(), "Items"),
+			s.Object(s.Item(), "items"),
 			s.Equal(s.Field(s.Item(), "Active"), s.Value(true)),
 		),
 	)
@@ -311,37 +285,6 @@ func TestSchemaRegistry_NestedRelationalWithCompositeFK(t *testing.T) {
 	sql := fragment.SQL
 
 	expectedSQL := `EXISTS (SELECT 1 FROM "categories" AS "category_1" WHERE "category_1"."tenant_id" = "s"."tenant_id" AND "category_1"."store_id" = "s"."id" AND EXISTS (SELECT 1 FROM "items" AS "item_2" WHERE "item_2"."tenant_id" = "category_1"."tenant_id" AND "item_2"."category_id" = "category_1"."id" AND "item_2"."Active" = $1))`
-	if sql != expectedSQL {
-		t.Errorf("unexpected SQL:\nexpected: %s\ngot:      %s", expectedSQL, sql)
-	}
-}
-
-func TestSchemaRegistry_CustomAlias(t *testing.T) {
-	// Setup: relational with custom alias
-	schema := NewSchemaRegistry("stores").
-		WithParentAlias("s").
-		Register("Items", CollectionMapping{
-			Storage: StorageRelational,
-			Table:   "store_items",
-			ForeignKeys: []ForeignKeyPair{
-				{ChildColumn: "store_id", ParentColumn: "id"},
-			},
-			Alias: "si",
-		})
-
-	ast := s.Wildcard(
-		s.Object(s.GlobalScope(), "Items"),
-		s.GreaterThan(s.Field(s.Item(), "Price"), s.Value(1000)),
-	)
-
-	visitor := NewPostgresqlVisitor(WithSchema(schema))
-	fragment, err := visitor.Compile(ast)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	sql := fragment.SQL
-
-	expectedSQL := `EXISTS (SELECT 1 FROM "store_items" AS "si_1" WHERE "si_1"."store_id" = "s"."id" AND "si_1"."Price" > $1)`
 	if sql != expectedSQL {
 		t.Errorf("unexpected SQL:\nexpected: %s\ngot:      %s", expectedSQL, sql)
 	}

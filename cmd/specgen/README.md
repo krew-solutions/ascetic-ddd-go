@@ -15,16 +15,17 @@
 ```
 Go Function (predicate)  →  specgen  →  Generated AST Code
      ↓                                         ↓
-In-Memory Check                     Repository: Compile(context, AST)
+In-Memory Check                     Repository: Compile(mapping, AST)
 (FASTEST)                                      ↓
                                            SQL Query
 ```
 
 The tree is all that is generated. It has the names of the struct's fields;
-what a field is called in the storage, and where a collection is kept, is the
-repository's to say, with a `Context` - one place for each aggregate. A query
-cannot be written without knowing the table, so it is written by what knows
-it, and the package of the domain does not import the infrastructure.
+what a field is called in the storage is the repository's to say, with a
+`Mapping` - one place for each aggregate - and which collections are tables
+of their own is its schema's, the storage's foreign keys. A query cannot be
+written without knowing the table, so it is written by what knows it, and the
+package of the domain does not import the infrastructure.
 
 ## Usage
 
@@ -59,17 +60,19 @@ if AdultUserSpec(user) {
     fmt.Println("Adult")
 }
 
-// SQL: in the repository, from the generated AST and the repository's context
-sql, params, _ := infra.Compile(userContext{}, AdultUserSpecAST())
+// SQL: in the repository, from the generated AST and the repository's mapping
+sql, params, _ := infra.Compile(userMapping{}, AdultUserSpecAST())
 db.Query("SELECT * FROM users WHERE " + sql, params...)
 ```
 
 ```go
-// userContext says what the members of a User are in the table, and refuses
-// any other: it is also the list of what a specification may filter by.
-type userContext struct{ infra.ContextDefaults }
+// userMapping says what the members of a User are in the table, and refuses
+// any other: it is also the list of what a specification may filter by. It is
+// asked by the whole path from the candidate: a member of an item under its
+// collection, "Items.Price".
+type userMapping struct{}
 
-func (userContext) AttrNode(path []string) (infra.Mapped, error) {
+func (userMapping) AttrNode(path []string) (infra.Mapped, error) {
     switch strings.Join(path, ".") {
     case "Age":
         return infra.Scalar(spec.Field(spec.GlobalScope(), "age")), nil
@@ -80,13 +83,14 @@ func (userContext) AttrNode(path []string) (infra.Mapped, error) {
     }
 }
 
-func (userContext) ValueNode(val any) (infra.Mapped, error) {
+func (userMapping) ValueNode(val any) (infra.Mapped, error) {
     return infra.Scalar(spec.Value(val)), nil
 }
 ```
 
-`infra.Compile(context, tree, infra.WithSchema(schema))` takes the schema of
-the collections kept in tables of their own as well.
+`infra.Compile(mapping, tree, infra.WithSchema(schema))` takes the schema as
+well: the storage's foreign keys, by which a collection is a table of its
+own, joined to the row, rather than an array in it.
 
 ### A specification as a type
 
@@ -110,7 +114,7 @@ func (c DearSince) Expression() spec.Visitable
 ```
 
 The pair is `spec.Specification[Store]`, which a repository takes: it
-compiles `Expression()` with its context. A field of the receiver is a value,
+compiles `Expression()` with its mapping. A field of the receiver is a value,
 as a parameter of a function is - equality with one is decided when the tree
 is built, an `Option` among them is asked what it holds - and it may be
 reached by fields, `c.Limits.Min`. The receiver as a whole is not a value,
@@ -272,7 +276,7 @@ that compiles, and a query that compares NULL and selects nothing.
   does not know the types - as it does for `Gt`, `Lt` and the rest. `time.Now()`
   is refused: the clock comes as a parameter. A nullable time is a pointer, and
   its guard is generated with it: `s.DeletedAt != nil && s.DeletedAt.After(since)`
-  is `"DeletedAt" IS NOT NULL AND "DeletedAt" > $1`, under the names a context
+  is `"DeletedAt" IS NOT NULL AND "DeletedAt" > $1`, under the names a mapping
   gives.
 - A member that is an `option.Option` is what it holds, or a null, to both
   readers of a tree. What it holds is asked under a name:

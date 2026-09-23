@@ -68,7 +68,7 @@ From `compile_test.go`:
 - **CompositeExpression.NotEqual** (3): simple, complex, different length
 
 #### Transform Visitor Test (1 test)
-From `transform_visitor_test.go`:
+From `mapping_visitor_test.go`:
 - Composite key specification
 
 ## New Functionality Added
@@ -107,7 +107,7 @@ Now fully tested generic helper functions:
 - **Edge cases**: Some rarely used operator combinations
 
 ### Infrastructure (~25% uncovered)
-- **Internal methods**: `Push()`, `Pop()`, `VisitGlobalScope()`, `VisitObject()` in TransformVisitor
+- **Internal methods**: `Push()`, `Pop()`, `VisitGlobalScope()`, `VisitObject()` in MappingVisitor
 - **Placeholder functions**: `PlaceholderIndex()` option
 - **Rare code paths**: Some complex transform scenarios
 
@@ -128,7 +128,7 @@ asceticddd/specification/
     ├── postgresql_visitor_test.go    (16 tests - basic SQL generation)
     ├── postgresql_wildcard_test.go   (11 tests - wildcards)
     ├── compile_test.go               (19 tests - CompileToSQL & postfix)
-    └── transform_visitor_test.go     (1 test - composite keys)
+    └── mapping_visitor_test.go     (1 test - composite keys)
 ```
 
 ## Test Categories Coverage

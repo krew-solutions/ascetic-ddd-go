@@ -520,17 +520,37 @@ func registerDiscounts(reg *operators.OperatorRegistry) {
 
 // discountsContext is what the storage has for them: a discount is its percent
 // in a column, and the special case is that column's null.
-type discountsContext struct{ ContextDefaults }
+type discountsContext struct{}
 
 func (discountsContext) AttrNode(path []string) (Mapped, error) {
+	// By the whole path from the candidate: the collection, and a member of
+	// its item under it. Where the item is, is the tree's.
+	switch strings.Join(path, ".") {
+	case "items":
+		return Scalar(field("items")), nil
+	case "items.discount":
+		return Scalar(fromCandidate("items", "discount_percent")), nil
+	}
 	return nil, fmt.Errorf("no such member: %s", strings.Join(path, "."))
 }
 
-func (discountsContext) ItemAttrNode(path []string) (Mapped, error) {
-	if len(path) == 1 && path[0] == "discount" {
-		return Scalar(s.Field(s.Item(), "discount_percent")), nil
+// renamed is a mapping that renames each name of a path by a table, and
+// leaves the values: the storage's name of a member, whatever leads to it.
+type renamed map[string]string
+
+func (r renamed) AttrNode(path []string) (Mapped, error) {
+	names := make([]string, 0, len(path))
+	for _, name := range path {
+		if stored, ok := r[name]; ok {
+			name = stored
+		}
+		names = append(names, name)
 	}
-	return nil, fmt.Errorf("no such member of an item: %s", strings.Join(path, "."))
+	return Scalar(fromCandidate(names...)), nil
+}
+
+func (renamed) ValueNode(val any) (Mapped, error) {
+	return Scalar(s.Value(val)), nil
 }
 
 func (discountsContext) ValueNode(val any) (Mapped, error) {
@@ -756,22 +776,26 @@ func TestAConstantBesideAColumnTakesTheColumnsType(t *testing.T) {
 }
 
 func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
-	// The owner of an item, and of the store, is in a table of its own in
-	// either storage of the items.
-	withOwners := func(schema *SchemaRegistry) *SchemaRegistry {
-		return schema.
-			RegisterRelational("items.owner", "spec_owners", "id", "owner_id").
-			RegisterRelational("owner", "spec_owners", "id", "owner_id")
-	}
-	relational := withOwners(NewSchemaRegistry("spec_stores").RegisterRelational("items", "spec_items", "store_id", "id"))
-	embedded := withOwners(NewSchemaRegistry("spec_stores_embedded"))
+	// The schema is the storage's keys; the tree reaches the compiler in the
+	// storage's names, which a mapping gives it: the items are a table of
+	// their own in one storage and an array in the other, and the owner is
+	// named by the key's column in both. A row of the items array has no
+	// table: it is named by the array's column.
+	relational := NewSchemaRegistry("spec_stores").
+		ForeignKey("spec_items", "store_id", "spec_stores", "id").
+		ForeignKey("spec_items", "owner_id", "spec_owners", "id").
+		ForeignKey("spec_stores", "owner_id", "spec_owners", "id")
+	embedded := NewSchemaRegistry("spec_stores_embedded").
+		ForeignKey("spec_stores_embedded.items", "owner_id", "spec_owners", "id").
+		ForeignKey("spec_stores_embedded", "owner_id", "spec_owners", "id")
 	storages := []struct {
-		name  string
-		table string
-		opts  []PostgresqlVisitorOption
+		name    string
+		table   string
+		schema  *SchemaRegistry
+		mapping Mapping
 	}{
-		{"relational", "spec_stores", []PostgresqlVisitorOption{WithSchema(relational)}},
-		{"embedded", "spec_stores_embedded", []PostgresqlVisitorOption{WithSchema(embedded)}},
+		{"relational", "spec_stores", relational, renamed{"items": "spec_items", "owner": "owner_id"}},
+		{"embedded", "spec_stores_embedded", embedded, renamed{"owner": "owner_id"}},
 	}
 
 	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
@@ -800,7 +824,7 @@ func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
 				}
 			}
 			for _, storage := range storages {
-				sql, params, err := CompileToSQL(specification, storage.opts...)
+				sql, params, err := Compile(storage.mapping, specification, WithSchema(storage.schema))
 				if err != nil {
 					return err
 				}
@@ -867,10 +891,18 @@ func TestTheItemOfAnEnclosingCollectionIsNamedFromAnInnerPredicate(t *testing.T)
 		// product of shop 3 is a witness, and the shop is selected.
 		{s.Not(overItsCategory(s.Not(s.GreaterThan(price, categoryLimit)))), []int{3, 4}},
 	}
-	embedded := NewSchemaRegistry("spec_shops")
-	relational := NewSchemaRegistry("spec_shops").
-		RegisterRelational("categories", "spec_categories", "shop_id", "id").
-		RegisterRelational("categories.products", "spec_products", "category_id", "id")
+	storages := map[string]struct {
+		schema  *SchemaRegistry
+		mapping Mapping
+	}{
+		"embedded": {NewSchemaRegistry("spec_shops"), renamed{}},
+		"relational": {
+			NewSchemaRegistry("spec_shops").
+				ForeignKey("spec_categories", "shop_id", "spec_shops", "id").
+				ForeignKey("spec_products", "category_id", "spec_categories", "id"),
+			renamed{"categories": "spec_categories", "products": "spec_products"},
+		},
+	}
 	reg := operators.NewDefaultRegistry()
 
 	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
@@ -907,8 +939,8 @@ func TestTheItemOfAnEnclosingCollectionIsNamedFromAnInnerPredicate(t *testing.T)
 			if !reflect.DeepEqual(satisfied, c.want) {
 				t.Errorf("%v: the evaluator %v", c.want, satisfied)
 			}
-			for storage, schema := range map[string]*SchemaRegistry{"embedded": embedded, "relational": relational} {
-				sql, params, err := CompileToSQL(c.specification, WithSchema(schema))
+			for storage, st := range storages {
+				sql, params, err := Compile(st.mapping, c.specification, WithSchema(st.schema))
 				if err != nil {
 					return err
 				}

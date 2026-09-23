@@ -113,7 +113,6 @@ func (c SomethingScopeContext) AttrNode(parent s.EmptiableObject, path []string)
 }
 
 type TestGlobalScopeContext struct {
-	ContextDefaults
 	something SomethingScopeContext
 }
 
@@ -125,18 +124,6 @@ func (c TestGlobalScopeContext) AttrNode(path []string) (Mapped, error) {
 		return nil, fmt.Errorf("can't get object \"%s\"", path[0])
 	}
 }
-
-// FIXME: In case of stack implementation it will not work with member_id because this attrite is present on both cases:
-// before transformation and after transformation.
-// Нам нужно добавить JOIN в Visitor для Collection и создать alias для Item.
-// Context нам нужно подменить, чтобы подменить наименование таблицы на alias of the JOIN.
-// А в принципе, если весь Collection.expression запихнуть в JOIN ... ON, тогда alias может и не понадобится.
-// Кажется, решение в том, чтобы выделить TransformContext с правилами преобразования.
-// Нужно подумать что делать с полями сущностей 3-го и более глубокого уровня вложенности.
-// В принципе, там должны получаться многоуровневые JOINs.
-// Метод Extract() можно устранить, если значение возвращать тоже в контексте.
-// Кажется, TransformVisitor можно вообще выбросить, т.к. сам контекст может возвращать CompositeExpression.
-// Он все-равно управляет маппингом через err. Он создан для маппинга.
 
 func (c TestGlobalScopeContext) ValueNode(val any) (Mapped, error) {
 	switch valTyped := val.(type) {

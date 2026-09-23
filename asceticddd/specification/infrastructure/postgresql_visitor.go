@@ -24,8 +24,8 @@ type SqlFragment struct {
 // storage is laid out - WithSchema - and both are the repository's to know:
 // a query cannot be written without knowing the table. The options used not
 // to be taken, so a mapping and a schema could not be given together.
-func Compile(context Context, exp s.Visitable, opts ...PostgresqlVisitorOption) (sql string, params []any, err error) {
-	transformed, err := NewTransformVisitor(context).Transform(exp)
+func Compile(mapping Mapping, exp s.Visitable, opts ...PostgresqlVisitorOption) (sql string, params []any, err error) {
+	transformed, err := NewMappingVisitor(mapping).Transform(exp)
 	if err != nil {
 		return "", nil, err
 	}
@@ -154,7 +154,7 @@ var identifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // Between quotes a name is the column's to the letter: `"createdAt"` is the
 // column created as `"createdAt"`, which `createdAt` without quotes is not -
 // PostgreSQL folds that to `createdat`. What a member of the domain is called
-// in the storage is for the transform Context to say.
+// in the storage is for the Mapping to say.
 func quote(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
@@ -198,11 +198,11 @@ type PostgresqlVisitor struct {
 }
 
 // wildcard is a collection whose predicate is being compiled: what its item's
-// row is called in the query, and the names from the aggregate to it, through
-// the collections on the way - what a schema names it by.
+// row is called in the query, and what that row is a row of to the schema - a
+// table, or the composite at a column of one, `stores.items`.
 type wildcard struct {
 	alias string
-	path  []string
+	row   string
 }
 
 // inWildcard tells whether this is the predicate of a collection.
@@ -227,7 +227,7 @@ func (v *PostgresqlVisitor) candidatesColumn(name string) (string, error) {
 	if v.schema == nil {
 		return "", errors.New("a member of the candidate inside a collection's predicate needs the candidate's table: compile with a schema")
 	}
-	row, err := identifier(v.schema.GetParentRef())
+	row, err := identifier(v.schema.Row())
 	if err != nil {
 		return "", err
 	}
@@ -236,6 +236,86 @@ func (v *PostgresqlVisitor) candidatesColumn(name string) (string, error) {
 		return "", err
 	}
 	return row + "." + column, nil
+}
+
+// keyOfCollection returns the key a collection named name in a row of row is
+// joined by: the one of that name, if it references the row; else the one key
+// on the table name that does. None: the name is an array in the row. A name
+// that fits two keys is refused, and so is a key named where the tree does
+// not stand.
+func (v *PostgresqlVisitor) keyOfCollection(row, name string) (*ForeignKey, error) {
+	if v.schema == nil {
+		return nil, nil
+	}
+	if key, ok := v.schema.KeyNamed(name); ok {
+		if key.ReferencedTable != row {
+			return nil, fmt.Errorf("the key %s references %s, not %s", name, key.ReferencedTable, row)
+		}
+		return &key, nil
+	}
+	keys := v.schema.KeysReferencing(name, row)
+	switch len(keys) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &keys[0], nil
+	}
+	return nil, fmt.Errorf("%s has %d keys to %s: %s; name the key", name, len(keys), row, keyNames(keys))
+}
+
+// keyOfObject returns the key an object named name in a row of row is read
+// through: the one of that name, if it is on the row; else the one key on the
+// row that name is a column of. None: the name is a composite in the row.
+func (v *PostgresqlVisitor) keyOfObject(row, name string) (*ForeignKey, error) {
+	if v.schema == nil {
+		return nil, nil
+	}
+	if key, ok := v.schema.KeyNamed(name); ok {
+		if key.Table != row {
+			return nil, fmt.Errorf("the key %s is on %s, not %s", name, key.Table, row)
+		}
+		return &key, nil
+	}
+	keys := v.schema.KeysOn(row, name)
+	switch len(keys) {
+	case 0:
+		return nil, nil
+	case 1:
+		return &keys[0], nil
+	}
+	return nil, fmt.Errorf("%s is a column of %d keys of %s: %s; name the key", name, len(keys), row, keyNames(keys))
+}
+
+func keyNames(keys []ForeignKey) string {
+	names := make([]string, 0, len(keys))
+	for _, key := range keys {
+		names = append(names, key.Name())
+	}
+	return strings.Join(names, ", ")
+}
+
+// singularOf returns the singular of the last name of table, in lower case:
+// what an alias is made of.
+func singularOf(table string) string {
+	return strings.ToLower(inflection.Singular(table[strings.LastIndex(table, ".")+1:]))
+}
+
+// keyConditions returns the equalities of a key's columns, of the row written
+// child, with the referenced columns, of the row written parent.
+func keyConditions(key *ForeignKey, child, parent string) (string, error) {
+	parts := make([]string, 0, len(key.Columns))
+	for i, column := range key.Columns {
+		c, err := identifier(column)
+		if err != nil {
+			return "", err
+		}
+		r, err := identifier(key.ReferencedColumns[i])
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, fmt.Sprintf("%s.%s = %s.%s", child, c, parent, r))
+	}
+	return strings.Join(parts, " AND "), nil
 }
 
 // Compile is the typed entry point for top-level callers.
@@ -260,13 +340,13 @@ func (v *PostgresqlVisitor) atPrecedence(prec int, apart bool) *PostgresqlVisito
 // enterWildcard returns a sub-visitor scoped to a new wildcard context.
 // prec is the precedence of the operator the predicate is an operand of: none
 // in `WHERE predicate`, AND in `WHERE keys AND predicate`.
-func (v *PostgresqlVisitor) enterWildcard(alias string, path []string, prec int) *PostgresqlVisitor {
+func (v *PostgresqlVisitor) enterWildcard(alias, row string, prec int) *PostgresqlVisitor {
 	return &PostgresqlVisitor{
 		counters:          v.counters,
 		schema:            v.schema,
 		precedenceMapping: v.precedenceMapping,
 		outerPrecedence:   prec,
-		wildcards:         append(append([]wildcard{}, v.wildcards...), wildcard{alias: alias, path: path}),
+		wildcards:         append(append([]wildcard{}, v.wildcards...), wildcard{alias: alias, row: row}),
 	}
 }
 
@@ -343,17 +423,23 @@ func (v *PostgresqlVisitor) VisitField(n s.FieldNode) (SqlFragment, error) {
 		if err != nil {
 			return SqlFragment{}, err
 		}
-		member, err := v.memberOfRow(quote(w.alias), w.path, path)
+		member, err := v.memberOfRow(quote(w.alias), w.row, path)
 		return SqlFragment{SQL: member}, err
 	}
 	// An object of the candidate kept in a table of its own
-	if len(path) > 1 && v.schema != nil && v.schema.IsRelational(path[0]) {
-		row, err := identifier(v.schema.GetParentRef())
+	if len(path) > 1 && v.schema != nil {
+		key, err := v.keyOfObject(v.schema.Table, path[0])
 		if err != nil {
 			return SqlFragment{}, err
 		}
-		member, err := v.memberOfRow(row, nil, path)
-		return SqlFragment{SQL: member}, err
+		if key != nil {
+			row, err := identifier(v.schema.Row())
+			if err != nil {
+				return SqlFragment{}, err
+			}
+			member, err := v.memberOfRow(row, v.schema.Table, path)
+			return SqlFragment{SQL: member}, err
+		}
 	}
 	// Inside a collection's predicate the candidate's column is qualified
 	// with its row; a name of several parts the author qualified.
@@ -370,18 +456,18 @@ func (v *PostgresqlVisitor) VisitField(n s.FieldNode) (SqlFragment, error) {
 	return SqlFragment{SQL: qualified}, nil
 }
 
-// memberOfRow returns the member at names of the row written row, whose
-// object is named by logical in the schema.
+// memberOfRow returns the member at names of the row written row, which is
+// a row of `of` to the schema: a table, or the composite at a column of one.
 //
 // An object on the way to the member is looked up in the schema, as a
-// collection is, by the names that lead to it. Kept in a table of its own, it
-// is read through its key, by a subquery in the column's place: it has at most
-// the one row the key names, and is null if there is none, as a member of a
-// composite that is null is. Not mentioned, it is a composite kept in its row
-// - a Value Object - and the parentheses are what makes it that: with dots
+// collection is, by the key its name is a column of. Kept in a table of its
+// own, it is read through the key, by a subquery in the column's place: it has
+// at most the one row the key names, and is null if there is none, as a member
+// of a composite that is null is. Not mentioned, it is a composite kept in its
+// row - a Value Object - and the parentheses are what makes it that: with dots
 // alone PostgreSQL reads a schema, a table and a column, and there is no such
 // table.
-func (v *PostgresqlVisitor) memberOfRow(row string, logical, names []string) (string, error) {
+func (v *PostgresqlVisitor) memberOfRow(row, of string, names []string) (string, error) {
 	name, err := identifier(names[0])
 	if err != nil {
 		return "", err
@@ -390,39 +476,38 @@ func (v *PostgresqlVisitor) memberOfRow(row string, logical, names []string) (st
 		return row + "." + name, nil
 	}
 
-	logical = append(append([]string{}, logical...), names[0])
-	fieldName := strings.Join(logical, ".")
-	if v.schema == nil || !v.schema.IsRelational(fieldName) {
-		return v.memberOfRow("("+row+"."+name+")", logical, names[1:])
+	key, err := v.keyOfObject(of, names[0])
+	if err != nil {
+		return "", err
 	}
-	mapping, _ := v.schema.Get(fieldName)
+	if key == nil {
+		return v.memberOfRow("("+row+"."+name+")", of+"."+names[0], names[1:])
+	}
 
+	// The row read is one of the referenced table, and its alias says so.
 	v.counters.wildcardCounter++
-	alias := mapping.Alias
-	if alias == "" {
-		alias = strings.ToLower(names[0])
-	}
-	aliasRef, err := identifier(fmt.Sprintf("%s_%d", alias, v.counters.wildcardCounter))
+	aliasRef, err := identifier(fmt.Sprintf("%s_%d", singularOf(key.ReferencedTable), v.counters.wildcardCounter))
 	if err != nil {
 		return "", err
 	}
-	table, err := identifier(mapping.Table)
+	table, err := identifier(key.ReferencedTable)
 	if err != nil {
 		return "", err
 	}
-	keys := make([]string, 0, len(mapping.ForeignKeys))
-	for _, fk := range mapping.ForeignKeys {
-		childColumn, err := identifier(fk.ChildColumn)
+	// The referenced columns are the read row's, the key's the row's here.
+	keys := make([]string, 0, len(key.Columns))
+	for i, column := range key.Columns {
+		c, err := identifier(column)
 		if err != nil {
 			return "", err
 		}
-		parentColumn, err := identifier(fk.ParentColumn)
+		r, err := identifier(key.ReferencedColumns[i])
 		if err != nil {
 			return "", err
 		}
-		keys = append(keys, fmt.Sprintf("%s.%s = %s.%s", aliasRef, childColumn, row, parentColumn))
+		keys = append(keys, fmt.Sprintf("%s.%s = %s.%s", aliasRef, r, row, c))
 	}
-	member, err := v.memberOfRow(aliasRef, logical, names[1:])
+	member, err := v.memberOfRow(aliasRef, key.ReferencedTable, names[1:])
 	if err != nil {
 		return "", err
 	}
@@ -495,33 +580,60 @@ func (v *PostgresqlVisitor) VisitPostfix(n s.PostfixNode) (SqlFragment, error) {
 
 func (v *PostgresqlVisitor) VisitCollection(n s.CollectionNode) (SqlFragment, error) {
 	// Two modes:
-	// 1. Embedded (JSONB/array): EXISTS (SELECT 1 FROM unnest(collection) AS item WHERE predicate)
-	// 2. Relational (separate table): EXISTS (SELECT 1 FROM table AS item WHERE fk_conditions AND predicate)
-	collectionName := v.extractCollectionName(n)
-	fieldName := strings.Join(v.extractLogicalPath(n), ".")
-
-	if v.schema != nil && v.schema.IsRelational(fieldName) {
-		return v.visitRelationalCollection(n, fieldName, collectionName)
+	// 1. Embedded (an array of a composite type): EXISTS (SELECT 1 FROM unnest(collection) AS item WHERE predicate)
+	// 2. Relational (a table of its own): EXISTS (SELECT 1 FROM table AS item WHERE keys AND predicate)
+	//
+	// The row the collection is a name of, to the schema: the enclosing
+	// item's, or the query's table. Without a schema there is no key to look
+	// for, and the name is an array in the row.
+	of, known := v.rowOf(n)
+	name := strings.Join(v.extractNames(n), ".")
+	var key *ForeignKey
+	if known {
+		var err error
+		if key, err = v.keyOfCollection(of, name); err != nil {
+			return SqlFragment{}, err
+		}
 	}
-	return v.visitEmbeddedCollection(n, collectionName)
+	if key != nil {
+		return v.visitRelationalCollection(n, key)
+	}
+	return v.visitEmbeddedCollection(n, of+"."+name)
 }
 
-// visitEmbeddedCollection generates SQL for JSONB/array collections using unnest.
-func (v *PostgresqlVisitor) visitEmbeddedCollection(n s.CollectionNode, collectionName string) (SqlFragment, error) {
+// rowOf returns what the row a collection is a name of is a row of, to the
+// schema; false without a schema, outside any collection.
+func (v *PostgresqlVisitor) rowOf(n s.CollectionNode) (string, bool) {
+	if root, ok := v.extractRoot(n).(s.ItemNode); ok {
+		if w, err := v.wildcardOf(root); err == nil {
+			return w.row, true
+		}
+	}
+	if v.schema != nil {
+		return v.schema.Table, true
+	}
+	return "", false
+}
+
+// visitEmbeddedCollection generates SQL for collections kept as an array of
+// a composite type, using unnest. row is what the array's rows are rows of,
+// to the schema: the array's column by its table.
+func (v *PostgresqlVisitor) visitEmbeddedCollection(n s.CollectionNode, row string) (SqlFragment, error) {
 	collectionPath, err := v.extractCollectionPath(n)
 	if err != nil {
 		return SqlFragment{}, err
 	}
 
 	v.counters.wildcardCounter++
-	// The alias goes on as it is: a name is quoted where it is written.
-	alias := fmt.Sprintf("%s_%d", strings.ToLower(collectionName), v.counters.wildcardCounter)
+	// The alias is the compiler's own: the singular of the array's name,
+	// numbered. It goes on as it is: a name is quoted where it is written.
+	alias := fmt.Sprintf("%s_%d", singularOf(v.extractCollectionName(n)), v.counters.wildcardCounter)
 	aliasRef, err := identifier(alias)
 	if err != nil {
 		return SqlFragment{}, err
 	}
 
-	sub := v.enterWildcard(alias, v.extractLogicalPath(n), 0)
+	sub := v.enterWildcard(alias, row, 0)
 	predicate, err := s.Accept[SqlFragment](n.Predicate(), sub)
 	if err != nil {
 		return SqlFragment{}, err
@@ -536,71 +648,56 @@ func (v *PostgresqlVisitor) visitEmbeddedCollection(n s.CollectionNode, collecti
 	}, nil
 }
 
-// visitRelationalCollection generates SQL for collections in separate tables.
-func (v *PostgresqlVisitor) visitRelationalCollection(n s.CollectionNode, fieldName, collectionName string) (SqlFragment, error) {
-	mapping, _ := v.schema.Get(fieldName)
-
+// visitRelationalCollection generates SQL for collections in tables of their
+// own, joined by key.
+func (v *PostgresqlVisitor) visitRelationalCollection(n s.CollectionNode, key *ForeignKey) (SqlFragment, error) {
 	v.counters.wildcardCounter++
-	alias := mapping.Alias
-	if alias == "" {
-		alias = fmt.Sprintf("%s_%d", strings.ToLower(collectionName), v.counters.wildcardCounter)
-	} else {
-		alias = fmt.Sprintf("%s_%d", alias, v.counters.wildcardCounter)
-	}
+	// The alias is the compiler's own: the singular of the row's table,
+	// numbered.
+	alias := fmt.Sprintf("%s_%d", singularOf(key.Table), v.counters.wildcardCounter)
 	aliasRef, err := identifier(alias)
 	if err != nil {
 		return SqlFragment{}, err
 	}
 
-	// Determine parent reference BEFORE entering new wildcard context.
-	// This ensures we reference the outer scope, not the new alias.
-	parentRef, err := identifier(v.getParentRefForRelational(n))
+	// The row the collection is joined to is named BEFORE entering the new
+	// wildcard context: the outer scope, not the new alias.
+	parentRef, err := identifier(v.rowJoinedTo(n))
 	if err != nil {
 		return SqlFragment{}, err
 	}
-	table, err := identifier(mapping.Table)
+	table, err := identifier(key.Table)
 	if err != nil {
 		return SqlFragment{}, err
 	}
 
 	// The predicate is an operand of the AND after the keys: written as it
 	// is, `fk AND p OR q` selects through `q` the rows of other parents.
-	sub := v.enterWildcard(alias, v.extractLogicalPath(n), v.precedenceMapping["AND LEFT"])
+	sub := v.enterWildcard(alias, key.Table, v.precedenceMapping["AND LEFT"])
 	predicate, err := s.Accept[SqlFragment](n.Predicate(), sub)
 	if err != nil {
 		return SqlFragment{}, err
 	}
 
-	// Generate FK conditions (supports composite keys).
-	fkParts := make([]string, 0, len(mapping.ForeignKeys))
-	for _, fk := range mapping.ForeignKeys {
-		childColumn, err := identifier(fk.ChildColumn)
-		if err != nil {
-			return SqlFragment{}, err
-		}
-		parentColumn, err := identifier(fk.ParentColumn)
-		if err != nil {
-			return SqlFragment{}, err
-		}
-		fkParts = append(fkParts, fmt.Sprintf(
-			"%s.%s = %s.%s", aliasRef, childColumn, parentRef, parentColumn,
-		))
+	conditions, err := keyConditions(key, aliasRef, parentRef)
+	if err != nil {
+		return SqlFragment{}, err
 	}
-	fkConditions := strings.Join(fkParts, " AND ")
 
 	return SqlFragment{
 		SQL: fmt.Sprintf(
 			"EXISTS (SELECT 1 FROM %s AS %s WHERE %s AND %s)",
-			table, aliasRef, fkConditions, predicate.SQL,
+			table, aliasRef, conditions, predicate.SQL,
 		),
 		Params: predicate.Params,
 	}, nil
 }
 
-// getParentRefForRelational returns parent reference based on what the path
-// to the collection starts at. Called BEFORE entering a new wildcard context
-// to get the correct outer reference.
-func (v *PostgresqlVisitor) getParentRefForRelational(n s.CollectionNode) string {
+// rowJoinedTo returns what the query calls the row a collection is joined
+// to: the enclosing item's alias if the path to the collection starts at the
+// item, else the query's own table. Called BEFORE entering a new wildcard
+// context to get the correct outer reference.
+func (v *PostgresqlVisitor) rowJoinedTo(n s.CollectionNode) string {
 	// If the collection is one of the current item (a nested wildcard), use
 	// the outer wildcard alias. A collection of the candidate named inside
 	// the predicate of another is joined to the root row: it used to be
@@ -610,9 +707,8 @@ func (v *PostgresqlVisitor) getParentRefForRelational(n s.CollectionNode) string
 			return w.alias
 		}
 	}
-	// Otherwise, use schema's parent reference.
 	if v.schema != nil {
-		return v.schema.GetParentRef()
+		return v.schema.Row()
 	}
 	return ""
 }
@@ -636,22 +732,14 @@ func (v *PostgresqlVisitor) extractRoot(n s.CollectionNode) s.EmptiableObject {
 	return parent
 }
 
-// extractLogicalPath extracts the names from the aggregate to the collection:
-// what a schema names the collection by. ["Categories", "Items"] for the items
-// of a category, ["Items"] for the items of the store. The last name alone,
-// extractFieldName, does not tell the two apart.
-func (v *PostgresqlVisitor) extractLogicalPath(n s.CollectionNode) []string {
+// extractNames extracts the names from what the path to the collection
+// starts at.
+func (v *PostgresqlVisitor) extractNames(n s.CollectionNode) []string {
 	var parts []string
 	parent := n.Parent()
 	for !parent.IsRoot() {
 		parts = append([]string{parent.Name()}, parts...) // prepend
 		parent = parent.Parent()
-	}
-	// A path from the current item goes on from the path to its collection.
-	if root, ok := parent.(s.ItemNode); ok {
-		if w, err := v.wildcardOf(root); err == nil {
-			return append(append([]string{}, w.path...), parts...)
-		}
 	}
 	return parts
 }

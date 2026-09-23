@@ -1,138 +1,136 @@
 package specification
 
-// StorageType defines how a collection is stored
-type StorageType int
+import "strings"
 
-const (
-	// StorageEmbedded means collection is stored as JSONB/array in parent table
-	StorageEmbedded StorageType = iota
-	// StorageRelational means collection is stored in a separate table
-	StorageRelational
-)
+// A schema is the foreign keys of a storage, as `\d` shows them, and nothing
+// of any aggregate or query: a key is on a table, of columns, and references
+// a table's columns. What the compiler calls a row in a query - an alias - is
+// the compiler's own, made as it goes. The one thing of the query in a schema
+// is the table the query is of, `FROM stores s`: the row the compiler starts
+// from, and what it qualifies that row's columns with.
+//
+// A tree names a collection by the table its rows are in, `store_items`, or,
+// where two keys of that table reference the same row, by the key's name; and
+// an object kept in a table of its own by the key's column, `owner_id`. A key
+// has a name as it has in PostgreSQL: the one it is given, or
+// `<table>_<columns>_fkey`.
 
-// ForeignKeyPair represents a single FK column mapping
-type ForeignKeyPair struct {
-	// ChildColumn is the column in the child table (e.g., "store_id", "tenant_id")
-	ChildColumn string
-	// ParentColumn is the column in the parent table (e.g., "id", "tenant_id")
-	ParentColumn string
+// ForeignKey is `Table (Columns) REFERENCES ReferencedTable (ReferencedColumns)`.
+//
+// A key has at least one column: without any, every row of the table would
+// belong to every row it references. Table is a table; or, for a key on a
+// row of an array in a composite, which has no table, the array's column by
+// its table, `stores.items`.
+type ForeignKey struct {
+	// ConstraintName is the key's name where the storage gives it one:
+	// `CONSTRAINT name`. Empty, the key is named as PostgreSQL names it.
+	ConstraintName    string
+	Table             string
+	Columns           []string
+	ReferencedTable   string
+	ReferencedColumns []string
 }
 
-// CollectionMapping defines how a collection field maps to storage
-type CollectionMapping struct {
-	// Storage defines whether collection is embedded or in separate table
-	Storage StorageType
-
-	// Table is the name of the child table (only for StorageRelational)
-	Table string
-
-	// ForeignKeys defines the FK relationship (supports composite keys)
-	// For simple FK: []ForeignKeyPair{{ChildColumn: "store_id", ParentColumn: "id"}}
-	// For composite: []ForeignKeyPair{
-	//     {ChildColumn: "tenant_id", ParentColumn: "tenant_id"},
-	//     {ChildColumn: "store_id", ParentColumn: "id"},
-	// }
-	ForeignKeys []ForeignKeyPair
-
-	// Alias is optional custom alias for the subquery (defaults to singularized table name)
-	Alias string
+// Name is the key's name: the one it was given, or the one PostgreSQL gives
+// a key that was not, `<table>_<columns>_fkey`.
+func (k ForeignKey) Name() string {
+	if k.ConstraintName != "" {
+		return k.ConstraintName
+	}
+	table := k.Table[strings.LastIndex(k.Table, ".")+1:]
+	return table + "_" + strings.Join(k.Columns, "_") + "_fkey"
 }
 
-// SchemaRegistry holds collection mappings for a specific aggregate/repository
+// SchemaRegistry is the foreign keys of a storage, for the queries of one
+// table.
+//
+//	schema := NewSchemaRegistry("accounts").WithAlias("a").
+//		ForeignKey("transfers", "from_account_id", "accounts", "id").
+//		ForeignKey("transfers", "to_account_id", "accounts", "id").
+//		ForeignKey("accounts", "owner_id", "owners", "id")
+//
+// A tree names a collection by its table, `Any(transfers, ...)`, and where
+// two keys of that table reference the row it is named from, by the key's
+// name, `transfers_from_account_id_fkey`; an object by the key's column,
+// `owner_id.name`.
 type SchemaRegistry struct {
-	// ParentTable is the main table name (e.g., "stores")
-	ParentTable string
-
-	// ParentAlias is the alias used for parent table in queries (e.g., "s" for "stores s")
-	ParentAlias string
-
-	// collections maps a collection to its mapping, by the names from the
-	// aggregate to the collection joined with dots: "Items",
-	// "Categories.Items". The last name alone does not tell the items of a
-	// store from the items of a category.
-	collections map[string]CollectionMapping
+	// Table is the table the query is of: the row the compiler starts from.
+	Table string
+	// Alias is the alias the query gives its table: `s` of `FROM stores s`.
+	Alias string
+	keys  []ForeignKey
 }
 
-// NewSchemaRegistry creates a new SchemaRegistry for a parent table
-func NewSchemaRegistry(parentTable string) *SchemaRegistry {
-	return &SchemaRegistry{
-		ParentTable: parentTable,
-		ParentAlias: "",
-		collections: make(map[string]CollectionMapping),
-	}
+// NewSchemaRegistry creates a SchemaRegistry for the queries of table.
+func NewSchemaRegistry(table string) *SchemaRegistry {
+	return &SchemaRegistry{Table: table}
 }
 
-// WithParentAlias sets the parent table alias
-func (r *SchemaRegistry) WithParentAlias(alias string) *SchemaRegistry {
-	r.ParentAlias = alias
+// WithAlias sets the alias the query gives its table.
+func (r *SchemaRegistry) WithAlias(alias string) *SchemaRegistry {
+	r.Alias = alias
 	return r
 }
 
-// RegisterEmbedded registers a collection stored as embedded JSONB/array
-func (r *SchemaRegistry) RegisterEmbedded(fieldName string) *SchemaRegistry {
-	r.collections[fieldName] = CollectionMapping{
-		Storage: StorageEmbedded,
-	}
+// ForeignKey registers a key of one column: `table (column) REFERENCES
+// referencedTable (referencedColumn)`.
+func (r *SchemaRegistry) ForeignKey(table, column, referencedTable, referencedColumn string) *SchemaRegistry {
+	return r.Key(ForeignKey{
+		Table:             table,
+		Columns:           []string{column},
+		ReferencedTable:   referencedTable,
+		ReferencedColumns: []string{referencedColumn},
+	})
+}
+
+// Key registers a key as built: composite, or named.
+func (r *SchemaRegistry) Key(key ForeignKey) *SchemaRegistry {
+	r.keys = append(r.keys, key)
 	return r
 }
 
-// RegisterRelational registers a collection stored in a separate table with simple FK
-func (r *SchemaRegistry) RegisterRelational(fieldName, table, childColumn, parentColumn string) *SchemaRegistry {
-	r.collections[fieldName] = CollectionMapping{
-		Storage: StorageRelational,
-		Table:   table,
-		ForeignKeys: []ForeignKeyPair{
-			{ChildColumn: childColumn, ParentColumn: parentColumn},
-		},
+// KeyNamed returns the key called name, if there is one.
+func (r *SchemaRegistry) KeyNamed(name string) (ForeignKey, bool) {
+	for _, key := range r.keys {
+		if key.Name() == name {
+			return key, true
+		}
 	}
-	return r
+	return ForeignKey{}, false
 }
 
-// RegisterRelationalComposite registers a collection with composite FK
-func (r *SchemaRegistry) RegisterRelationalComposite(fieldName, table string, foreignKeys []ForeignKeyPair) *SchemaRegistry {
-	r.collections[fieldName] = CollectionMapping{
-		Storage:     StorageRelational,
-		Table:       table,
-		ForeignKeys: foreignKeys,
+// KeysReferencing returns the keys on table that reference referencedTable.
+func (r *SchemaRegistry) KeysReferencing(table, referencedTable string) []ForeignKey {
+	var keys []ForeignKey
+	for _, key := range r.keys {
+		if key.Table == table && key.ReferencedTable == referencedTable {
+			keys = append(keys, key)
+		}
 	}
-	return r
+	return keys
 }
 
-// Register registers a collection with full mapping configuration
-func (r *SchemaRegistry) Register(fieldName string, mapping CollectionMapping) *SchemaRegistry {
-	r.collections[fieldName] = mapping
-	return r
-}
-
-// Get returns the collection mapping for a field name
-func (r *SchemaRegistry) Get(fieldName string) (CollectionMapping, bool) {
-	mapping, ok := r.collections[fieldName]
-	return mapping, ok
-}
-
-// IsEmbedded returns true if collection is stored as embedded JSONB/array
-func (r *SchemaRegistry) IsEmbedded(fieldName string) bool {
-	mapping, ok := r.collections[fieldName]
-	if !ok {
-		// Default to embedded if not registered
-		return true
+// KeysOn returns the keys on table that column is a column of.
+func (r *SchemaRegistry) KeysOn(table, column string) []ForeignKey {
+	var keys []ForeignKey
+	for _, key := range r.keys {
+		if key.Table != table {
+			continue
+		}
+		for _, c := range key.Columns {
+			if c == column {
+				keys = append(keys, key)
+				break
+			}
+		}
 	}
-	return mapping.Storage == StorageEmbedded
+	return keys
 }
 
-// IsRelational returns true if collection is stored in a separate table
-func (r *SchemaRegistry) IsRelational(fieldName string) bool {
-	mapping, ok := r.collections[fieldName]
-	if !ok {
-		return false
+// Row returns what the query calls its table's row: the alias, or the table.
+func (r *SchemaRegistry) Row() string {
+	if r.Alias != "" {
+		return r.Alias
 	}
-	return mapping.Storage == StorageRelational
-}
-
-// GetParentRef returns the reference to parent table (alias or table name)
-func (r *SchemaRegistry) GetParentRef() string {
-	if r.ParentAlias != "" {
-		return r.ParentAlias
-	}
-	return r.ParentTable
+	return r.Table
 }

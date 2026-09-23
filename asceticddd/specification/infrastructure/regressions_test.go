@@ -22,6 +22,16 @@ func item(name string) s.FieldNode {
 	return s.Field(s.Item(), name)
 }
 
+// fromCandidate is a member by its whole path from the candidate: what a
+// mapping answers with.
+func fromCandidate(names ...string) s.FieldNode {
+	var owner s.EmptiableObject = s.GlobalScope()
+	for _, name := range names[:len(names)-1] {
+		owner = s.Object(owner, name)
+	}
+	return s.Field(owner, names[len(names)-1])
+}
+
 func sqlOf(t *testing.T, node s.Visitable, opts ...PostgresqlVisitorOption) string {
 	t.Helper()
 	sql, _, err := CompileToSQL(node, opts...)
@@ -119,7 +129,7 @@ type pair struct {
 	b *int
 }
 
-type ownersContext struct{ ContextDefaults }
+type ownersContext struct{}
 
 func (ownersContext) AttrNode(path []string) (Mapped, error) {
 	if len(path) == 1 && path[0] == "pair" {
@@ -257,10 +267,10 @@ func TestIsTakesAParameter(t *testing.T) {
 // The predicate was written after the keys as it was: `fk AND p OR q`, which
 // selects through `q` the rows of other parents.
 func TestThePredicateOfARelationalCollectionStaysInsideItsKeys(t *testing.T) {
-	schema := NewSchemaRegistry("stores").WithParentAlias("s").
-		RegisterRelational("Items", "items", "store_id", "id")
+	schema := NewSchemaRegistry("stores").WithAlias("s").
+		ForeignKey("items", "store_id", "stores", "id")
 	dear := s.GreaterThan(item("Price"), s.Value(500))
-	items := s.Object(s.GlobalScope(), "Items")
+	items := s.Object(s.GlobalScope(), "items")
 
 	checkSql(t, []sqlCase{
 		{
@@ -277,80 +287,163 @@ func TestThePredicateOfARelationalCollectionStaysInsideItsKeys(t *testing.T) {
 	// An embedded collection needs none.
 	checkSql(t, []sqlCase{{
 		s.Wildcard(items, s.Or(item("Active"), dear)),
-		`EXISTS (SELECT 1 FROM unnest("Items") AS "item_1" WHERE "item_1"."Active" OR "item_1"."Price" > $1)`,
+		`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE "item_1"."Active" OR "item_1"."Price" > $1)`,
 	}})
 }
 
 // A schema named a collection by its last name alone, so the items of a store
-// and the items of a category were one collection with one table.
-func TestACollectionIsNamedByItsWholePath(t *testing.T) {
-	ofTheStore := s.Wildcard(s.Object(s.GlobalScope(), "Items"), item("Active"))
+// and the items of a category were one collection with one table; then by its
+// whole path in the aggregate, which is the query's. It is the foreign keys of
+// the storage, and a tree names a collection by its table: the key of that
+// table that references the row the tree stands in.
+func TestACollectionIsNamedByItsTable(t *testing.T) {
+	schema := NewSchemaRegistry("stores").WithAlias("s").
+		ForeignKey("store_items", "store_id", "stores", "id").
+		ForeignKey("categories", "store_id", "stores", "id").
+		ForeignKey("category_items", "category_id", "categories", "id")
+	ofTheStore := s.Wildcard(s.Object(s.GlobalScope(), "store_items"), item("Active"))
 	ofACategory := s.Wildcard(
-		s.Object(s.GlobalScope(), "Categories"),
-		s.Wildcard(s.Object(s.Item(), "Items"), item("Active")),
+		s.Object(s.GlobalScope(), "categories"),
+		s.Wildcard(s.Object(s.Item(), "category_items"), item("Active")),
 	)
-
-	schema := NewSchemaRegistry("stores").WithParentAlias("s").
-		RegisterRelational("Items", "store_items", "store_id", "id").
-		RegisterRelational("Categories", "categories", "store_id", "id").
-		RegisterRelational("Categories.Items", "category_items", "category_id", "id")
 	checkSql(t, []sqlCase{
 		{
 			ofTheStore,
-			`EXISTS (SELECT 1 FROM "store_items" AS "item_1"` +
-				` WHERE "item_1"."store_id" = "s"."id" AND "item_1"."Active")`,
+			`EXISTS (SELECT 1 FROM "store_items" AS "store_item_1"` +
+				` WHERE "store_item_1"."store_id" = "s"."id" AND "store_item_1"."Active")`,
 		},
 		{
 			ofACategory,
 			`EXISTS (SELECT 1 FROM "categories" AS "category_1"` +
-				` WHERE "category_1"."store_id" = "s"."id" AND EXISTS (SELECT 1 FROM "category_items" AS "item_2"` +
-				` WHERE "item_2"."category_id" = "category_1"."id" AND "item_2"."Active"))`,
+				` WHERE "category_1"."store_id" = "s"."id" AND EXISTS (SELECT 1 FROM "category_items" AS "category_item_2"` +
+				` WHERE "category_item_2"."category_id" = "category_1"."id" AND "category_item_2"."Active"))`,
+		},
+		// A name without a key to the row is an array in it.
+		{
+			s.Wildcard(
+				s.Object(s.GlobalScope(), "categories"),
+				s.Wildcard(s.Object(s.Item(), "Items"), item("Active")),
+			),
+			`EXISTS (SELECT 1 FROM "categories" AS "category_1"` +
+				` WHERE "category_1"."store_id" = "s"."id" AND EXISTS (SELECT 1 FROM unnest("category_1"."Items") AS "item_2"` +
+				` WHERE "item_2"."Active"))`,
 		},
 	}, WithSchema(schema))
+}
 
-	// A nested collection that is not named is embedded.
-	unnamed := NewSchemaRegistry("stores").WithParentAlias("s").
-		RegisterRelational("Items", "store_items", "store_id", "id").
-		RegisterRelational("Categories", "categories", "store_id", "id")
-	checkSql(t, []sqlCase{{
-		ofACategory,
-		`EXISTS (SELECT 1 FROM "categories" AS "category_1"` +
-			` WHERE "category_1"."store_id" = "s"."id" AND EXISTS (SELECT 1 FROM unnest("category_1"."Items") AS "item_2"` +
-			` WHERE "item_2"."Active"))`,
-	}}, WithSchema(unnamed))
+// A schema is the foreign keys of a storage and nothing of any query. A tree
+// names a collection by its table, and where two keys of that table reference
+// the row it is named from - the transfers from an account and the transfers
+// to it - by the key's name, which is what PostgreSQL calls it. An object is
+// named by the key's column. A row of an array, which has no table, is named
+// by the array's column; and what the compiler calls a row in a query is its
+// own.
+func TestASchemaIsTheForeignKeysOfTheStorage(t *testing.T) {
+	schema := NewSchemaRegistry("accounts").WithAlias("a").
+		ForeignKey("transfers", "from_account_id", "accounts", "id").
+		ForeignKey("transfers", "to_account_id", "accounts", "id").
+		ForeignKey("accounts", "owner_id", "owners", "id").
+		ForeignKey("accounts.cards", "issuer_id", "banks", "id")
+	over := func(what string) s.Visitable {
+		return s.Wildcard(s.Object(s.GlobalScope(), what), s.GreaterThan(item("amount"), s.Value(100)))
+	}
+	refused := func(t *testing.T, tree s.Visitable, schema *SchemaRegistry, want string) {
+		t.Helper()
+		sql, _, err := CompileToSQL(tree, WithSchema(schema))
+		if err == nil {
+			t.Fatalf("compiled to %q", sql)
+		}
+		if err.Error() != want {
+			t.Errorf("got error %q\nwant      %q", err, want)
+		}
+	}
 
-	// The objects on the way are a part of the name.
-	warehouse := NewSchemaRegistry("stores").WithParentAlias("s").
-		RegisterRelational("Warehouse.Items", "warehouse_items", "store_id", "id")
+	// A key is named as PostgreSQL names it, unless named.
+	names := map[string]ForeignKey{
+		"transfers_from_account_id_fkey":    {Table: "transfers", Columns: []string{"from_account_id"}, ReferencedTable: "accounts", ReferencedColumns: []string{"id"}},
+		"orders_tenant_id_customer_id_fkey": {Table: "public.orders", Columns: []string{"tenant_id", "customer_id"}, ReferencedTable: "tenants", ReferencedColumns: []string{"tenant_id", "id"}},
+		"outgoing":                          {ConstraintName: "outgoing", Table: "transfers", Columns: []string{"from_account_id"}, ReferencedTable: "accounts", ReferencedColumns: []string{"id"}},
+	}
+	for want, key := range names {
+		if got := key.Name(); got != want {
+			t.Errorf("got %q, want %q", got, want)
+		}
+	}
+
+	// Two keys to one row are told apart by name.
+	checkSql(t, []sqlCase{
+		{
+			over("transfers_from_account_id_fkey"),
+			`EXISTS (SELECT 1 FROM "transfers" AS "transfer_1"` +
+				` WHERE "transfer_1"."from_account_id" = "a"."id" AND "transfer_1"."amount" > $1)`,
+		},
+		{
+			over("transfers_to_account_id_fkey"),
+			`EXISTS (SELECT 1 FROM "transfers" AS "transfer_1"` +
+				` WHERE "transfer_1"."to_account_id" = "a"."id" AND "transfer_1"."amount" > $1)`,
+		},
+		// A key on a row of an array.
+		{
+			s.Wildcard(s.Object(s.GlobalScope(), "cards"), s.Equal(s.Field(s.Object(s.Item(), "issuer_id"), "name"), s.Value("x"))),
+			`EXISTS (SELECT 1 FROM unnest("cards") AS "card_1" WHERE` +
+				` (SELECT "bank_2"."name" FROM "banks" AS "bank_2" WHERE "bank_2"."id" = "card_1"."issuer_id") = $1)`,
+		},
+	}, WithSchema(schema))
+	// By the table alone, the name fits two keys.
+	refused(t, over("transfers"), schema, "transfers has 2 keys to accounts: transfers_from_account_id_fkey, transfers_to_account_id_fkey; name the key")
+	// A key given a name goes by it.
+	named := NewSchemaRegistry("accounts").WithAlias("a").Key(ForeignKey{
+		ConstraintName: "outgoing", Table: "transfers", Columns: []string{"from_account_id"},
+		ReferencedTable: "accounts", ReferencedColumns: []string{"id"},
+	})
 	checkSql(t, []sqlCase{{
-		s.Wildcard(s.Object(s.Object(s.GlobalScope(), "Warehouse"), "Items"), item("Active")),
-		`EXISTS (SELECT 1 FROM "warehouse_items" AS "item_1"` +
-			` WHERE "item_1"."store_id" = "s"."id" AND "item_1"."Active")`,
-	}}, WithSchema(warehouse))
+		over("outgoing"),
+		`EXISTS (SELECT 1 FROM "transfers" AS "transfer_1"` +
+			` WHERE "transfer_1"."from_account_id" = "a"."id" AND "transfer_1"."amount" > $1)`,
+	}}, WithSchema(named))
+	// A key named where it does not go is refused.
+	refused(t, s.Wildcard(s.Object(s.GlobalScope(), "accounts_owner_id_fkey"), item("x")), schema, "the key accounts_owner_id_fkey references owners, not accounts")
+
+	// A column of two keys.
+	shared := NewSchemaRegistry("stores").
+		ForeignKey("stores", "tenant_id", "tenants", "id").
+		Key(ForeignKey{
+			Table: "stores", Columns: []string{"tenant_id", "owner_id"},
+			ReferencedTable: "owners", ReferencedColumns: []string{"tenant_id", "id"},
+		})
+	refused(
+		t, s.Equal(s.Field(s.Object(s.GlobalScope(), "tenant_id"), "name"), s.Value("x")), shared,
+		"tenant_id is a column of 2 keys of stores: stores_tenant_id_fkey, stores_tenant_id_owner_id_fkey; name the key",
+	)
+	checkSql(t, []sqlCase{{
+		s.Equal(s.Field(s.Object(s.GlobalScope(), "owner_id"), "name"), s.Value("x")),
+		`(SELECT "owner_1"."name" FROM "owners" AS "owner_1"` +
+			` WHERE "owner_1"."tenant_id" = "stores"."tenant_id" AND "owner_1"."id" = "stores"."owner_id") = $1`,
+	}}, WithSchema(shared))
 }
 
 // A relational collection inside the predicate of another was joined to the
 // enclosing item whatever it was a collection of.
 func TestACollectionOfTheCandidateInsideAnotherJoinsToTheRoot(t *testing.T) {
-	schema := NewSchemaRegistry("stores").WithParentAlias("s").
-		RegisterRelational("Items", "items", "store_id", "id").
-		RegisterRelational("Tags", "tags", "store_id", "id").
-		RegisterRelational("Items.Tags", "item_tags", "item_id", "id")
+	schema := NewSchemaRegistry("stores").WithAlias("s").
+		ForeignKey("items", "store_id", "stores", "id").
+		ForeignKey("tags", "store_id", "stores", "id").
+		ForeignKey("item_tags", "item_id", "items", "id")
 	onSale := s.Equal(item("Name"), s.Value("sale"))
-	items := s.Object(s.GlobalScope(), "Items")
+	items := s.Object(s.GlobalScope(), "items")
 
 	checkSql(t, []sqlCase{
 		{
-			s.Wildcard(items, s.Wildcard(s.Object(s.GlobalScope(), "Tags"), onSale)),
+			s.Wildcard(items, s.Wildcard(s.Object(s.GlobalScope(), "tags"), onSale)),
 			`EXISTS (SELECT 1 FROM "items" AS "item_1" WHERE "item_1"."store_id" = "s"."id"` +
 				` AND EXISTS (SELECT 1 FROM "tags" AS "tag_2" WHERE "tag_2"."store_id" = "s"."id"` +
 				` AND "tag_2"."Name" = $1))`,
 		},
 		{
-			s.Wildcard(items, s.Wildcard(s.Object(s.Item(), "Tags"), onSale)),
+			s.Wildcard(items, s.Wildcard(s.Object(s.Item(), "item_tags"), onSale)),
 			`EXISTS (SELECT 1 FROM "items" AS "item_1" WHERE "item_1"."store_id" = "s"."id"` +
-				` AND EXISTS (SELECT 1 FROM "item_tags" AS "tag_2" WHERE "tag_2"."item_id" = "item_1"."id"` +
-				` AND "tag_2"."Name" = $1))`,
+				` AND EXISTS (SELECT 1 FROM "item_tags" AS "item_tag_2" WHERE "item_tag_2"."item_id" = "item_1"."id"` +
+				` AND "item_tag_2"."Name" = $1))`,
 		},
 	}, WithSchema(schema))
 }
@@ -389,11 +482,11 @@ func TestAMemberOfAnObjectInsideAnItemIsAMemberOfAComposite(t *testing.T) {
 		{s.Equal(s.Field(s.Object(s.GlobalScope(), "s"), "maker"), s.Value("x")), `"s"."maker" = $1`},
 	})
 	// In a table of its own an item is a row as well, and its column a composite.
-	schema := NewSchemaRegistry("stores").WithParentAlias("s").
-		RegisterRelational("items", "store_items", "store_id", "id")
+	schema := NewSchemaRegistry("stores").WithAlias("s").
+		ForeignKey("store_items", "store_id", "stores", "id")
 	checkSql(t, []sqlCase{{
-		s.Wildcard(items, maker("name")),
-		`EXISTS (SELECT 1 FROM "store_items" AS "item_1" WHERE "item_1"."store_id" = "s"."id" AND ("item_1"."maker")."name" = $1)`,
+		s.Wildcard(s.Object(s.GlobalScope(), "store_items"), maker("name")),
+		`EXISTS (SELECT 1 FROM "store_items" AS "store_item_1" WHERE "store_item_1"."store_id" = "s"."id" AND ("store_item_1"."maker")."name" = $1)`,
 	}}, WithSchema(schema))
 }
 
@@ -404,40 +497,37 @@ func TestAMemberOfAnObjectInsideAnItemIsAMemberOfAComposite(t *testing.T) {
 // PostgreSQL reads as a table and a column.
 func TestAMemberOfAnObjectKeptInATableOfItsOwnIsReadThroughTheKey(t *testing.T) {
 	items := s.Object(s.GlobalScope(), "items")
-	ownerName := s.Field(s.Object(s.Item(), "owner"), "name")
+	ownerName := s.Field(s.Object(s.Item(), "owner_id"), "name")
 	named := s.Wildcard(items, s.Equal(ownerName, s.Value("ann")))
-	stores := func() *SchemaRegistry { return NewSchemaRegistry("stores").WithParentAlias("s") }
+	stores := func() *SchemaRegistry { return NewSchemaRegistry("stores").WithAlias("s") }
 
-	// Whether the items are an array or a table, their owner is a table.
+	// Whether the items are an array or a table, their owner is a table. A
+	// row of the items array has no table: it is named by the array's column.
 	checkSql(t, []sqlCase{{
 		named,
 		`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE ` +
 			`(SELECT "owner_2"."name" FROM "owners" AS "owner_2" ` +
 			`WHERE "owner_2"."id" = "item_1"."owner_id") = $1)`,
-	}}, WithSchema(stores().RegisterRelational("items.owner", "owners", "id", "owner_id")))
+	}}, WithSchema(stores().ForeignKey("stores.items", "owner_id", "owners", "id")))
 
 	relational := stores().
-		RegisterRelational("items", "store_items", "store_id", "id").
-		Register("items.owner", CollectionMapping{
-			Storage:     StorageRelational,
-			Table:       "owners",
-			ForeignKeys: []ForeignKeyPair{{ChildColumn: "id", ParentColumn: "owner_id"}},
-			Alias:       "o",
-		})
+		ForeignKey("store_items", "store_id", "stores", "id").
+		ForeignKey("store_items", "owner_id", "owners", "id")
 	checkSql(t, []sqlCase{{
-		named,
-		`EXISTS (SELECT 1 FROM "store_items" AS "item_1" ` +
-			`WHERE "item_1"."store_id" = "s"."id" AND ` +
-			`(SELECT "o_2"."name" FROM "owners" AS "o_2" ` +
-			`WHERE "o_2"."id" = "item_1"."owner_id") = $1)`,
+		s.Wildcard(s.Object(s.GlobalScope(), "store_items"), s.Equal(ownerName, s.Value("ann"))),
+		`EXISTS (SELECT 1 FROM "store_items" AS "store_item_1" ` +
+			`WHERE "store_item_1"."store_id" = "s"."id" AND ` +
+			`(SELECT "owner_2"."name" FROM "owners" AS "owner_2" ` +
+			`WHERE "owner_2"."id" = "store_item_1"."owner_id") = $1)`,
 	}}, WithSchema(relational))
 
-	// A key of two columns; and what is inside the owner's row is a composite.
-	compositeKey := stores().RegisterRelationalComposite("items.owner", "public.owners", []ForeignKeyPair{
-		{ChildColumn: "tenant_id", ParentColumn: "tenant_id"},
-		{ChildColumn: "id", ParentColumn: "owner_id"},
+	// A key of two columns is named by either of them, unless another key has
+	// it too; and what is inside the owner's row is a composite.
+	compositeKey := stores().Key(ForeignKey{
+		Table: "stores.items", Columns: []string{"tenant_id", "owner_id"},
+		ReferencedTable: "public.owners", ReferencedColumns: []string{"tenant_id", "id"},
 	})
-	city := s.Field(s.Object(s.Object(s.Item(), "owner"), "address"), "city")
+	city := s.Field(s.Object(s.Object(s.Item(), "owner_id"), "address"), "city")
 	checkSql(t, []sqlCase{{
 		s.Wildcard(items, s.IsNull(city)),
 		`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE ` +
@@ -449,9 +539,9 @@ func TestAMemberOfAnObjectKeptInATableOfItsOwnIsReadThroughTheKey(t *testing.T) 
 	// Of the candidate itself, the key is the root row's; and each object read
 	// so has an alias of its own.
 	ofBoth := stores().
-		RegisterRelational("owner", "owners", "id", "owner_id").
-		RegisterRelational("items.owner", "owners", "id", "owner_id")
-	ofTheStore := s.Field(s.Object(s.GlobalScope(), "owner"), "name")
+		ForeignKey("stores", "owner_id", "owners", "id").
+		ForeignKey("stores.items", "owner_id", "owners", "id")
+	ofTheStore := s.Field(s.Object(s.GlobalScope(), "owner_id"), "name")
 	checkSql(t, []sqlCase{
 		{
 			s.Wildcard(items, s.Equal(ownerName, ofTheStore)),
@@ -527,16 +617,22 @@ func TestANameThatIsNotAnIdentifierIsRefused(t *testing.T) {
 		})
 	}
 
-	active := s.Wildcard(s.Object(s.GlobalScope(), "Items"), item("Active"))
-	schemas := map[string]*SchemaRegistry{
-		"a table":         NewSchemaRegistry("stores").WithParentAlias("s").RegisterRelational("Items", injection, "store_id", "id"),
-		"a child column":  NewSchemaRegistry("stores").WithParentAlias("s").RegisterRelational("Items", "items", injection, "id"),
-		"a parent column": NewSchemaRegistry("stores").WithParentAlias("s").RegisterRelational("Items", "items", "store_id", injection),
-		"a parent alias":  NewSchemaRegistry("stores").WithParentAlias(injection).RegisterRelational("Items", "items", "store_id", "id"),
+	schema := func(table, column, referencedColumn, alias string) *SchemaRegistry {
+		return NewSchemaRegistry("stores").WithAlias(alias).ForeignKey(table, column, "stores", referencedColumn)
 	}
-	for name, schema := range schemas {
+	schemas := map[string]struct {
+		schema *SchemaRegistry
+		table  string
+	}{
+		"a table":             {schema(injection, "store_id", "id", "s"), injection},
+		"a column":            {schema("items", injection, "id", "s"), "items"},
+		"a referenced column": {schema("items", "store_id", injection, "s"), "items"},
+		"an alias":            {schema("items", "store_id", "id", injection), "items"},
+	}
+	for name, c := range schemas {
 		t.Run(name, func(t *testing.T) {
-			if sql, _, err := CompileToSQL(active, WithSchema(schema)); err == nil {
+			active := s.Wildcard(s.Object(s.GlobalScope(), c.table), item("Active"))
+			if sql, _, err := CompileToSQL(active, WithSchema(c.schema)); err == nil {
 				t.Fatalf("compiled to %q", sql)
 			}
 		})
@@ -545,11 +641,10 @@ func TestANameThatIsNotAnIdentifierIsRefused(t *testing.T) {
 	checkSql(t, []sqlCase{
 		{s.Field(s.Object(s.GlobalScope(), "users"), "_name1"), `"users"."_name1"`},
 	})
-	qualified := NewSchemaRegistry("stores").WithParentAlias("s").
-		RegisterRelational("Items", "public.items", "store_id", "id")
+	qualified := NewSchemaRegistry("stores").ForeignKey("public.items", "store_id", "stores", "id")
 	checkSql(t, []sqlCase{{
-		active,
-		`EXISTS (SELECT 1 FROM "public"."items" AS "item_1" WHERE "item_1"."store_id" = "s"."id" AND "item_1"."Active")`,
+		s.Wildcard(s.Object(s.GlobalScope(), "public.items"), item("Active")),
+		`EXISTS (SELECT 1 FROM "public"."items" AS "item_1" WHERE "item_1"."store_id" = "stores"."id" AND "item_1"."Active")`,
 	}}, WithSchema(qualified))
 }
 
@@ -669,7 +764,7 @@ func TestACompositeIsNotANode(t *testing.T) {
 	context := membersContext{}
 	memberId := memberId{tenant: 10, member: 3}
 
-	transformed, err := NewTransformVisitor(context).Transform(s.Equal(field("id"), s.Value(memberId)))
+	transformed, err := NewMappingVisitor(context).Transform(s.Equal(field("id"), s.Value(memberId)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +786,7 @@ func TestACompositeIsNotANode(t *testing.T) {
 	}
 	for name, specification := range refused {
 		t.Run(name, func(t *testing.T) {
-			got, err := NewTransformVisitor(context).Transform(specification)
+			got, err := NewMappingVisitor(context).Transform(specification)
 			if err == nil {
 				t.Errorf("transformed to %#v", got)
 			}
@@ -699,7 +794,7 @@ func TestACompositeIsNotANode(t *testing.T) {
 	}
 
 	// Inside the predicate of a collection.
-	inside, err := NewTransformVisitor(context).Transform(
+	inside, err := NewMappingVisitor(context).Transform(
 		s.Wildcard(s.Object(s.GlobalScope(), "members"), s.NotEqual(item("id"), s.Value(memberId))),
 	)
 	if err != nil {
@@ -719,20 +814,19 @@ type nestedId struct {
 	number int
 }
 
-type membersContext struct{ ContextDefaults }
+// membersContext maps a domain whose id is composite, of a member and of an
+// item.
+type membersContext struct{}
 
 func (membersContext) AttrNode(path []string) (Mapped, error) {
-	if len(path) == 1 && path[0] == "id" {
-		return compositeOf(field("tenant_id"), field("member_id")), nil
+	owner := path[:len(path)-1]
+	if path[len(path)-1] == "id" {
+		return compositeOf(
+			fromCandidate(append(append([]string{}, owner...), "tenant_id")...),
+			fromCandidate(append(append([]string{}, owner...), "member_id")...),
+		), nil
 	}
-	return Scalar(field(strings.Join(path, "."))), nil
-}
-
-func (membersContext) ItemAttrNode(path []string) (Mapped, error) {
-	if len(path) == 1 && path[0] == "id" {
-		return compositeOf(item("tenant_id"), item("member_id")), nil
-	}
-	return Scalar(item(path[len(path)-1])), nil
+	return Scalar(fromCandidate(path...)), nil
 }
 
 func (c membersContext) ValueNode(val any) (Mapped, error) {
@@ -749,21 +843,28 @@ func (c membersContext) ValueNode(val any) (Mapped, error) {
 
 type weight struct{ grams int }
 
-// partsContext maps a domain whose parts have a weight, kept in grams.
-type partsContext struct{ ContextDefaults }
+// partsContext maps a domain whose parts have a weight, kept in grams: by
+// the whole path from the candidate, the parts of a part included.
+type partsContext struct{}
 
 func (partsContext) AttrNode(path []string) (Mapped, error) {
 	if len(path) == 1 && path[0] == "rank" {
 		return Scalar(field("rank")), nil
 	}
-	return nil, fmt.Errorf("unknown field: %s", strings.Join(path, "."))
-}
-
-func (partsContext) ItemAttrNode(path []string) (Mapped, error) {
-	if len(path) == 1 && path[0] == "weight" {
-		return Scalar(item("weight_grams")), nil
+	// The parts, of the candidate or of a part, and the weight of one.
+	last := path[len(path)-1]
+	ofParts := last == "parts" || last == "weight"
+	for _, name := range path[:len(path)-1] {
+		ofParts = ofParts && name == "parts"
 	}
-	return nil, fmt.Errorf("unknown field of an item: %s", strings.Join(path, "."))
+	if ofParts {
+		names := append([]string{}, path...)
+		if last == "weight" {
+			names[len(names)-1] = "weight_grams"
+		}
+		return Scalar(fromCandidate(names...)), nil
+	}
+	return nil, fmt.Errorf("unknown field: %s", strings.Join(path, "."))
 }
 
 func (partsContext) ValueNode(val any) (Mapped, error) {
@@ -808,7 +909,7 @@ func TestThePredicateOfACollectionIsTransformed(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := NewTransformVisitor(partsContext{}).Transform(c.from)
+			got, err := NewMappingVisitor(partsContext{}).Transform(c.from)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -828,61 +929,99 @@ func TestThePredicateOfACollectionIsTransformed(t *testing.T) {
 	}
 }
 
-// storedPartsContext keeps the collections under names of the storage.
-type storedPartsContext struct {
-	partsContext
-	asked *[][]string
+// storedPartsContext says as well where the collections are kept: a
+// collection is a member, and where it is a path from the candidate.
+type storedPartsContext struct{ partsContext }
+
+func (c storedPartsContext) AttrNode(path []string) (Mapped, error) {
+	storage := map[string][]string{
+		"parts":              {"something_parts"},
+		"parts.weight":       {"something_parts", "weight_grams"},
+		"parts.parts":        {"something_parts", "detail", "sub_parts"},
+		"parts.parts.weight": {"something_parts", "detail", "sub_parts", "weight_grams"},
+	}
+	if names, ok := storage[strings.Join(path, ".")]; ok {
+		return Scalar(fromCandidate(names...)), nil
+	}
+	return c.partsContext.AttrNode(path)
 }
 
-func (c storedPartsContext) CollectionNode(path []string) (s.EmptiableObject, error) {
-	if c.asked != nil {
-		*c.asked = append(*c.asked, path)
+// recordingMapping keeps what it is asked about.
+type recordingMapping struct{ asked *[][]string }
+
+func (m recordingMapping) AttrNode(path []string) (Mapped, error) {
+	*m.asked = append(*m.asked, path)
+	if len(path) == 2 {
+		return Scalar(field("warehouse_shelves")), nil
 	}
-	if len(path) == 1 && path[0] == "parts" {
-		return s.Object(s.GlobalScope(), "something_parts"), nil
-	}
-	if len(path) == 1 && path[0] == "secret" {
-		return nil, errors.New("no such collection")
-	}
-	return c.partsContext.CollectionNode(path)
+	return Scalar(fromCandidate("warehouse_shelves", "weight_grams")), nil
 }
 
-func (c storedPartsContext) ItemCollectionNode(path []string) (s.EmptiableObject, error) {
-	if len(path) == 1 && path[0] == "parts" {
-		return s.Object(s.Item(), "sub_parts"), nil
-	}
-	return c.partsContext.ItemCollectionNode(path)
+func (recordingMapping) ValueNode(val any) (Mapped, error) {
+	return Scalar(s.Value(val)), nil
 }
 
-// A collection stayed under the domain's name whatever the storage calls it:
-// `unnest(parts)` of a column that is `something_parts`.
-func TestACollectionIsKeptWhereTheContextSays(t *testing.T) {
-	heavyPart := s.GreaterThan(item("weight"), s.Value(weight{100}))
-	ofTheCandidate := s.Wildcard(s.Object(s.GlobalScope(), "parts"), heavyPart)
-	ofAnItem := s.Wildcard(s.Object(s.GlobalScope(), "parts"), s.Wildcard(s.Object(s.Item(), "parts"), heavyPart))
-
-	transformed := func(context Context, from s.Visitable) s.Visitable {
+// The transformer mapped the fields and the values of a specification and
+// left the collection under the domain's name: `unnest(parts)` of a column
+// that is `something_parts`. A collection is a member like any other: the
+// mapping says where it is, by a path from the candidate, and a member of its
+// item under it.
+func TestACollectionIsKeptWhereTheMappingSays(t *testing.T) {
+	heavy := s.Wildcard(s.Object(s.GlobalScope(), "parts"), s.GreaterThan(item("weight"), s.Value(weight{100})))
+	nested := s.Wildcard(
+		s.Object(s.GlobalScope(), "parts"),
+		s.Wildcard(s.Object(s.Item(), "parts"), s.GreaterThan(item("weight"), s.Value(weight{5}))),
+	)
+	transformed := func(mapping Mapping, from s.Visitable) s.Visitable {
 		t.Helper()
-		got, err := NewTransformVisitor(context).Transform(from)
+		got, err := NewMappingVisitor(mapping).Transform(from)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return got
 	}
+	trees := []struct {
+		name string
+		got  s.Visitable
+		want s.Visitable
+	}{
+		{
+			"a collection of the candidate", transformed(storedPartsContext{}, heavy),
+			s.Wildcard(s.Object(s.GlobalScope(), "something_parts"), s.GreaterThan(item("weight_grams"), s.Value(100))),
+		},
+		// Under the item's collection in the answer, and from the item in
+		// the tree.
+		{
+			"a collection of an item", transformed(storedPartsContext{}, nested),
+			s.Wildcard(
+				s.Object(s.GlobalScope(), "something_parts"),
+				s.Wildcard(s.Object(s.Object(s.Item(), "detail"), "sub_parts"), s.GreaterThan(item("weight_grams"), s.Value(5))),
+			),
+		},
+		{
+			"a mapping that renames the members alone keeps a collection where it is",
+			transformed(partsContext{}, nested),
+			s.Wildcard(
+				s.Object(s.GlobalScope(), "parts"),
+				s.Wildcard(s.Object(s.Item(), "parts"), s.GreaterThan(item("weight_grams"), s.Value(5))),
+			),
+		},
+	}
+	for _, c := range trees {
+		t.Run(c.name, func(t *testing.T) {
+			if !s.SameTree(c.got, c.want) {
+				t.Errorf("got  %#v\nwant %#v", c.got, c.want)
+			}
+		})
+	}
 
 	checkSql(t, []sqlCase{
 		{
-			transformed(storedPartsContext{}, ofTheCandidate),
+			transformed(storedPartsContext{}, heavy),
 			`EXISTS (SELECT 1 FROM unnest("something_parts") AS "something_part_1" WHERE "something_part_1"."weight_grams" > $1)`,
 		},
 		{
-			transformed(storedPartsContext{}, ofAnItem),
-			`EXISTS (SELECT 1 FROM unnest("something_parts") AS "something_part_1"` +
-				` WHERE EXISTS (SELECT 1 FROM unnest("something_part_1"."sub_parts") AS "sub_part_2" WHERE "sub_part_2"."weight_grams" > $1))`,
-		},
-		// A context that does not say keeps it where it is.
-		{
-			transformed(partsContext{}, ofAnItem),
+			transformed(partsContext{}, nested),
 			`EXISTS (SELECT 1 FROM unnest("parts") AS "part_1"` +
 				` WHERE EXISTS (SELECT 1 FROM unnest("part_1"."parts") AS "part_2" WHERE "part_2"."weight_grams" > $1))`,
 		},
@@ -890,25 +1029,46 @@ func TestACollectionIsKeptWhereTheContextSays(t *testing.T) {
 
 	// The whole path is asked about.
 	var asked [][]string
-	transformed(
-		storedPartsContext{asked: &asked},
-		s.Wildcard(s.Object(s.Object(s.GlobalScope(), "warehouse"), "shelves"), heavyPart),
+	inTheStore := transformed(
+		recordingMapping{&asked},
+		s.Wildcard(s.Object(s.Object(s.GlobalScope(), "warehouse"), "shelves"), item("weight")),
 	)
-	if !reflect.DeepEqual(asked, [][]string{{"warehouse", "shelves"}}) {
+	if !reflect.DeepEqual(asked, [][]string{{"warehouse", "shelves"}, {"warehouse", "shelves", "weight"}}) {
 		t.Errorf("asked about %v", asked)
 	}
+	if want := s.Wildcard(s.Object(s.GlobalScope(), "warehouse_shelves"), item("weight_grams")); !s.SameTree(inTheStore, want) {
+		t.Errorf("got  %#v\nwant %#v", inTheStore, want)
+	}
 
-	// A refusal of the context is not hidden.
-	if got, err := NewTransformVisitor(storedPartsContext{}).Transform(s.Wildcard(s.Object(s.GlobalScope(), "secret"), heavyPart)); err == nil {
+	// A refusal of the mapping is not hidden.
+	if got, err := NewMappingVisitor(storedPartsContext{}).Transform(s.Wildcard(s.Object(s.GlobalScope(), "wheels"), item("weight"))); err == nil {
 		t.Errorf("transformed to %#v", got)
+	}
+
+	// The query is compiled of the transformed tree: a schema is of the
+	// storage, and knows the collection by the name it has there.
+	schema := NewSchemaRegistry("things").WithAlias("t").ForeignKey("something_parts", "thing_id", "things", "id")
+	sql, params, err := Compile(storedPartsContext{}, heavy, WithSchema(schema))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `EXISTS (SELECT 1 FROM "something_parts" AS "something_part_1" WHERE "something_part_1"."thing_id" = "t"."id" AND "something_part_1"."weight_grams" > $1)`
+	if sql != want || !reflect.DeepEqual(params, []any{100}) {
+		t.Errorf("got  %s, %v\nwant %s", sql, params, want)
 	}
 }
 
-// leastContext says what a context must, and nothing of what it may.
-type leastContext struct{ ContextDefaults }
+// leastContext says what a mapping must, and nothing more: a renaming of
+// every name of a path, the same for a member and for the collection on its
+// way.
+type leastContext struct{}
 
 func (leastContext) AttrNode(path []string) (Mapped, error) {
-	return Scalar(field(strings.Join(path, "_"))), nil
+	names := make([]string, 0, len(path))
+	for _, name := range path {
+		names = append(names, "stored_"+name)
+	}
+	return Scalar(fromCandidate(names...)), nil
 }
 
 func (leastContext) ValueNode(val any) (Mapped, error) {
@@ -916,58 +1076,85 @@ func (leastContext) ValueNode(val any) (Mapped, error) {
 }
 
 // A mapping and a schema could not be given together: Compile took a context
-// and no options, CompileToSQL options and no context.
+// and no options, CompileToSQL options and no context. Both are the
+// repository's to know - a query cannot be written without knowing the table
+// - and it gives both.
 func TestAMappingAndASchemaAreGivenTogether(t *testing.T) {
-	schema := NewSchemaRegistry("stores").WithParentAlias("s").
-		RegisterRelational("store_items", "items", "store_id", "id")
+	schema := NewSchemaRegistry("stores").WithAlias("s").
+		ForeignKey("store_items", "store_id", "stores", "id")
 	dear := s.Wildcard(s.Object(s.GlobalScope(), "Items"), s.GreaterThan(item("Price"), s.Value(500)))
 	sql, params, err := Compile(storeItemsContext{}, dear, WithSchema(schema))
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `EXISTS (SELECT 1 FROM "items" AS "store_item_1" WHERE "store_item_1"."store_id" = "s"."id" AND "store_item_1"."price_cents" > $1)`
+	want := `EXISTS (SELECT 1 FROM "store_items" AS "store_item_1" WHERE "store_item_1"."store_id" = "s"."id" AND "store_item_1"."price_cents" > $1)`
 	if sql != want || !reflect.DeepEqual(params, []any{500}) {
 		t.Errorf("got  %s, %v\nwant %s", sql, params, want)
 	}
 }
 
 // storeItemsContext names the members of a store as the storage does.
-type storeItemsContext struct{ ContextDefaults }
+type storeItemsContext struct{}
 
 func (storeItemsContext) AttrNode(path []string) (Mapped, error) {
+	switch strings.Join(path, ".") {
+	case "Items":
+		return Scalar(field("store_items")), nil
+	case "Items.Price":
+		return Scalar(fromCandidate("store_items", "price_cents")), nil
+	}
 	return nil, fmt.Errorf("no such member of a store: %s", strings.Join(path, "."))
-}
-
-func (storeItemsContext) ItemAttrNode(path []string) (Mapped, error) {
-	if len(path) == 1 && path[0] == "Price" {
-		return Scalar(item("price_cents")), nil
-	}
-	return nil, fmt.Errorf("no such member of an item: %s", strings.Join(path, "."))
-}
-
-func (storeItemsContext) CollectionNode(path []string) (s.EmptiableObject, error) {
-	if len(path) == 1 && path[0] == "Items" {
-		return s.Object(s.GlobalScope(), "store_items"), nil
-	}
-	return nil, fmt.Errorf("no such collection of a store: %s", strings.Join(path, "."))
 }
 
 func (storeItemsContext) ValueNode(val any) (Mapped, error) {
 	return Scalar(s.Value(val)), nil
 }
 
-func TestWhatAContextMustSayAndWhatItMay(t *testing.T) {
-	var _ Context = leastContext{}
+// The mapping is asked about a member by its whole path from the candidate,
+// the collection on the way included, and puts the answer where the member
+// was; it used to be asked about "the item" by the names alone, under a
+// method of its own.
+func TestWhatAMappingMustSayAndWhatItMay(t *testing.T) {
+	var _ Mapping = leastContext{}
 
 	sql, _, err := Compile(leastContext{}, s.Equal(s.Field(s.Object(s.GlobalScope(), "profile"), "age"), s.Value(30)))
-	if err != nil || sql != `"profile_age" = $1` {
+	if err != nil || sql != `"stored_profile"."stored_age" = $1` {
 		t.Errorf("got %q, %v", sql, err)
 	}
 
-	// The fields of an item have no answer but the context's: left as it is,
-	// the field would reach the query under the domain's name.
-	_, _, err = Compile(leastContext{}, s.Wildcard(s.Object(s.GlobalScope(), "items"), item("price")))
+	// A collection is a member like any other, and the least said of it
+	// renames it too - at any depth and from either root.
+	deep := s.Wildcard(
+		s.Object(s.Object(s.GlobalScope(), "warehouse"), "shelves"),
+		s.Wildcard(s.Object(s.Object(s.Item(), "box"), "parts"), s.GreaterThan(item("rank"), s.Value(1))),
+	)
+	got, err := NewMappingVisitor(leastContext{}).Transform(deep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := s.Wildcard(
+		s.Object(s.Object(s.GlobalScope(), "stored_warehouse"), "stored_shelves"),
+		s.Wildcard(s.Object(s.Object(s.Item(), "stored_box"), "stored_parts"), s.GreaterThan(item("stored_rank"), s.Value(1))),
+	)
+	if !s.SameTree(got, want) {
+		t.Errorf("got  %#v\nwant %#v", got, want)
+	}
+
+	// A mapping that answers with the last name alone puts the member of an
+	// item beside the candidate's columns, outside its collection.
+	_, _, err = Compile(lastNameMapping{}, s.Wildcard(s.Object(s.GlobalScope(), "items"), item("price")))
 	if err == nil || !strings.Contains(err.Error(), "price") {
 		t.Errorf("got %v, want an error naming the field", err)
 	}
+}
+
+// lastNameMapping answers with the last name of a path alone.
+type lastNameMapping struct{}
+
+func (lastNameMapping) AttrNode(path []string) (Mapped, error) {
+	return Scalar(field(path[len(path)-1])), nil
+}
+
+func (lastNameMapping) ValueNode(val any) (Mapped, error) {
+	return Scalar(s.Value(val)), nil
 }

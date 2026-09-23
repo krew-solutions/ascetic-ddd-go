@@ -76,7 +76,7 @@ if AdultUserSpec(user) {
     fmt.Println("Adult user")
 }
 
-// SQL: when needed, in the repository, with its context
+// SQL: when needed, in the repository, with its mapping
 sql, params, _ := infra.Compile(users, AdultUserSpecAST())
 // SELECT * FROM users WHERE "age" >= $1
 db.Query("SELECT * FROM users WHERE " + sql, params...)
@@ -178,7 +178,7 @@ PremiumUserSpec SQL:
 
 2. **Generated code**:
    - `*AST()` functions return Specification AST nodes
-   - SQL is not generated: a repository compiles the AST with its context
+   - SQL is not generated: a repository compiles the AST with its mapping
    - Original functions remain unchanged for in-memory use
 
 3. **Runtime**:

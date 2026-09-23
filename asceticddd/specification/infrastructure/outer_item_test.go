@@ -22,8 +22,8 @@ func TestTheItemOfAnEnclosingCollectionIsItsAlias(t *testing.T) {
 	// In tables of their own, the enclosing row is the one the keys point at,
 	// and its columns are named the same way.
 	schema := NewSchemaRegistry("shops").
-		RegisterRelational("categories", "categories", "shop_id", "id").
-		RegisterRelational("categories.products", "products", "category_id", "id")
+		ForeignKey("categories", "shop_id", "shops", "id").
+		ForeignKey("products", "category_id", "categories", "id")
 	checkSql(t, []sqlCase{{
 		overItsCategory,
 		`EXISTS (SELECT 1 FROM "categories" AS "category_1" WHERE "category_1"."shop_id" = "shops"."id"` +
@@ -63,7 +63,7 @@ func TestTheCandidatesColumnInsideAPredicateIsQualifiedWithItsRow(t *testing.T) 
 	checkSql(t, []sqlCase{{
 		overTheShopsLimit,
 		`EXISTS (SELECT 1 FROM unnest("categories") AS "category_1" WHERE "category_1"."limit" > "s"."limit")`,
-	}}, WithSchema(NewSchemaRegistry("public.shops").WithParentAlias("s")))
+	}}, WithSchema(NewSchemaRegistry("public.shops").WithAlias("s")))
 	if _, _, err := CompileToSQL(overTheShopsLimit); err == nil {
 		t.Error("without a schema there is no query")
 	}
@@ -78,19 +78,26 @@ func TestTheCandidatesColumnInsideAPredicateIsQualifiedWithItsRow(t *testing.T) 
 	})
 }
 
-// A mapping names the column of an item's member from Item(), not knowing how
-// far out the item is: the transformer puts the column where the member was.
-type rowMapping struct{ ContextDefaults }
+// A mapping names the column of an item's member by its path from the
+// candidate, not knowing how far out the item is: the transformer puts the
+// column where the member was.
+type rowMapping struct{}
 
 func (rowMapping) AttrNode(path []string) (Mapped, error) {
-	return Scalar(field(path[0])), nil
-}
-
-func (rowMapping) ItemAttrNode(path []string) (Mapped, error) {
-	if path[0] == "id" {
-		return compositeOf(item("tenant_id"), item("member_id")), nil
+	owner, name := path[:len(path)-1], path[len(path)-1]
+	under := func(names ...string) []string {
+		return append(append([]string{}, owner...), names...)
 	}
-	return Scalar(s.Field(s.Object(s.Item(), "row"), path[0])), nil
+	switch {
+	case name == "categories" || name == "products":
+		return Scalar(fromCandidate(path...)), nil
+	case name == "id":
+		return compositeOf(fromCandidate(under("tenant_id")...), fromCandidate(under("member_id")...)), nil
+	case len(owner) == 0:
+		return Scalar(field(name)), nil
+	}
+	// A member of an item is in the item's `row` composite.
+	return Scalar(fromCandidate(under("row", name)...)), nil
 }
 
 func (rowMapping) ValueNode(val any) (Mapped, error) {
@@ -98,7 +105,7 @@ func (rowMapping) ValueNode(val any) (Mapped, error) {
 }
 
 func TestAMappingKeepsTheItemWhereItWas(t *testing.T) {
-	transformed, err := NewTransformVisitor(rowMapping{}).Transform(s.Wildcard(s.Object(s.GlobalScope(), "categories"), s.Wildcard(
+	transformed, err := NewMappingVisitor(rowMapping{}).Transform(s.Wildcard(s.Object(s.GlobalScope(), "categories"), s.Wildcard(
 		s.Object(s.Item(), "products"), s.And(
 			s.GreaterThan(item("price"), s.Field(s.OuterItem(1), "limit")),
 			s.Equal(s.Field(s.OuterItem(1), "id"), s.Field(s.Item(), "id")),

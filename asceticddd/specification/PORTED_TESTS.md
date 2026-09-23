@@ -126,7 +126,7 @@ All tests are passing ✅
 - `TestPostgresqlVisitor_Wildcard_NestedWithCondition` - Nested with conditions
 - `TestPostgresqlVisitor_Wildcard_DoubleNested` - Triple nesting (3 levels)
 
-### Transform Visitor Tests (`infrastructure/transform_visitor_test.go` - 1 test)
+### Transform Visitor Tests (`infrastructure/mapping_visitor_test.go` - 1 test)
 - `TestSomethingSpecification` - Complete composite key specification
 
 ## Key Enhancements Made
@@ -180,7 +180,7 @@ JSONPath parsers not ported - Go has alternative JSONPath libraries if needed.
 - `domain/evaluate_visitor.go` - Added fallback comparisons, OR operator, mathematical operators, helper functions
 - `domain/interfaces.go` - Already had all necessary interfaces
 - `infrastructure/postgresql_wildcard_test.go` - Extended with nested wildcard tests (11 tests)
-- `infrastructure/transform_visitor_test.go` - Already existed with composite key test (1 test)
+- `infrastructure/mapping_visitor_test.go` - Already existed with composite key test (1 test)
 
 ## Verification
 

@@ -163,7 +163,7 @@ if HasExpensiveItemsSpec(org) {
 
 **SQL generation** (when needed):
 ```go
-// in the repository, with its context - repository.go
+// in the repository, with its mapping - repository.go
 sql, params, _ := infra.Compile(organizations, HasExpensiveItemsSpecAST())
 db.Query("SELECT * FROM organizations WHERE " + sql, params...)
 ```
