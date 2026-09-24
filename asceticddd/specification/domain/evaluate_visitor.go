@@ -71,7 +71,11 @@ func (v *EvaluateVisitor) VisitObject(n ObjectNode) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	ctx, ok := obj.(Context)
+	// An Option holding the object is read through, as one holding a field's
+	// value is: what it holds. A Nothing holds no object to go into, as the
+	// domain's Unwrap() of one has none - an error, which the guard a parser
+	// writes beside the path never lets through.
+	ctx, ok := operators.ReadOption(obj).(Context)
 	if !ok {
 		return nil, fmt.Errorf("object %s is not a Context", n.Name())
 	}

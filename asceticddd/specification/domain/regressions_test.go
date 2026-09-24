@@ -33,6 +33,9 @@ func failing() Visitable {
 func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
 	price := Field(GlobalScope(), "price")
 	fifteen, nothing := option.Some(15), option.Nothing[int]()
+	percent := Field(Object(GlobalScope(), "discount"), "percent")
+	overTen := GreaterThan(percent, Value(10))
+	guarded := And(IsNotNull(Field(GlobalScope(), "discount")), overTen)
 	for _, c := range []struct {
 		name string
 		ctx  testContext
@@ -54,6 +57,14 @@ func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
 		// One inside another is read through.
 		{"nested", testContext{"price": option.Some(fifteen)}, Equal(price, Value(15)), true},
 		{"nested nothing", testContext{"price": option.Some(nothing)}, IsNull(price), true},
+		// A Value Object inside an Option, and a member of it: the path a
+		// parser writes for `d.Discount.IsSomeAnd(func(v) bool { return
+		// v.Percent > 10 })` goes into the object, which was read as the
+		// wrapper.
+		{"an object it holds", testContext{"discount": option.Some(testContext{"percent": 15})}, overTen, true},
+		{"an object it holds, guarded", testContext{"discount": option.Some(testContext{"percent": 5})}, guarded, false},
+		{"nothing, guarded", testContext{"discount": option.Nothing[testContext]()}, guarded, false},
+		{"an object inside two", testContext{"discount": option.Some(option.Some(testContext{"percent": 15}))}, overTen, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := evaluated(t, c.ctx, c.node)
@@ -61,6 +72,12 @@ func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
 				t.Errorf("got %v, %v, want %v", got, err, c.want)
 			}
 		})
+	}
+	// A path into a Nothing has no object to go into, as the domain's
+	// Unwrap() of one has none: an error, which the guard beside the path
+	// never lets through.
+	if got, err := evaluated(t, testContext{"discount": option.Nothing[testContext]()}, overTen); err == nil {
+		t.Errorf("a member of a Nothing: got %v", got)
 	}
 }
 
