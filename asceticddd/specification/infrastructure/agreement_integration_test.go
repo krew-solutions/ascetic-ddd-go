@@ -918,6 +918,98 @@ func TestACompositeColumnOfTheCandidateIsAMemberWhereTheSchemaSays(t *testing.T)
 	})
 }
 
+// An Option of a Value Object kept as a composite column: Some or Nothing to
+// the evaluator, whatever the members hold; to IS NOT NULL of the column a
+// row with a null member was neither null nor not. Declared a composite, the
+// column is tested as a whole.
+func TestANullTestOfADeclaredCompositeAgreesWithTheEvaluator(t *testing.T) {
+	rows := map[int]rowContext{
+		1: {"discount": option.Some(rowContext{"percent": 15, "code": "x"})},
+		2: {"discount": option.Some(rowContext{"percent": nil, "code": "x"})},
+		3: {"discount": option.Some(rowContext{"percent": nil, "code": nil})},
+		4: {"discount": option.Nothing[rowContext]()},
+	}
+	discount := field("discount")
+	percent := s.Field(s.Object(s.GlobalScope(), "discount"), "percent")
+	cases := []struct {
+		specification s.Visitable
+		want          []int
+	}{
+		{s.IsNotNull(discount), []int{1, 2, 3}},
+		{s.IsNull(discount), []int{4}},
+		{s.Not(s.IsNull(discount)), []int{1, 2, 3}},
+		// The guards a parser writes: IsSomeAnd, IsNothingOr.
+		{s.And(s.IsNotNull(discount), s.GreaterThan(percent, s.Value(10))), []int{1}},
+		{s.Or(s.IsNull(discount), s.GreaterThan(percent, s.Value(10))), []int{1, 4}},
+		// A null member of a Some, behind the guard: a member of a Nothing is
+		// null to the server and an error to the evaluator, as the domain's
+		// Unwrap() of one is, and the guard keeps both out.
+		{s.And(s.IsNotNull(discount), s.IsNull(percent)), []int{2, 3}},
+	}
+	schema := NewSchemaRegistry("spec_deals").WithAlias("d").Composite("spec_deals", "discount")
+	reg := operators.NewDefaultRegistry()
+	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
+		for _, statement := range []string{
+			"CREATE TYPE spec_discount AS (percent bigint, code text)",
+			"CREATE TABLE spec_deals (id bigint, discount spec_discount)",
+			// A Nothing is a null column, not a row of nulls.
+			"INSERT INTO spec_deals VALUES (1, ROW(15, 'x')), (2, ROW(NULL, 'x')), (3, ROW(NULL, NULL)), (4, NULL)",
+		} {
+			if _, err := conn.Exec(statement); err != nil {
+				return fmt.Errorf("%s: %w", statement, err)
+			}
+		}
+		for _, c := range cases {
+			satisfied := []int{}
+			for id := 1; id <= len(rows); id++ {
+				ok, err := s.NewEvaluateVisitor(rows[id], reg).Evaluate(c.specification)
+				if err != nil {
+					return fmt.Errorf("the evaluator, on row %d: %w", id, err)
+				}
+				if ok {
+					satisfied = append(satisfied, id)
+				}
+			}
+			if !reflect.DeepEqual(satisfied, c.want) {
+				t.Errorf("%v: the evaluator %v", c.want, satisfied)
+			}
+			sql, params, err := CompileToSQL(c.specification, WithSchema(schema))
+			if err != nil {
+				return err
+			}
+			ids, err := selected(conn, "SELECT id FROM spec_deals d WHERE "+sql+" ORDER BY id", params)
+			if err != nil {
+				return fmt.Errorf("%s: %w", sql, err)
+			}
+			if !reflect.DeepEqual(ids, c.want) {
+				t.Errorf("%s %v: PostgreSQL %v, want %v", sql, params, ids, c.want)
+			}
+		}
+		// Undeclared, the test is of the members: a row with a null inside is
+		// neither null nor not.
+		for _, c := range []struct {
+			specification s.Visitable
+			want          []int
+		}{
+			{s.IsNotNull(discount), []int{1}},
+			{s.IsNull(discount), []int{3, 4}},
+		} {
+			sql, params, err := CompileToSQL(c.specification)
+			if err != nil {
+				return err
+			}
+			ids, err := selected(conn, "SELECT id FROM spec_deals d WHERE "+sql+" ORDER BY id", params)
+			if err != nil {
+				return fmt.Errorf("%s: %w", sql, err)
+			}
+			if !reflect.DeepEqual(ids, c.want) {
+				t.Errorf("undeclared %s: PostgreSQL %v, want %v", sql, ids, c.want)
+			}
+		}
+		return nil
+	})
+}
+
 func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
 	// The schema is the storage's keys; the tree reaches the compiler in the
 	// storage's names, which a mapping gives it: the items are a table of

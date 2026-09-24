@@ -618,6 +618,56 @@ func TestACompositeColumnOfTheCandidateIsDeclared(t *testing.T) {
 	}, WithSchema(NewSchemaRegistry("stores").Composite("items", "address")))
 }
 
+// Of a composite IS NULL is true when all its members are null and IS NOT
+// NULL when none is, so a row with a null member is neither: the SQL
+// standard's null predicate over a row value, which PostgreSQL follows. An
+// Option of a Value Object is Some or Nothing whatever its members hold, and
+// the evaluator says so; IS NOT NULL of the column said otherwise of a Some
+// with a null inside. A null test of a column the schema declares a
+// composite is of the value as a whole, IS DISTINCT FROM NULL, as the manual
+// advises; a Nothing is a null column, not a row of nulls. The rows are in
+// TestANullTestOfADeclaredCompositeAgreesWithTheEvaluator.
+func TestANullTestOfADeclaredCompositeIsOfTheValueAsAWhole(t *testing.T) {
+	schema := NewSchemaRegistry("stores").WithAlias("s").Composite("stores", "discount")
+	discount := field("discount")
+	percent := s.Field(s.Object(s.GlobalScope(), "discount"), "percent")
+	checkSql(t, []sqlCase{
+		{s.IsNotNull(discount), `"discount" IS DISTINCT FROM NULL`},
+		{s.IsNull(discount), `"discount" IS NOT DISTINCT FROM NULL`},
+		// The guard a parser writes, and its negation.
+		{s.And(s.IsNotNull(discount), s.GreaterThan(percent, s.Value(10))), `"discount" IS DISTINCT FROM NULL AND ("s"."discount")."percent" > $1`},
+		{s.Not(s.IsNull(discount)), `NOT "discount" IS NOT DISTINCT FROM NULL`},
+		// Inside a collection's predicate, qualified as the candidate's columns are.
+		{
+			s.Wildcard(s.Object(s.GlobalScope(), "items"), s.IsNull(discount)),
+			`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE "s"."discount" IS NOT DISTINCT FROM NULL)`,
+		},
+		// What is not declared is tested as it was: another column, a scalar
+		// member of the composite.
+		{s.IsNull(field("price")), `"price" IS NULL`},
+		{s.IsNull(percent), `("s"."discount")."percent" IS NULL`},
+	}, WithSchema(schema))
+	// A row of the items array is named by the array's column, as it is to
+	// a key; a row of a table by the table; a composite inside a composite by
+	// the column.
+	maker := s.Field(s.Item(), "maker")
+	checkSql(t, []sqlCase{{
+		s.Wildcard(s.Object(s.GlobalScope(), "items"), s.IsNotNull(maker)),
+		`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE "item_1"."maker" IS DISTINCT FROM NULL)`,
+	}}, WithSchema(NewSchemaRegistry("stores").Composite("stores.items", "maker")))
+	checkSql(t, []sqlCase{{
+		s.Wildcard(s.Object(s.GlobalScope(), "store_items"), s.IsNotNull(maker)),
+		`EXISTS (SELECT 1 FROM "store_items" AS "store_item_1" WHERE "store_item_1"."store_id" = "s"."id" AND "store_item_1"."maker" IS DISTINCT FROM NULL)`,
+	}}, WithSchema(NewSchemaRegistry("stores").WithAlias("s").ForeignKey("store_items", "store_id", "stores", "id").Composite("store_items", "maker")))
+	checkSql(t, []sqlCase{{
+		s.IsNull(s.Field(s.Object(s.GlobalScope(), "discount"), "country")),
+		`("s"."discount")."country" IS NOT DISTINCT FROM NULL`,
+	}}, WithSchema(NewSchemaRegistry("stores").WithAlias("s").Composite("stores", "discount").Composite("stores.discount", "country")))
+	// Without a schema, and with the composite declared on another table.
+	checkSql(t, []sqlCase{{s.IsNull(discount), `"discount" IS NULL`}})
+	checkSql(t, []sqlCase{{s.IsNull(discount), `"discount" IS NULL`}}, WithSchema(NewSchemaRegistry("stores").Composite("items", "discount")))
+}
+
 // A name was written into the query as it stood, and PostgreSQL reads a word
 // it knows as what it knows: `user = $1` compares the user of the session and
 // selects other rows than were asked for, `order > $1` does not parse. Which

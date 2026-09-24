@@ -582,8 +582,54 @@ func (v *PostgresqlVisitor) VisitPostfix(n s.PostfixNode) (SqlFragment, error) {
 		return SqlFragment{}, err
 	}
 	operand.SQL = ofType(operand.SQL, typeUnderPostfix(n.Operand()))
-	sql := fmt.Sprintf("%s %s", operand.SQL, spell(n.Operator()))
+	test, err := v.nullTest(n)
+	if err != nil {
+		return SqlFragment{}, err
+	}
+	sql := fmt.Sprintf("%s %s", operand.SQL, test)
 	return SqlFragment{SQL: v.wrap(innerPrec, sql), Params: operand.Params}, nil
+}
+
+// nullTest returns the words of a null test: of the value as a whole, for a
+// column the schema declares a composite.
+//
+// Of a composite IS NULL is true when all its members are null and IS NOT
+// NULL when none is - the standard's null predicate over a row value - so a
+// row with a null member is neither. An Option of a Value Object is Some or
+// Nothing whatever its members hold, and so is the column: null, or a row.
+// IS DISTINCT FROM NULL tests that, as the manual advises; a Nothing is
+// written as a null column, not as a row of nulls.
+func (v *PostgresqlVisitor) nullTest(n s.PostfixNode) (string, error) {
+	composite, err := v.isCompositeColumn(n.Operand())
+	if err != nil || !composite {
+		return spell(n.Operator()), err
+	}
+	if n.Operator() == operators.OperatorIsNull {
+		return "IS NOT DISTINCT FROM NULL", nil
+	}
+	return "IS DISTINCT FROM NULL", nil
+}
+
+// isCompositeColumn reports whether operand is a column the schema declares
+// a composite. The column is named as a key names it: by its table, or by
+// the array it is a row of, `stores.items`; a composite inside a composite
+// by the column, `stores.discount`.
+func (v *PostgresqlVisitor) isCompositeColumn(operand s.Visitable) (bool, error) {
+	field, ok := operand.(s.FieldNode)
+	if !ok || v.schema == nil {
+		return false, nil
+	}
+	path := s.ExtractFieldPath(field)
+	of := v.schema.Table
+	if root, ok := s.ExtractFieldRoot(field).(s.ItemNode); ok {
+		w, err := v.wildcardOf(root)
+		if err != nil {
+			return false, err
+		}
+		of = w.row
+	}
+	names := append([]string{of}, path[:len(path)-1]...)
+	return v.schema.IsComposite(strings.Join(names, "."), path[len(path)-1]), nil
 }
 
 func (v *PostgresqlVisitor) VisitCollection(n s.CollectionNode) (SqlFragment, error) {
