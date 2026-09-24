@@ -584,6 +584,40 @@ func TestTheCountOfAShiftIsAnInteger(t *testing.T) {
 	})
 }
 
+// From the candidate a path of two names is a qualified name, `"s"."price"` -
+// an object under the root is a table's alias - so a Value Object kept in
+// the candidate's row as a composite column could not be reached:
+// `"address"."city"` is a table PostgreSQL does not have. The schema says
+// which columns are composites, as it says which are keys, and a path
+// through one is a member of it; an undeclared name stays a qualifier. The
+// rows are in TestACompositeColumnOfTheCandidateIsAMemberWhereTheSchemaSays.
+func TestACompositeColumnOfTheCandidateIsDeclared(t *testing.T) {
+	city := s.Field(s.Object(s.GlobalScope(), "address"), "city")
+	code := s.Field(s.Object(s.Object(s.GlobalScope(), "address"), "country"), "code")
+	schema := NewSchemaRegistry("stores").WithAlias("s").Composite("stores", "address")
+	checkSql(t, []sqlCase{
+		{s.Equal(city, s.Value("x")), `("s"."address")."city" = $1`},
+		{s.IsNull(code), `(("s"."address")."country")."code" IS NULL`},
+		// Inside a collection's predicate the candidate's, beside the item's.
+		{
+			s.Wildcard(s.Object(s.GlobalScope(), "items"), s.Equal(item("city"), city)),
+			`EXISTS (SELECT 1 FROM unnest("items") AS "item_1" WHERE "item_1"."city" = ("s"."address")."city")`,
+		},
+		// An undeclared name stays a qualifier.
+		{s.Equal(s.Field(s.Object(s.GlobalScope(), "owner"), "name"), s.Value("x")), `"owner"."name" = $1`},
+	}, WithSchema(schema))
+	// Without an alias, the table's.
+	checkSql(t, []sqlCase{
+		{s.Equal(city, s.Value("x")), `("stores"."address")."city" = $1`},
+	}, WithSchema(NewSchemaRegistry("stores").Composite("stores", "address")))
+	// Without a schema there is no row to read a composite of; and a
+	// composite column of another table is not the candidate's.
+	checkSql(t, []sqlCase{{s.Equal(city, s.Value("x")), `"address"."city" = $1`}})
+	checkSql(t, []sqlCase{
+		{s.Equal(city, s.Value("x")), `"address"."city" = $1`},
+	}, WithSchema(NewSchemaRegistry("stores").Composite("items", "address")))
+}
+
 // A name was written into the query as it stood, and PostgreSQL reads a word
 // it knows as what it knows: `user = $1` compares the user of the session and
 // selects other rows than were asked for, `order > $1` does not parse. Which

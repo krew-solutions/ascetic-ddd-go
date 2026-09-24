@@ -842,6 +842,82 @@ func TestTheCountOfAShiftIsAnIntegerWhateverItsColumnIs(t *testing.T) {
 	})
 }
 
+// A Value Object kept in the candidate's row as a composite column:
+// `"address"."city"` was a table PostgreSQL does not have. Declared in the
+// schema, the column is read as a composite, `("t"."address")."city"`, whose
+// member of a null is null.
+func TestACompositeColumnOfTheCandidateIsAMemberWhereTheSchemaSays(t *testing.T) {
+	rows := map[int]rowContext{
+		1: {"address": rowContext{"city": "Minsk", "zip": 220000}},
+		2: {"address": rowContext{"city": "Riga", "zip": nil}},
+		3: {"address": rowContext{"city": nil, "zip": 1000}},
+	}
+	city := s.Field(s.Object(s.GlobalScope(), "address"), "city")
+	zip := s.Field(s.Object(s.GlobalScope(), "address"), "zip")
+	cases := []struct {
+		specification s.Visitable
+		want          []int
+	}{
+		{s.Equal(city, s.Value("Minsk")), []int{1}},
+		{s.NotEqual(city, s.Value("Minsk")), []int{2}},
+		{s.IsNull(city), []int{3}},
+		{s.And(s.IsNotNull(zip), s.GreaterThan(zip, s.Value(5000))), []int{1}},
+	}
+	schema := NewSchemaRegistry("spec_addressed").WithAlias("t").Composite("spec_addressed", "address")
+	reg := operators.NewDefaultRegistry()
+	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
+		for _, statement := range []string{
+			"CREATE TYPE spec_address AS (city text, zip bigint)",
+			"CREATE TABLE spec_addressed (id bigint, address spec_address)",
+			"INSERT INTO spec_addressed VALUES (1, ROW('Minsk', 220000)), (2, ROW('Riga', NULL)), (3, ROW(NULL, 1000))",
+		} {
+			if _, err := conn.Exec(statement); err != nil {
+				return fmt.Errorf("%s: %w", statement, err)
+			}
+		}
+		for _, c := range cases {
+			satisfied := []int{}
+			for id := 1; id <= len(rows); id++ {
+				ok, err := s.NewEvaluateVisitor(rows[id], reg).Evaluate(c.specification)
+				if err != nil {
+					return fmt.Errorf("the evaluator, on row %d: %w", id, err)
+				}
+				if ok {
+					satisfied = append(satisfied, id)
+				}
+			}
+			if !reflect.DeepEqual(satisfied, c.want) {
+				t.Errorf("%v: the evaluator %v", c.want, satisfied)
+			}
+			sql, params, err := CompileToSQL(c.specification, WithSchema(schema))
+			if err != nil {
+				return err
+			}
+			ids, err := selected(conn, "SELECT id FROM spec_addressed t WHERE "+sql+" ORDER BY id", params)
+			if err != nil {
+				return fmt.Errorf("%s: %w", sql, err)
+			}
+			if !reflect.DeepEqual(ids, c.want) {
+				t.Errorf("%s %v: PostgreSQL %v, want %v", sql, params, ids, c.want)
+			}
+		}
+		// Undeclared, the same path is a table the query does not have. Last:
+		// the error ends the transaction.
+		sql, params, err := CompileToSQL(s.Equal(city, s.Value("Minsk")))
+		if err != nil {
+			return err
+		}
+		if sql != `"address"."city" = $1` {
+			t.Errorf("undeclared: got %s", sql)
+		}
+		var refused *pgconn.PgError
+		if _, err := selected(conn, "SELECT id FROM spec_addressed t WHERE "+sql, params); !errors.As(err, &refused) || refused.Code != "42P01" {
+			t.Errorf("undeclared: got %v, want undefined_table", err)
+		}
+		return nil
+	})
+}
+
 func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
 	// The schema is the storage's keys; the tree reaches the compiler in the
 	// storage's names, which a mapping gives it: the items are a table of

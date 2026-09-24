@@ -16,7 +16,11 @@ import (
 // where two keys of that table reference the same row, by the key's name; and
 // an object kept in a table of its own by the key's column, `owner_id`. A key
 // has a name as it has in PostgreSQL: the one it is given, or
-// `<table>_<columns>_fkey`.
+// `<table>_<columns>_fkey`. A Value Object kept in the query's row as a column
+// of a composite type is declared as one, `Composite("stores", "address")`,
+// and a path through it from the candidate is a member of it,
+// `("s"."address")."city"`: from the candidate an undeclared name is a
+// table's alias, `"s"."price"`.
 
 // ForeignKey is `Table (Columns) REFERENCES ReferencedTable (ReferencedColumns)`.
 //
@@ -61,8 +65,9 @@ type SchemaRegistry struct {
 	// Table is the table the query is of: the row the compiler starts from.
 	Table string
 	// Alias is the alias the query gives its table: `s` of `FROM stores s`.
-	Alias string
-	keys  []ForeignKey
+	Alias      string
+	keys       []ForeignKey
+	composites [][2]string
 }
 
 // NewSchemaRegistry creates a SchemaRegistry for the queries of table.
@@ -148,6 +153,25 @@ func (r *SchemaRegistry) KeysOn(table, column string) []ForeignKey {
 		}
 	}
 	return keys
+}
+
+// Composite declares the column of table to be of a composite type: a Value
+// Object kept in the row. From the candidate a path through it is a member
+// of the composite, `("s"."address")."city"`, where a name not declared is a
+// table's alias, `"s"."price"`.
+func (r *SchemaRegistry) Composite(table, column string) *SchemaRegistry {
+	r.composites = append(r.composites, [2]string{table, column})
+	return r
+}
+
+// IsComposite reports whether column of table is declared a composite.
+func (r *SchemaRegistry) IsComposite(table, column string) bool {
+	for _, composite := range r.composites {
+		if composite == [2]string{table, column} {
+			return true
+		}
+	}
+	return false
 }
 
 // Row returns what the query calls its table's row: the alias, or the table.

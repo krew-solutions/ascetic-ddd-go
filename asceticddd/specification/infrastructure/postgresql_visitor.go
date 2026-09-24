@@ -426,13 +426,15 @@ func (v *PostgresqlVisitor) VisitField(n s.FieldNode) (SqlFragment, error) {
 		member, err := v.memberOfRow(quote(w.alias), w.row, path)
 		return SqlFragment{SQL: member}, err
 	}
-	// An object of the candidate kept in a table of its own
+	// An object of the candidate kept in a table of its own, or a composite
+	// column of its row - a Value Object - that the schema says is one: the
+	// dots of an undeclared name are a qualifier.
 	if len(path) > 1 && v.schema != nil {
 		key, err := v.keyOfObject(v.schema.Table, path[0])
 		if err != nil {
 			return SqlFragment{}, err
 		}
-		if key != nil {
+		if key != nil || v.schema.IsComposite(v.schema.Table, path[0]) {
 			row, err := identifier(v.schema.Row())
 			if err != nil {
 				return SqlFragment{}, err
