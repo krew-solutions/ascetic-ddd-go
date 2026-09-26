@@ -363,6 +363,28 @@ func TestLiteralsAreThoseOfRfc9535(t *testing.T) {
 		t.Errorf("got %q at %d", syntax.Message, syntax.Position)
 	}
 
+	// RFC 9535, 2.3.5.1: unescaped, a character of a string is %x20 and up.
+	// A raw one was taken into the string - a NUL among them, which went as
+	// far as the server and failed there. An error shows it by its escape,
+	// not as it is: in the hint, and in the line that echoes the template.
+	for raw, escaped := range map[string]string{"\x00": `\x00`, "\t": `\t`, "\n": `\n`} {
+		t.Run("control "+escaped, func(t *testing.T) {
+			syntax := syntaxError(t, "$[?@.name == 'a"+raw+"b']")
+			if syntax.Message != "Control character in a string" || syntax.Position != 15 || syntax.Context != "escape it, "+escaped {
+				t.Errorf("got %q at %d (%s)", syntax.Message, syntax.Position, syntax.Context)
+			}
+			if echoed := strings.Split(syntax.Error(), "\n")[1]; !strings.Contains(echoed, "'a"+escaped+"b'") || strings.Contains(echoed, raw) {
+				t.Errorf("echoed %q", echoed)
+			}
+		})
+	}
+	if got := parsedLiteral(t, "'a"+BS+"tb"+BS+"u0000c'"); got != "a\tb\x00c" {
+		t.Errorf("escapes: got %q", got)
+	}
+	if syntax := syntaxError(t, "$[?@.na\x00me == 1]"); syntax.Message != `Unexpected character '\x00'` {
+		t.Errorf("got %q", syntax.Message)
+	}
+
 	numbers := map[string]any{
 		"30":      30,
 		"-1":      -1,

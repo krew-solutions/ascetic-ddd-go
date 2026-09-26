@@ -403,6 +403,14 @@ func (v *PostgresqlVisitor) VisitItem(_ s.ItemNode) (SqlFragment, error) {
 }
 
 func (v *PostgresqlVisitor) VisitValue(n s.ValueNode) (SqlFragment, error) {
+	// A text with a NUL in it is no text PostgreSQL has - `text` holds none,
+	// "invalid byte sequence for encoding UTF8: 0x00" - so it is refused
+	// here, where every value meets the server, rather than by the driver or
+	// the server at execution: a query that cannot run is not compiled. In
+	// memory such a text is a string like any other.
+	if text, ok := operators.Indirect(operators.ReadOption(n.Value())).(string); ok && strings.Contains(text, "\x00") {
+		return SqlFragment{}, fmt.Errorf("a text with a NUL (U+0000) in it is no text PostgreSQL has")
+	}
 	v.counters.placeholderIndex++
 	return SqlFragment{
 		SQL:    fmt.Sprintf("$%d", v.counters.placeholderIndex),

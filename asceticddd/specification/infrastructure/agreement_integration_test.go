@@ -1010,6 +1010,21 @@ func TestANullTestOfADeclaredCompositeAgreesWithTheEvaluator(t *testing.T) {
 	})
 }
 
+// Why the compiler refuses a text with a NUL in it: the server has no such
+// text.
+func TestATextWithANulIsNoTextOfTheServer(t *testing.T) {
+	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
+		var refused *pgconn.PgError
+		if _, err := conn.Exec("SELECT $1::text", "a\x00b"); !errors.As(err, &refused) || refused.Code != "22021" {
+			t.Errorf("got %v, want 22021 character_not_in_repertoire", err)
+		}
+		return nil
+	})
+	if sql, _, err := CompileToSQL(s.Equal(field("name"), s.Value("a\x00b"))); err == nil {
+		t.Errorf("compiled to %q", sql)
+	}
+}
+
 func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
 	// The schema is the storage's keys; the tree reaches the compiler in the
 	// storage's names, which a mapping gives it: the items are a table of

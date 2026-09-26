@@ -53,13 +53,42 @@ func (e *JSONPathSyntaxError) Error() string {
 	}
 
 	if e.Expression != "" && e.Position >= 0 {
-		parts = append(parts, fmt.Sprintf("\n  %s", e.Expression))
+		// The template is echoed with a control character shown by its
+		// escape, so that the message has none in it; the caret moves by
+		// what the escapes add before the position.
+		parts = append(parts, fmt.Sprintf("\n  %s", shownText(e.Expression)))
 		if e.Position < len(e.Expression) {
-			parts = append(parts, fmt.Sprintf("\n  %s^", strings.Repeat(" ", e.Position)))
+			pointer := len(shownText(e.Expression[:e.Position]))
+			parts = append(parts, fmt.Sprintf("\n  %s^", strings.Repeat(" ", pointer)))
 		}
 	}
 
 	return strings.Join(parts, "")
+}
+
+// shown returns a character as an error shows it: a control character by
+// its escape - `\n`, `\t`, `\r`, or `\x00` and the like - not as it is.
+func shown(c rune) string {
+	switch {
+	case c == '\n':
+		return `\n`
+	case c == '\t':
+		return `\t`
+	case c == '\r':
+		return `\r`
+	case c < 0x20 || c == 0x7f:
+		return fmt.Sprintf("\\x%02x", c)
+	}
+	return string(c)
+}
+
+// shownText returns a text as an error shows it, character by character.
+func shownText(text string) string {
+	var b strings.Builder
+	for _, c := range text {
+		b.WriteString(shown(c))
+	}
+	return b.String()
 }
 
 // JSONPathTypeError is raised when data doesn't conform to expected type/protocol.
@@ -210,7 +239,7 @@ func (l *Lexer) Tokenize() ([]Token, error) {
 
 		if !matched {
 			return nil, &JSONPathSyntaxError{
-				Message:    fmt.Sprintf("Unexpected character '%c'", l.text[l.position]),
+				Message:    fmt.Sprintf("Unexpected character '%s'", shown(rune(l.text[l.position]))),
 				Position:   l.position,
 				Expression: l.text,
 				Context:    "expected valid token",
@@ -287,12 +316,22 @@ func readEscape(text string, at int) (rune, int, bool) {
 // readString reads the string a STRING token spells: its quotes off, its
 // escapes read. The token used to be read as spelling[1:len-1]: a backslash
 // was a backslash, so a quote of the kind the string is written in had no
-// spelling.
+// spelling. Unescaped, a character of a string is %x20 and up (RFC 9535,
+// 2.3.5.1): a control character is written as its escape, and a NUL that
+// arrives raw does not get as far as a query.
 func readString(spelling string, position int, expression string) (string, error) {
 	var characters strings.Builder
 	end := len(spelling) - 1
 	for at := 1; at < end; {
 		if spelling[at] != '\\' {
+			if spelling[at] < 0x20 {
+				return "", &JSONPathSyntaxError{
+					Message:    "Control character in a string",
+					Position:   position + at,
+					Expression: expression,
+					Context:    "escape it, " + shown(rune(spelling[at])),
+				}
+			}
 			characters.WriteByte(spelling[at])
 			at++
 			continue

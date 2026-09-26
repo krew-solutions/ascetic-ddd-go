@@ -668,6 +668,32 @@ func TestANullTestOfADeclaredCompositeIsOfTheValueAsAWhole(t *testing.T) {
 	checkSql(t, []sqlCase{{s.IsNull(discount), `"discount" IS NULL`}}, WithSchema(NewSchemaRegistry("stores").Composite("items", "discount")))
 }
 
+// PostgreSQL's text holds no NUL: a parameter with one in it is "invalid byte
+// sequence for encoding UTF8: 0x00" from the server, at execution - a failure
+// of the query where the application expects one of the data. A text with a
+// NUL is refused where every value meets the server, by the compiler; in
+// memory it is a string like any other. The server's refusal is in
+// TestATextWithANulIsNoTextOfTheServer of the live tests.
+func TestATextWithANulIsRefusedByTheCompiler(t *testing.T) {
+	nul := s.Equal(field("name"), s.Value("a\x00b"))
+	want := "a text with a NUL (U+0000) in it is no text PostgreSQL has"
+	for name, tree := range map[string]s.Visitable{
+		"a value":              nul,
+		"a value of an item":   s.Wildcard(s.Object(s.GlobalScope(), "items"), s.Equal(item("name"), s.Value("\x00"))),
+		"a pointer to one":     s.Equal(field("name"), s.Value(pointer[string]("a\x00b"))),
+		"an Option holding it": s.Equal(field("name"), s.Value(option.Some("a\x00b"))),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if sql, _, err := CompileToSQL(tree); err == nil || err.Error() != want {
+				t.Errorf("got %q, %v", sql, err)
+			}
+		})
+	}
+	if ok, err := s.NewEvaluateVisitor(s.MapContext{"name": "a\x00b"}, operators.NewDefaultRegistry()).Evaluate(nul); !ok || err != nil {
+		t.Errorf("the evaluator: %v, %v", ok, err)
+	}
+}
+
 // A name was written into the query as it stood, and PostgreSQL reads a word
 // it knows as what it knows: `user = $1` compares the user of the session and
 // selects other rows than were asked for, `order > $1` does not parse. Which
