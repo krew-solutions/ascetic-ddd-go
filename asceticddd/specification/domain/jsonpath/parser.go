@@ -441,6 +441,16 @@ const (
 	maxNesting = 32
 )
 
+// MaxLength is how long a template may be, in bytes of UTF-8. The two bounds
+// above bound the shape of a tree and not the size of a text: a string literal
+// is as long as it is written, and a text of megabytes was read to its end -
+// lexed whole before the parser could refuse it at its thirty-fifth
+// character, or accepted and sent to the server as a parameter of megabytes.
+// The length is checked before anything is read. A template of realistic
+// operands within the bounds is a few kilobytes; a long value belongs in a
+// parameter.
+const MaxLength = 262_144
+
 // placeholderInfo stores information about a placeholder.
 type placeholderInfo struct {
 	Name       string
@@ -564,6 +574,13 @@ type NativeParametrizedSpecification struct {
 // The template is parsed once and cached for all subsequent Match() calls.
 // This makes the specification thread-safe and efficient for repeated use.
 func Parse(template string) (*NativeParametrizedSpecification, error) {
+	if len(template) > MaxLength {
+		return nil, &JSONPathSyntaxError{
+			Message:  "Template too long",
+			Position: -1,
+			Context:  fmt.Sprintf("at most %d bytes of UTF-8, this has %d", MaxLength, len(template)),
+		}
+	}
 	p := &NativeParametrizedSpecification{
 		template:        template,
 		placeholderInfo: nil,

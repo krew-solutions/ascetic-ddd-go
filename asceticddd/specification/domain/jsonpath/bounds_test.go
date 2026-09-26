@@ -77,12 +77,40 @@ func TestEveryTokenPatternIsAnchoredForTheEngine(t *testing.T) {
 // read in the time it takes to read it. With the square it took minutes; the
 // bound is a hundred times what it takes.
 func TestALongTextIsReadInTheTimeItTakesToReadIt(t *testing.T) {
-	long := "$[?@.a == %d" + strings.Repeat(" @.a %d", 60000) + "]"
+	long := "$[?@.a == %d" + strings.Repeat(" @.a %d", 30000) + "]"
 	started := time.Now()
 	if got := syntaxError(t, long).Message; got != "Expected ']'" {
 		t.Errorf("got %q", got)
 	}
 	if took := time.Since(started); took > 5*time.Second {
+		t.Errorf("took %s", took)
+	}
+}
+
+// The bounds on height and nesting bound the shape of a tree and not the size
+// of a text: a text of megabytes was lexed whole before the parser could
+// refuse it, or accepted with a literal of megabytes. The length is the first
+// thing looked at, in bytes of UTF-8, so a template is one in every port or in
+// none.
+func TestATemplateLongerThanTheBoundIsRefusedBeforeItIsRead(t *testing.T) {
+	room := "$[?@.a == 1]"
+	atTheBound := "$[?@.a == 1" + strings.Repeat(" ", MaxLength-len(room)) + "]"
+	if len(atTheBound) != MaxLength {
+		t.Fatalf("%d bytes", len(atTheBound))
+	}
+	if _, err := Parse(atTheBound); err != nil {
+		t.Errorf("at the bound: %v", err)
+	}
+	over := syntaxError(t, atTheBound+" ")
+	if over.Error() != "Template too long (at most 262144 bytes of UTF-8, this has 262145)" {
+		t.Errorf("got %q", over.Error())
+	}
+	if _, err := Parse("$[?@.a == '" + strings.Repeat("\u00e9", 131072) + "']"); err == nil {
+		t.Error("bytes, not characters")
+	}
+	started := time.Now()
+	syntaxError(t, "$[?"+strings.Repeat("@.a == 1 && ", 400000)+"@.a == 1]")
+	if took := time.Since(started); took > time.Second {
 		t.Errorf("took %s", took)
 	}
 }
@@ -102,7 +130,7 @@ func balanced(depth int) string {
 // that grew as the square of their number. A long text that is refused does
 // not show it: it is refused before its placeholders are reached.
 func TestATemplateOfManyParametersIsReadInTheTimeItTakesToReadIt(t *testing.T) {
-	template := "$[?" + balanced(16) + "]" // 65536 of them
+	template := "$[?" + balanced(14) + "]" // 16384 of them, under the bound on the length
 	started := time.Now()
 	parsed, err := Parse(template)
 	if err != nil {
@@ -111,7 +139,7 @@ func TestATemplateOfManyParametersIsReadInTheTimeItTakesToReadIt(t *testing.T) {
 	if took := time.Since(started); took > 5*time.Second {
 		t.Errorf("took %s", took)
 	}
-	params := make([]any, 1<<16)
+	params := make([]any, 1<<14)
 	for i := range params {
 		params[i] = 1
 	}
