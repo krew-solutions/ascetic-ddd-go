@@ -77,18 +77,8 @@ func TestFieldNode(t *testing.T) {
 
 // TestEvaluateVisitor tests evaluation visitor
 
-type testContext map[string]interface{}
-
-func (c testContext) Get(key string) (interface{}, error) {
-	val, ok := c[key]
-	if !ok {
-		return nil, ErrKeyNotFound
-	}
-	return val, nil
-}
-
 func TestSimpleValue(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	valNode := Value(true)
@@ -103,7 +93,7 @@ func TestSimpleValue(t *testing.T) {
 }
 
 func TestNotOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := Not(Value(true))
@@ -118,7 +108,7 @@ func TestNotOperator(t *testing.T) {
 }
 
 func TestAndOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := And(Value(true), Value(true))
@@ -133,7 +123,7 @@ func TestAndOperator(t *testing.T) {
 }
 
 func TestAndOperatorFalse(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := And(Value(true), Value(false))
@@ -148,7 +138,7 @@ func TestAndOperatorFalse(t *testing.T) {
 }
 
 func TestEqualOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := Equal(Value(5), Value(5))
@@ -163,7 +153,7 @@ func TestEqualOperator(t *testing.T) {
 }
 
 func TestEqualOperatorNotEqual(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := Equal(Value(5), Value(10))
@@ -178,7 +168,7 @@ func TestEqualOperatorNotEqual(t *testing.T) {
 }
 
 func TestGreaterThanOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := GreaterThan(Value(10), Value(5))
@@ -193,7 +183,7 @@ func TestGreaterThanOperator(t *testing.T) {
 }
 
 func TestGreaterThanOperatorFalse(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := GreaterThan(Value(5), Value(10))
@@ -208,7 +198,7 @@ func TestGreaterThanOperatorFalse(t *testing.T) {
 }
 
 func TestFieldAccess(t *testing.T) {
-	ctx := testContext{"age": 25}
+	ctx := MapContext{"age": 25}
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	fieldNode := Field(GlobalScope(), "age")
@@ -222,8 +212,8 @@ func TestFieldAccess(t *testing.T) {
 }
 
 func TestObjectNavigation(t *testing.T) {
-	userCtx := testContext{"name": "Alice"}
-	rootCtx := testContext{"user": userCtx}
+	userCtx := MapContext{"name": "Alice"}
+	rootCtx := MapContext{"user": userCtx}
 	visitor := NewEvaluateVisitor(rootCtx, operators.NewDefaultRegistry())
 
 	obj := Object(GlobalScope(), "user")
@@ -238,7 +228,7 @@ func TestObjectNavigation(t *testing.T) {
 }
 
 func TestComplexExpression(t *testing.T) {
-	ctx := testContext{"age": 25, "active": true}
+	ctx := MapContext{"age": 25, "active": true}
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	// (age > 18) AND active
@@ -258,12 +248,12 @@ func TestComplexExpression(t *testing.T) {
 }
 
 func TestCollectionWildcard(t *testing.T) {
-	item1 := testContext{"score": 90}
-	item2 := testContext{"score": 75}
-	item3 := testContext{"score": 85}
+	item1 := MapContext{"score": 90}
+	item2 := MapContext{"score": 75}
+	item3 := MapContext{"score": 85}
 
 	collection := NewCollectionContext([]Context{item1, item2, item3})
-	rootCtx := testContext{"items": collection}
+	rootCtx := MapContext{"items": collection}
 
 	visitor := NewEvaluateVisitor(rootCtx, operators.NewDefaultRegistry())
 
@@ -285,11 +275,11 @@ func TestCollectionWildcard(t *testing.T) {
 }
 
 func TestCollectionAllFalse(t *testing.T) {
-	item1 := testContext{"score": 70}
-	item2 := testContext{"score": 75}
+	item1 := MapContext{"score": 70}
+	item2 := MapContext{"score": 75}
 
 	collection := NewCollectionContext([]Context{item1, item2})
-	rootCtx := testContext{"items": collection}
+	rootCtx := MapContext{"items": collection}
 
 	visitor := NewEvaluateVisitor(rootCtx, operators.NewDefaultRegistry())
 
@@ -313,7 +303,7 @@ func TestCollectionAllFalse(t *testing.T) {
 // TestErrorHandling tests error handling
 
 func TestMissingKey(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	fieldNode := Field(GlobalScope(), "nonexistent")
@@ -325,7 +315,7 @@ func TestMissingKey(t *testing.T) {
 }
 
 func TestTypeCheckingInComparison(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	// Strings should work with Equal

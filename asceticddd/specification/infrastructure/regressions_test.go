@@ -810,7 +810,7 @@ func TestCompositeInequality(t *testing.T) {
 	}
 	checkSql(t, []sqlCase{{nested, `NOT ("a" = $1 AND "b" = $2 AND "c" = $3)`}})
 
-	row := rowContext{"tenant_id": 10, "member_id": 3}
+	row := s.MapContext{"tenant_id": 10, "member_id": 3}
 	meaning := []struct {
 		tenantId, memberId int
 		want               bool
@@ -847,16 +847,6 @@ func TestACompositeOfOnePartAndOfNone(t *testing.T) {
 	if _, err := CompositeExpression().NotEqual(CompositeExpression()); !errors.Is(err, ErrCompositeExpressionIsEmpty) {
 		t.Errorf("an empty composite: got %v", err)
 	}
-}
-
-type rowContext map[string]any
-
-func (c rowContext) Get(key string) (any, error) {
-	value, ok := c[key]
-	if !ok {
-		return nil, s.ErrKeyNotFound
-	}
-	return value, nil
 }
 
 // A composite stands for several expressions and is given a meaning by = and

@@ -230,7 +230,7 @@ func TestAConstantExpressionHasOneValueForBothReaders(t *testing.T) {
 			// has nothing to find them by.
 			query := "SELECT (" + sql + ")"
 
-			evaluated, failure := s.Accept[any](c, s.NewEvaluateVisitor(rowContext{}, operators.NewDefaultRegistry()))
+			evaluated, failure := s.Accept[any](c, s.NewEvaluateVisitor(s.MapContext{}, operators.NewDefaultRegistry()))
 
 			// A transaction of its own: a failure is one of the answers, and
 			// must not take the connection with it.
@@ -273,20 +273,20 @@ type storeRow struct {
 func (r storeRow) context() s.Context {
 	items := make([]s.Context, 0, len(r.items))
 	for _, it := range r.items {
-		items = append(items, rowContext{
+		items = append(items, s.MapContext{
 			"price": it[0], "active": it[1],
 			// A Value Object inside the item, which the storage keeps as a
 			// composite inside the item's row.
-			"maker": rowContext{"name": makerName(it[0])},
+			"maker": s.MapContext{"name": makerName(it[0])},
 			// An object of its own, which the storage keeps in a table of
 			// its own and the item refers to by a key.
-			"owner": rowContext{"name": ownerOf(it[1]).name},
+			"owner": s.MapContext{"name": ownerOf(it[1]).name},
 		})
 	}
-	return rowContext{
+	return s.MapContext{
 		"id": r.id, "a": r.a, "b": r.b, "flag": r.flag, "name": r.name,
 		// The store's owner, kept as the owners of items are.
-		"owner": rowContext{"name": ownerOf(r.flag).name},
+		"owner": s.MapContext{"name": ownerOf(r.flag).name},
 		// Members named as PostgreSQL names other things, under columns of
 		// those very names: `user` is the session's user if it is not quoted,
 		// `order` does not parse, `createdAt` folds to `createdat`.
@@ -309,16 +309,16 @@ func pointer[T any](value any) any {
 func (r storeRow) pointerContext() s.Context {
 	items := make([]s.Context, 0, len(r.items))
 	for _, it := range r.items {
-		items = append(items, rowContext{
+		items = append(items, s.MapContext{
 			"price": pointer[int](it[0]), "active": pointer[bool](it[1]),
-			"maker": rowContext{"name": pointer[string](makerName(it[0]))},
-			"owner": rowContext{"name": pointer[string](ownerOf(it[1]).name)},
+			"maker": s.MapContext{"name": pointer[string](makerName(it[0]))},
+			"owner": s.MapContext{"name": pointer[string](ownerOf(it[1]).name)},
 		})
 	}
-	return rowContext{
+	return s.MapContext{
 		"id": r.id, "a": pointer[int](r.a), "b": pointer[int](r.b),
 		"flag": pointer[bool](r.flag), "name": pointer[string](r.name),
-		"owner": rowContext{"name": pointer[string](ownerOf(r.flag).name)},
+		"owner": s.MapContext{"name": pointer[string](ownerOf(r.flag).name)},
 		"user":  pointer[string](r.name), "order": pointer[int](r.a), "createdAt": pointer[int](r.b),
 		"items": s.NewCollectionContext(items),
 	}
@@ -576,9 +576,9 @@ func TestEqualityWithASpecialCaseKeptAsANullIsTheNullTest(t *testing.T) {
 	shop := func(discounts ...discount) s.Context {
 		items := make([]s.Context, 0, len(discounts))
 		for _, d := range discounts {
-			items = append(items, rowContext{"discount": d})
+			items = append(items, s.MapContext{"discount": d})
 		}
-		return rowContext{"items": s.NewCollectionContext(items)}
+		return s.MapContext{"items": s.NewCollectionContext(items)}
 	}
 	shops := map[int]s.Context{1: shop(fifteen, none), 2: shop(none, fifteen), 3: shop(none)}
 	member := s.Field(s.Item(), "discount")
@@ -657,9 +657,9 @@ func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
 	shop := func(discounts ...option.Option[discount]) s.Context {
 		items := make([]s.Context, 0, len(discounts))
 		for _, d := range discounts {
-			items = append(items, rowContext{"discount": d})
+			items = append(items, s.MapContext{"discount": d})
 		}
-		return rowContext{"items": s.NewCollectionContext(items)}
+		return s.MapContext{"items": s.NewCollectionContext(items)}
 	}
 	shops := map[int]s.Context{1: shop(fifteen, nothing), 2: shop(nothing, fifteen), 3: shop(nothing)}
 	member := s.Field(s.Item(), "discount")
@@ -779,7 +779,7 @@ func TestAConstantBesideAColumnTakesTheColumnsType(t *testing.T) {
 // count was "operator does not exist: bigint << bigint". Both readers take
 // the count modulo 64, a negative one included.
 func TestTheCountOfAShiftIsAnIntegerWhateverItsColumnIs(t *testing.T) {
-	rows := map[int]rowContext{
+	rows := map[int]s.MapContext{
 		1: {"n": 1, "count": 3, "small": 3},
 		2: {"n": 1, "count": 64, "small": 64},
 		3: {"n": 1, "count": -1, "small": -1},
@@ -847,10 +847,10 @@ func TestTheCountOfAShiftIsAnIntegerWhateverItsColumnIs(t *testing.T) {
 // schema, the column is read as a composite, `("t"."address")."city"`, whose
 // member of a null is null.
 func TestACompositeColumnOfTheCandidateIsAMemberWhereTheSchemaSays(t *testing.T) {
-	rows := map[int]rowContext{
-		1: {"address": rowContext{"city": "Minsk", "zip": 220000}},
-		2: {"address": rowContext{"city": "Riga", "zip": nil}},
-		3: {"address": rowContext{"city": nil, "zip": 1000}},
+	rows := map[int]s.MapContext{
+		1: {"address": s.MapContext{"city": "Minsk", "zip": 220000}},
+		2: {"address": s.MapContext{"city": "Riga", "zip": nil}},
+		3: {"address": s.MapContext{"city": nil, "zip": 1000}},
 	}
 	city := s.Field(s.Object(s.GlobalScope(), "address"), "city")
 	zip := s.Field(s.Object(s.GlobalScope(), "address"), "zip")
@@ -923,11 +923,11 @@ func TestACompositeColumnOfTheCandidateIsAMemberWhereTheSchemaSays(t *testing.T)
 // row with a null member was neither null nor not. Declared a composite, the
 // column is tested as a whole.
 func TestANullTestOfADeclaredCompositeAgreesWithTheEvaluator(t *testing.T) {
-	rows := map[int]rowContext{
-		1: {"discount": option.Some(rowContext{"percent": 15, "code": "x"})},
-		2: {"discount": option.Some(rowContext{"percent": nil, "code": "x"})},
-		3: {"discount": option.Some(rowContext{"percent": nil, "code": nil})},
-		4: {"discount": option.Nothing[rowContext]()},
+	rows := map[int]s.MapContext{
+		1: {"discount": option.Some(s.MapContext{"percent": 15, "code": "x"})},
+		2: {"discount": option.Some(s.MapContext{"percent": nil, "code": "x"})},
+		3: {"discount": option.Some(s.MapContext{"percent": nil, "code": nil})},
+		4: {"discount": option.Nothing[s.MapContext]()},
 	}
 	discount := field("discount")
 	percent := s.Field(s.Object(s.GlobalScope(), "discount"), "percent")
@@ -1095,11 +1095,11 @@ func TestTheItemOfAnEnclosingCollectionIsNamedFromAnInnerPredicate(t *testing.T)
 		for _, c := range categories {
 			products := make([]s.Context, 0, len(c.prices))
 			for _, price := range c.prices {
-				products = append(products, rowContext{"price": price})
+				products = append(products, s.MapContext{"price": price})
 			}
-			contexts = append(contexts, rowContext{"limit": c.limit, "products": s.NewCollectionContext(products)})
+			contexts = append(contexts, s.MapContext{"limit": c.limit, "products": s.NewCollectionContext(products)})
 		}
-		return rowContext{"limit": limit, "categories": s.NewCollectionContext(contexts)}
+		return s.MapContext{"limit": limit, "categories": s.NewCollectionContext(contexts)}
 	}
 	shops := map[int]s.Context{
 		1: shop(50, category{10, []any{5, 20}}, category{100, []any{30}}),

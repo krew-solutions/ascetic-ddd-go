@@ -30,6 +30,56 @@ func failing() Visitable {
 // no operator of an Option, and IS NULL was false of a Nothing. It is read as
 // what it holds, or as a null, where a value comes to the evaluator: from the
 // candidate, and from a constant.
+// A candidate made of plain data - for tests, for documents, for a candidate
+// that arrives as data - was a map with Get that two test packages wrote for
+// themselves. It is one type of the library: a map, whose maps are objects
+// and whose lists are collections, so a candidate is written as data and
+// nothing else.
+func TestAMapContextIsACandidateMadeOfPlainData(t *testing.T) {
+	shop := MapContext{
+		"limit": 50,
+		"owner": map[string]any{"name": "ann"},
+		"categories": []any{
+			map[string]any{"limit": 10, "products": []any{map[string]any{"price": 5}, map[string]any{"price": 20}}},
+			map[string]any{"limit": 100, "products": []any{}},
+		},
+	}
+	overItsCategory := Wildcard(
+		Object(GlobalScope(), "categories"),
+		Wildcard(Object(Item(), "products"), GreaterThan(Field(Item(), "price"), Field(OuterItem(1), "limit"))),
+	)
+	for _, c := range []struct {
+		name string
+		ctx  Context
+		node Visitable
+		want any
+	}{
+		{"a member", shop, GreaterThan(Field(GlobalScope(), "limit"), Value(40)), true},
+		{"a map is an object", shop, Equal(Field(Object(GlobalScope(), "owner"), "name"), Value("ann")), true},
+		{"a list is a collection, at any depth", shop, overItsCategory, true},
+		{"a nil member is null", MapContext{"discount": nil}, IsNull(Field(GlobalScope(), "discount")), true},
+		{"an Option is read as before", MapContext{"discount": option.Some(15)}, GreaterThan(Field(GlobalScope(), "discount"), Value(10)), true},
+		// A context given ready-made is kept.
+		{
+			"ready-made contexts",
+			MapContext{"items": NewCollectionContext([]Context{MapContext{"price": 5}, MapContext{"price": 20}})},
+			Wildcard(Object(GlobalScope(), "items"), GreaterThan(Field(Item(), "price"), Value(10))),
+			true,
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := evaluated(t, c.ctx, c.node)
+			if err != nil || got != c.want {
+				t.Errorf("got %v, %v, want %v", got, err, c.want)
+			}
+		})
+	}
+	// A member that is not there is an error, not a null.
+	if _, err := evaluated(t, MapContext{}, IsNull(Field(GlobalScope(), "discount"))); !errors.Is(err, ErrKeyNotFound) {
+		t.Errorf("a member that is not there: got %v", err)
+	}
+}
+
 func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
 	price := Field(GlobalScope(), "price")
 	fifteen, nothing := option.Some(15), option.Nothing[int]()
@@ -38,33 +88,33 @@ func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
 	guarded := And(IsNotNull(Field(GlobalScope(), "discount")), overTen)
 	for _, c := range []struct {
 		name string
-		ctx  testContext
+		ctx  MapContext
 		node Visitable
 		want any
 	}{
-		{"a member", testContext{"price": fifteen}, GreaterThan(price, Value(10)), true},
-		{"a member, equal", testContext{"price": fifteen}, Equal(price, Value(15)), true},
-		{"a member that is there is not null", testContext{"price": fifteen}, IsNull(price), false},
+		{"a member", MapContext{"price": fifteen}, GreaterThan(price, Value(10)), true},
+		{"a member, equal", MapContext{"price": fifteen}, Equal(price, Value(15)), true},
+		{"a member that is there is not null", MapContext{"price": fifteen}, IsNull(price), false},
 		// A Nothing is a null: unknown to a comparison, and to its negation.
-		{"nothing, compared", testContext{"price": nothing}, GreaterThan(price, Value(10)), nil},
-		{"nothing, compared and negated", testContext{"price": nothing}, Not(GreaterThan(price, Value(10))), nil},
-		{"nothing is null", testContext{"price": nothing}, IsNull(price), true},
-		{"nothing is not not null", testContext{"price": nothing}, IsNotNull(price), false},
-		{"a constant", testContext{"price": 15}, Equal(price, Value(fifteen)), true},
-		{"a constant and a member", testContext{"price": fifteen}, Equal(price, Value(fifteen)), true},
-		{"a constant that is nothing", testContext{"price": 15}, Equal(price, Value(nothing)), nil},
-		{"IS of two nothings", testContext{"price": nothing}, Is(price, Value(nothing)), true},
+		{"nothing, compared", MapContext{"price": nothing}, GreaterThan(price, Value(10)), nil},
+		{"nothing, compared and negated", MapContext{"price": nothing}, Not(GreaterThan(price, Value(10))), nil},
+		{"nothing is null", MapContext{"price": nothing}, IsNull(price), true},
+		{"nothing is not not null", MapContext{"price": nothing}, IsNotNull(price), false},
+		{"a constant", MapContext{"price": 15}, Equal(price, Value(fifteen)), true},
+		{"a constant and a member", MapContext{"price": fifteen}, Equal(price, Value(fifteen)), true},
+		{"a constant that is nothing", MapContext{"price": 15}, Equal(price, Value(nothing)), nil},
+		{"IS of two nothings", MapContext{"price": nothing}, Is(price, Value(nothing)), true},
 		// One inside another is read through.
-		{"nested", testContext{"price": option.Some(fifteen)}, Equal(price, Value(15)), true},
-		{"nested nothing", testContext{"price": option.Some(nothing)}, IsNull(price), true},
+		{"nested", MapContext{"price": option.Some(fifteen)}, Equal(price, Value(15)), true},
+		{"nested nothing", MapContext{"price": option.Some(nothing)}, IsNull(price), true},
 		// A Value Object inside an Option, and a member of it: the path a
 		// parser writes for `d.Discount.IsSomeAnd(func(v) bool { return
 		// v.Percent > 10 })` goes into the object, which was read as the
 		// wrapper.
-		{"an object it holds", testContext{"discount": option.Some(testContext{"percent": 15})}, overTen, true},
-		{"an object it holds, guarded", testContext{"discount": option.Some(testContext{"percent": 5})}, guarded, false},
-		{"nothing, guarded", testContext{"discount": option.Nothing[testContext]()}, guarded, false},
-		{"an object inside two", testContext{"discount": option.Some(option.Some(testContext{"percent": 15}))}, overTen, true},
+		{"an object it holds", MapContext{"discount": option.Some(MapContext{"percent": 15})}, overTen, true},
+		{"an object it holds, guarded", MapContext{"discount": option.Some(MapContext{"percent": 5})}, guarded, false},
+		{"nothing, guarded", MapContext{"discount": option.Nothing[MapContext]()}, guarded, false},
+		{"an object inside two", MapContext{"discount": option.Some(option.Some(MapContext{"percent": 15}))}, overTen, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := evaluated(t, c.ctx, c.node)
@@ -76,20 +126,20 @@ func TestAnOptionIsWhatItHoldsOrANull(t *testing.T) {
 	// A path into a Nothing has no object to go into, as the domain's
 	// Unwrap() of one has none: an error, which the guard beside the path
 	// never lets through.
-	if got, err := evaluated(t, testContext{"discount": option.Nothing[testContext]()}, overTen); err == nil {
+	if got, err := evaluated(t, MapContext{"discount": option.Nothing[MapContext]()}, overTen); err == nil {
 		t.Errorf("a member of a Nothing: got %v", got)
 	}
 }
 
 func TestNegIsAnOperatorOfItsOwn(t *testing.T) {
-	got, err := evaluated(t, testContext{}, Neg(Value(5)))
+	got, err := evaluated(t, MapContext{}, Neg(Value(5)))
 	if err != nil {
 		t.Fatalf("Neg(5): %v", err)
 	}
 	if got != -5 {
 		t.Errorf("Neg(5) = %v, want -5", got)
 	}
-	got, err = evaluated(t, testContext{}, Sub(Value(10), Neg(Value(3))))
+	got, err = evaluated(t, MapContext{}, Sub(Value(10), Neg(Value(3))))
 	if err != nil || got != 13 {
 		t.Errorf("10 - (-3) = %v, %v, want 13", got, err)
 	}
@@ -107,7 +157,7 @@ func TestAConnectiveStopsOnceItIsDecided(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := evaluated(t, testContext{}, c.node)
+			got, err := evaluated(t, MapContext{}, c.node)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -117,13 +167,13 @@ func TestAConnectiveStopsOnceItIsDecided(t *testing.T) {
 		})
 	}
 	// What is not decided by the left operand is decided by both.
-	if _, err := evaluated(t, testContext{}, And(Value(true), failing())); !errors.Is(err, ErrKeyNotFound) {
+	if _, err := evaluated(t, MapContext{}, And(Value(true), failing())); !errors.Is(err, ErrKeyNotFound) {
 		t.Errorf("true AND (fails): got %v, want ErrKeyNotFound", err)
 	}
 }
 
 func TestANullIsNotSatisfied(t *testing.T) {
-	visitor := NewEvaluateVisitor(testContext{"a": nil}, operators.NewDefaultRegistry())
+	visitor := NewEvaluateVisitor(MapContext{"a": nil}, operators.NewDefaultRegistry())
 	got, err := visitor.Evaluate(Equal(Field(GlobalScope(), "a"), Value(1)))
 	if err != nil {
 		t.Fatalf("a row with a null condition is not selected, and is not an error: %v", err)
@@ -134,12 +184,12 @@ func TestANullIsNotSatisfied(t *testing.T) {
 }
 
 func TestACollectionPredicateFollowsSql(t *testing.T) {
-	items := func(values ...any) testContext {
+	items := func(values ...any) MapContext {
 		contexts := make([]Context, 0, len(values))
 		for _, v := range values {
-			contexts = append(contexts, testContext{"price": v})
+			contexts = append(contexts, MapContext{"price": v})
 		}
-		return testContext{"items": NewCollectionContext(contexts)}
+		return MapContext{"items": NewCollectionContext(contexts)}
 	}
 	dear := Wildcard(Object(GlobalScope(), "items"), GreaterThan(Field(Item(), "price"), Value(100)))
 
@@ -180,7 +230,7 @@ func TestIsIsEqualityInWhichNullIsAValue(t *testing.T) {
 		{true, false, false},
 	}
 	for _, c := range cases {
-		got, err := evaluated(t, testContext{}, Is(Value(c.left), Value(c.right)))
+		got, err := evaluated(t, MapContext{}, Is(Value(c.left), Value(c.right)))
 		if err != nil {
 			t.Errorf("%v IS %v: %v", c.left, c.right, err)
 			continue
@@ -222,7 +272,7 @@ func TestArithmeticIsPostgresqls(t *testing.T) {
 	}
 	for _, c := range values {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := evaluated(t, testContext{}, c.node)
+			got, err := evaluated(t, MapContext{}, c.node)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -256,7 +306,7 @@ func TestArithmeticIsPostgresqls(t *testing.T) {
 	}
 	for _, c := range failures {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := evaluated(t, testContext{}, c.node)
+			got, err := evaluated(t, MapContext{}, c.node)
 			if err == nil {
 				t.Fatalf("got %v, want an error with %q", got, c.want)
 			}
@@ -267,7 +317,7 @@ func TestArithmeticIsPostgresqls(t *testing.T) {
 	}
 
 	// An infinity given is an infinity kept: the error is of an overflow.
-	got, err := evaluated(t, testContext{}, Add(Value(math.Inf(1)), Value(1.0)))
+	got, err := evaluated(t, MapContext{}, Add(Value(math.Inf(1)), Value(1.0)))
 	if err != nil || got != math.Inf(1) {
 		t.Errorf("inf + 1 = %v, %v, want +Inf", got, err)
 	}
@@ -329,7 +379,7 @@ func TestNumbersOfDifferentTypesCompute(t *testing.T) {
 	}
 	for _, c := range values {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := evaluated(t, testContext{}, c.node)
+			got, err := evaluated(t, MapContext{}, c.node)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -350,7 +400,7 @@ func TestNumbersOfDifferentTypesCompute(t *testing.T) {
 	}
 	for _, c := range failures {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := evaluated(t, testContext{}, c.node)
+			got, err := evaluated(t, MapContext{}, c.node)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Errorf("got %v, %v, want an error with %q", got, err, c.want)
 			}
@@ -377,7 +427,7 @@ func TestAPointerIsAnOptionalValue(t *testing.T) {
 	name, age, active, inactive := "ann", 30, true, false
 	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	agePointer := &age
-	row := testContext{
+	row := MapContext{
 		"owner": noName, "name": &name, "age": &age, "age2": &agePointer,
 		"active": &active, "inactive": &inactive, "flag": noFlag, "created_at": &since,
 		"blob": []byte(nil), "tags": map[string]any(nil), "empty": []byte{},
@@ -435,8 +485,8 @@ func TestAPointerIsAnOptionalValue(t *testing.T) {
 	})
 
 	t.Run("the predicate of a collection", func(t *testing.T) {
-		items := testContext{"items": NewCollectionContext([]Context{
-			testContext{"active": noFlag}, testContext{"active": &active},
+		items := MapContext{"items": NewCollectionContext([]Context{
+			MapContext{"active": noFlag}, MapContext{"active": &active},
 		})}
 		some := Wildcard(Object(GlobalScope(), "items"), Field(Item(), "active"))
 		if got, err := evaluated(t, items, some); err != nil || got != true {

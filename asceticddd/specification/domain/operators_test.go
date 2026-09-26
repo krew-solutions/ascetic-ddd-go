@@ -9,7 +9,7 @@ import (
 // TestOperators tests all operators that were not covered by basic tests
 
 func TestNotEqualOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := NotEqual(Value(5), Value(10))
@@ -24,7 +24,7 @@ func TestNotEqualOperator(t *testing.T) {
 }
 
 func TestNotEqualOperatorFalse(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := NotEqual(Value(5), Value(5))
@@ -39,7 +39,7 @@ func TestNotEqualOperatorFalse(t *testing.T) {
 }
 
 func TestLessThanOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := LessThan(Value(5), Value(10))
@@ -54,7 +54,7 @@ func TestLessThanOperator(t *testing.T) {
 }
 
 func TestLessThanOperatorFalse(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
 
 	expression := LessThan(Value(10), Value(5))
@@ -69,7 +69,7 @@ func TestLessThanOperatorFalse(t *testing.T) {
 }
 
 func TestLessThanEqualOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 
 	tests := []struct {
 		name     string
@@ -99,7 +99,7 @@ func TestLessThanEqualOperator(t *testing.T) {
 }
 
 func TestGreaterThanEqualOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 
 	tests := []struct {
 		name     string
@@ -129,7 +129,7 @@ func TestGreaterThanEqualOperator(t *testing.T) {
 }
 
 func TestOrOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 
 	tests := []struct {
 		name     string
@@ -172,7 +172,7 @@ func TestIsOperator(t *testing.T) {
 // Note: These don't yield boolean, so we wrap them in comparisons
 
 func TestAddOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	ctx["a"] = 5
 	ctx["b"] = 3
 
@@ -195,7 +195,7 @@ func TestAddOperator(t *testing.T) {
 }
 
 func TestSubOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	ctx["a"] = 10
 	ctx["b"] = 3
 
@@ -218,7 +218,7 @@ func TestSubOperator(t *testing.T) {
 }
 
 func TestMulOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	ctx["a"] = 5
 	ctx["b"] = 3
 
@@ -241,7 +241,7 @@ func TestMulOperator(t *testing.T) {
 }
 
 func TestDivOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	ctx["a"] = 10
 	ctx["b"] = 2
 
@@ -264,7 +264,7 @@ func TestDivOperator(t *testing.T) {
 }
 
 func TestModOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	ctx["a"] = 10
 	ctx["b"] = 3
 
@@ -308,7 +308,7 @@ func TestRightShiftOperator(t *testing.T) {
 // TestPostfixOperators tests IS NULL / IS NOT NULL
 
 func TestIsNullOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	ctx["value"] = nil
 
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
@@ -325,7 +325,7 @@ func TestIsNullOperator(t *testing.T) {
 }
 
 func TestIsNullOperatorFalse(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	ctx["value"] = 42
 
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
@@ -342,7 +342,7 @@ func TestIsNullOperatorFalse(t *testing.T) {
 }
 
 func TestIsNotNullOperator(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	ctx["value"] = 42
 
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())
@@ -359,7 +359,7 @@ func TestIsNotNullOperator(t *testing.T) {
 }
 
 func TestIsNotNullOperatorFalse(t *testing.T) {
-	ctx := make(testContext)
+	ctx := make(MapContext)
 	ctx["value"] = nil
 
 	visitor := NewEvaluateVisitor(ctx, operators.NewDefaultRegistry())

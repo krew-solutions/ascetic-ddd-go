@@ -229,3 +229,44 @@ func (c CollectionContext) Get(slice string) (any, error) {
 	}
 	return nil, fmt.Errorf("unsupported slice type \"%s\"", slice)
 }
+
+// MapContext is a candidate made of plain data: a map, whose maps are objects
+// and whose lists are collections.
+//
+// For tests, for documents, and for a candidate that arrives as data rather
+// than as a domain object; a domain object implements Context itself. A
+// member that is not there is ErrKeyNotFound, not a null: a null is a member
+// that is there and holds nothing, `MapContext{"discount": nil}`. An Option,
+// and a context given ready-made, a MapContext or a CollectionContext, are
+// kept as they are.
+type MapContext map[string]any
+
+func (c MapContext) Get(key string) (any, error) {
+	value, ok := c[key]
+	if !ok {
+		return nil, ErrKeyNotFound
+	}
+	return fromData(value), nil
+}
+
+// fromData returns a map as an object, a list of contexts - or of maps - as a
+// collection, and anything else as it is.
+func fromData(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		return MapContext(v)
+	case []Context:
+		return NewCollectionContext(v)
+	case []any:
+		items := make([]Context, 0, len(v))
+		for _, item := range v {
+			ctx, ok := fromData(item).(Context)
+			if !ok {
+				return value
+			}
+			items = append(items, ctx)
+		}
+		return NewCollectionContext(items)
+	}
+	return value
+}

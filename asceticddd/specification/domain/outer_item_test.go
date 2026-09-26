@@ -10,15 +10,15 @@ import (
 // nearest - is OuterItem(0). The evaluator used to keep one item.
 
 // shop has categories, each with a limit and products of its own.
-func shop() testContext {
-	category := func(limit any, prices ...any) testContext {
+func shop() MapContext {
+	category := func(limit any, prices ...any) MapContext {
 		products := make([]Context, 0, len(prices))
 		for _, price := range prices {
-			products = append(products, testContext{"price": price})
+			products = append(products, MapContext{"price": price})
 		}
-		return testContext{"limit": limit, "products": NewCollectionContext(products)}
+		return MapContext{"limit": limit, "products": NewCollectionContext(products)}
 	}
-	return testContext{"limit": 50, "categories": NewCollectionContext([]Context{
+	return MapContext{"limit": 50, "categories": NewCollectionContext([]Context{
 		category(10, 5, 20), category(100, 30),
 	})}
 }
