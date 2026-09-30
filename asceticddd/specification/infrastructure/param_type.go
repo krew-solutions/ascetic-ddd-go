@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/google/uuid"
+
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
@@ -39,6 +41,8 @@ func paramType(value any) string {
 		return "timestamptz"
 	case time.Duration:
 		return "interval"
+	case uuid.UUID:
+		return "uuid"
 	}
 	switch reflect.ValueOf(operators.Indirect(value)).Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,

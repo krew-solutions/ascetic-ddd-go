@@ -164,7 +164,42 @@ func (v *EvaluateVisitor) VisitInfix(n InfixNode) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A string constant compared with a value of a kind that has no literal
+	// - a point in time, a UUID - is read as that kind, as the server reads
+	// an untyped parameter by the column. A constant's, not a member's: the
+	// server refuses two columns of those types. Compared, not added: under
+	// `+` the server reads the string as an interval, another reading.
+	if reads[n.Operator()] {
+		if text, ok := constantString(n.Left(), left); ok {
+			if left, err = ReadBeside(text, operators.Indirect(right)); err != nil {
+				return nil, err
+			}
+		} else if text, ok := constantString(n.Right(), right); ok {
+			if right, err = ReadBeside(text, operators.Indirect(left)); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return v.registry.ExecBinary(left, n.Operator(), right)
+}
+
+// reads are the operators under which a string constant is read as the kind
+// of the value beside it: a comparison, and nothing else.
+var reads = map[operators.Operator]bool{
+	operators.OperatorEq: true, operators.OperatorNe: true,
+	operators.OperatorGt: true, operators.OperatorGte: true,
+	operators.OperatorLt: true, operators.OperatorLte: true,
+	operators.OperatorIs: true,
+}
+
+// constantString returns the string a constant of the tree holds, if node is
+// a constant and its value a string.
+func constantString(node Visitable, value any) (string, bool) {
+	if _, ok := node.(ValueNode); !ok {
+		return "", false
+	}
+	text, ok := operators.Indirect(value).(string)
+	return text, ok
 }
 
 // decides tells whether a connective has its value in its left operand alone:

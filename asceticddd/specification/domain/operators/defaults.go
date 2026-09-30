@@ -1,10 +1,13 @@
 package operators
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"math"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 func registerComparison[T cmp.Ordered](reg *OperatorRegistry) {
@@ -291,6 +294,14 @@ func NewDefaultRegistry() *OperatorRegistry {
 
 	// Mixed: timestamp - timestamp = interval
 	RegisterBinary[time.Time, time.Time](reg, OperatorSub, func(a, b time.Time) (any, error) { return a.Sub(b), nil })
+
+	// uuid.UUID, ordered by its bytes as PostgreSQL orders a uuid.
+	RegisterBinary[uuid.UUID, uuid.UUID](reg, OperatorEq, func(a, b uuid.UUID) (any, error) { return a == b, nil })
+	RegisterBinary[uuid.UUID, uuid.UUID](reg, OperatorNe, func(a, b uuid.UUID) (any, error) { return a != b, nil })
+	RegisterBinary[uuid.UUID, uuid.UUID](reg, OperatorGt, func(a, b uuid.UUID) (any, error) { return bytes.Compare(a[:], b[:]) > 0, nil })
+	RegisterBinary[uuid.UUID, uuid.UUID](reg, OperatorGte, func(a, b uuid.UUID) (any, error) { return bytes.Compare(a[:], b[:]) >= 0, nil })
+	RegisterBinary[uuid.UUID, uuid.UUID](reg, OperatorLt, func(a, b uuid.UUID) (any, error) { return bytes.Compare(a[:], b[:]) < 0, nil })
+	RegisterBinary[uuid.UUID, uuid.UUID](reg, OperatorLte, func(a, b uuid.UUID) (any, error) { return bytes.Compare(a[:], b[:]) <= 0, nil })
 
 	// Mixed: timestamp +/- interval = timestamp
 	RegisterBinary[time.Time, time.Duration](reg, OperatorAdd, func(a time.Time, b time.Duration) (any, error) { return a.Add(b), nil })

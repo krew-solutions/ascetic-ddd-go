@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/option"
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
@@ -237,6 +238,9 @@ func TestAConstantWithNothingBesideItHasItsTypeSaid(t *testing.T) {
 		{s.Mul(s.Add(s.Value(1), s.Value(2)), s.Value(3)), "($1::bigint + $2::bigint) * $3"},
 		// PostgreSQL shifts a bigint by an integer.
 		{s.LeftShift(s.Value(1), s.Value(4)), "$1::bigint << $2::integer"},
+		// A UUID, which a template writes as a string and a constant of the
+		// domain has as itself.
+		{s.Equal(s.Value(uuid.UUID{1}), s.Value(uuid.UUID{2})), "$1::uuid = $2::uuid"},
 		// Alone under its operator.
 		{s.Neg(s.Value(5)), "-$1::bigint"},
 		{s.Not(s.Value(true)), "NOT $1::boolean"},

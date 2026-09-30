@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/option"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
 )
@@ -77,6 +78,79 @@ func TestAMapContextIsACandidateMadeOfPlainData(t *testing.T) {
 	// A member that is not there is an error, not a null.
 	if _, err := evaluated(t, MapContext{}, IsNull(Field(GlobalScope(), "discount"))); !errors.Is(err, ErrKeyNotFound) {
 		t.Errorf("a member that is not there: got %v", err)
+	}
+}
+
+// A template has the literals of RFC 9535 and no others, so a point in time
+// or a UUID in it is a string. The server reads an untyped parameter by the
+// column; the evaluator compared a string with a time.Time and refused, and
+// the two readers parted on `@.created_at > '2026-09-01'`. A string constant
+// beside a value of a kind that has no literal of its own is read as that
+// kind, within a subset of what the server reads (ADR-0015 of the reference).
+// The rows are in TestAStringConstantIsReadAsTheKindOfTheColumnBesideIt.
+func TestAStringConstantIsReadAsTheKindOfTheMemberBesideIt(t *testing.T) {
+	row := MapContext{
+		"at":    time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
+		"day":   time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		"uid":   uuid.MustParse("3f2a0c1e-5b7d-4e8a-9f01-23456789abcd"),
+		"price": 100,
+		"name":  "2026-09-01",
+	}
+	at, day, uid := Field(GlobalScope(), "at"), Field(GlobalScope(), "day"), Field(GlobalScope(), "uid")
+	for _, c := range []struct {
+		name string
+		node Visitable
+		want any
+	}{
+		{"midnight, UTC without an offset", GreaterThan(at, Value("2026-09-01")), true},
+		{"Z", GreaterThan(at, Value("2026-09-01T12:00:00Z")), false},
+		{"a space for the T", GreaterThan(at, Value("2026-09-01 12:00:00")), false},
+		{"an offset", GreaterThan(at, Value("2026-09-01T15:00:00+03:00")), false},
+		{"no seconds", GreaterThan(at, Value("2026-09-01T12:00")), false},
+		{"a fraction", GreaterThan(at, Value("2026-09-01T11:59:59.999999Z")), true},
+		{"on either side", Equal(Value("2026-09-01T15:00:00+03:00"), at), true},
+		{"under IS", Is(at, Value("2026-09-01T12:00:00Z")), true},
+		{"a date", Equal(day, Value("2026-09-01")), true},
+		{"a date, ordered", LessThan(day, Value("2026-09-02")), true},
+		{"a UUID in upper case", Equal(uid, Value("3F2A0C1E-5B7D-4E8A-9F01-23456789ABCD")), true},
+		{"another UUID", NotEqual(uid, Value("00000000-0000-0000-0000-000000000000")), true},
+		// Two strings are two strings.
+		{"a string beside a string", Equal(Field(GlobalScope(), "name"), Value("2026-09-01")), true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := evaluated(t, row, c.node)
+			if err != nil || got != c.want {
+				t.Errorf("got %v, %v, want %v", got, err, c.want)
+			}
+		})
+	}
+	// What the server reads beyond the subset, and what nothing reads: loud
+	// here, and never the other way round. A number has a literal, so a
+	// string beside it is meant and does not compare; a member holding a
+	// string is the candidate's data, not a constant; and `at + '1 day'` is
+	// an interval to the server, another reading.
+	for _, c := range []struct {
+		name string
+		node Visitable
+	}{
+		{"yesterday", GreaterThan(at, Value("yesterday"))},
+		{"20260901", GreaterThan(at, Value("20260901"))},
+		{"Sep 1 2026", GreaterThan(at, Value("Sep 1 2026"))},
+		{"a thirteenth month", GreaterThan(at, Value("2026-13-01"))},
+		{"a twenty-fifth hour", GreaterThan(at, Value("2026-09-01T25:00:00Z"))},
+		{"nothing", GreaterThan(at, Value(""))},
+		{"a UUID in braces", Equal(uid, Value("{3f2a0c1e-5b7d-4e8a-9f01-23456789abcd}"))},
+		{"a UUID without hyphens", Equal(uid, Value("3f2a0c1e5b7d4e8a9f0123456789abcd"))},
+		{"not a UUID", Equal(uid, Value("not-a-uuid"))},
+		{"a string beside a number", GreaterThan(Field(GlobalScope(), "price"), Value("100"))},
+		{"a member holding a string", GreaterThan(Field(GlobalScope(), "name"), day)},
+		{"added, not compared", Add(at, Value("1 day"))},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got, err := evaluated(t, row, c.node); err == nil {
+				t.Errorf("got %v, want an error", got)
+			}
+		})
 	}
 }
 

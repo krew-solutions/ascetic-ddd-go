@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/google/uuid"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/option"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
@@ -1023,6 +1024,94 @@ func TestATextWithANulIsNoTextOfTheServer(t *testing.T) {
 	if sql, _, err := CompileToSQL(s.Equal(field("name"), s.Value("a\x00b"))); err == nil {
 		t.Errorf("compiled to %q", sql)
 	}
+}
+
+// A point in time or a UUID in a template is a string; the server reads it
+// by the column, and so does the evaluator now (ADR-0015). A time.Time has
+// a zone, so a `date` column is a midnight to it, and agrees with the server
+// on a string that is a date alone.
+func TestAStringConstantIsReadAsTheKindOfTheColumnBesideIt(t *testing.T) {
+	rows := map[int]s.MapContext{
+		1: {
+			"at":  time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
+			"day": time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+			"uid": uuid.MustParse("3f2a0c1e-5b7d-4e8a-9f01-23456789abcd"),
+		},
+		2: {
+			"at":  time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC),
+			"day": time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC),
+			"uid": uuid.UUID{1},
+		},
+	}
+	at, day, uid := field("at"), field("day"), field("uid")
+	cases := []struct {
+		specification s.Visitable
+		want          []int
+	}{
+		{s.GreaterThan(at, s.Value("2026-09-01")), []int{1, 2}},
+		{s.GreaterThan(at, s.Value("2026-09-01T12:00:00Z")), []int{2}},
+		{s.Equal(at, s.Value("2026-09-01T15:00:00+03:00")), []int{1}},
+		{s.Equal(at, s.Value("2026-09-01 12:00:00")), []int{1}},
+		{s.Equal(at, s.Value("2026-09-01T12:00:00.000000Z")), []int{1}},
+		{s.Equal(day, s.Value("2026-09-01")), []int{1}},
+		{s.LessThan(day, s.Value("2026-09-02")), []int{1}},
+		{s.Equal(uid, s.Value("3F2A0C1E-5B7D-4E8A-9F01-23456789ABCD")), []int{1}},
+		{s.Equal(s.Value("2026-09-02"), day), []int{2}},
+	}
+	reg := operators.NewDefaultRegistry()
+	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
+		for _, statement := range []string{
+			"SET LOCAL TIME ZONE 'UTC'",
+			"CREATE TABLE spec_kinds (id bigint, at timestamptz, day date, uid uuid)",
+		} {
+			if _, err := conn.Exec(statement); err != nil {
+				return fmt.Errorf("%s: %w", statement, err)
+			}
+		}
+		for id, row := range rows {
+			if _, err := conn.Exec("INSERT INTO spec_kinds VALUES ($1, $2, $3, $4)", id, row["at"], row["day"], row["uid"]); err != nil {
+				return err
+			}
+		}
+		for _, c := range cases {
+			satisfied := []int{}
+			for id := 1; id <= len(rows); id++ {
+				ok, err := s.NewEvaluateVisitor(rows[id], reg).Evaluate(c.specification)
+				if err != nil {
+					return fmt.Errorf("the evaluator, on row %d: %w", id, err)
+				}
+				if ok {
+					satisfied = append(satisfied, id)
+				}
+			}
+			if !reflect.DeepEqual(satisfied, c.want) {
+				t.Errorf("%v: the evaluator %v", c.want, satisfied)
+			}
+			sql, params, err := CompileToSQL(c.specification)
+			if err != nil {
+				return err
+			}
+			ids, err := selected(conn, "SELECT id FROM spec_kinds WHERE "+sql+" ORDER BY id", params)
+			if err != nil {
+				return fmt.Errorf("%s: %w", sql, err)
+			}
+			if !reflect.DeepEqual(ids, c.want) {
+				t.Errorf("%s %v: PostgreSQL %v, want %v", sql, params, ids, c.want)
+			}
+		}
+		// Beyond the subset the server reads and the evaluator is loud; never
+		// the other way round.
+		beyond := s.GreaterThan(at, s.Value("yesterday"))
+		if _, err := s.NewEvaluateVisitor(rows[1], reg).Evaluate(beyond); err == nil {
+			t.Error("'yesterday' read in memory")
+		}
+		sql, params, err := CompileToSQL(beyond)
+		if err != nil {
+			return err
+		}
+		_, err = selected(conn, "SELECT id FROM spec_kinds WHERE "+sql, params)
+		return err
+	})
 }
 
 func TestASpecificationSelectsTheRowsItIsSatisfiedBy(t *testing.T) {
