@@ -165,17 +165,18 @@ func (v *EvaluateVisitor) VisitInfix(n InfixNode) (any, error) {
 		return nil, err
 	}
 	// A string constant compared with a value of a kind that has no literal
-	// - a point in time, a UUID - is read as that kind, as the server reads
-	// an untyped parameter by the column. A constant's, not a member's: the
-	// server refuses two columns of those types. Compared, not added: under
-	// `+` the server reads the string as an interval, another reading.
+	// - a point in time, a date, a UUID - is read as that kind, with the
+	// reader the registry has for it, as the server reads an untyped
+	// parameter by the column. A constant's, not a member's: the server
+	// refuses two columns of those types. Compared, not added: under `+` the
+	// server reads the string as an interval, another reading.
 	if reads[n.Operator()] {
 		if text, ok := constantString(n.Left(), left); ok {
-			if left, err = ReadBeside(text, operators.Indirect(right)); err != nil {
+			if left, err = v.registry.Read(text, right); err != nil {
 				return nil, err
 			}
 		} else if text, ok := constantString(n.Right(), right); ok {
-			if right, err = ReadBeside(text, operators.Indirect(left)); err != nil {
+			if right, err = v.registry.Read(text, left); err != nil {
 				return nil, err
 			}
 		}

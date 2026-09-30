@@ -173,7 +173,11 @@ func compareBool(a, b bool) int {
 	}
 }
 
-func registerOrder[T any](reg *OperatorRegistry, compare func(a, b T) int) {
+// RegisterOrder registers the six comparisons of a T by the order compare
+// gives: negative, zero or positive as a is less than, equal to or greater
+// than b. What the domain registers for an ordered type of its own, beside
+// a reader of it.
+func RegisterOrder[T any](reg *OperatorRegistry, compare func(a, b T) int) {
 	registerOrderOf[T, T](reg, compare)
 }
 
@@ -244,7 +248,7 @@ func NewDefaultRegistry() *OperatorRegistry {
 	reg := NewOperatorRegistry()
 
 	// bool
-	registerOrder[bool](reg, compareBool)
+	RegisterOrder[bool](reg, compareBool)
 	RegisterBinary[bool, bool](reg, OperatorIs, func(a, b bool) (any, error) { return a == b, nil })
 	RegisterUnary[bool](reg, OperatorNot, func(a bool) (any, error) { return !a, nil })
 
@@ -259,7 +263,7 @@ func NewDefaultRegistry() *OperatorRegistry {
 	registerModulo[int64](reg)
 
 	// float64
-	registerOrder[float64](reg, compareFloat64)
+	RegisterOrder[float64](reg, compareFloat64)
 	registerFloatArithmetic(reg)
 
 	// Numbers of different types: one bigint, computed with a double precision
@@ -306,6 +310,10 @@ func NewDefaultRegistry() *OperatorRegistry {
 	// Mixed: timestamp +/- interval = timestamp
 	RegisterBinary[time.Time, time.Duration](reg, OperatorAdd, func(a time.Time, b time.Duration) (any, error) { return a.Add(b), nil })
 	RegisterBinary[time.Time, time.Duration](reg, OperatorSub, func(a time.Time, b time.Duration) (any, error) { return a.Add(-b), nil })
+
+	// A string beside a value of these kinds is read as one: reading.go.
+	RegisterReader(reg, ReadPointInTime)
+	RegisterReader(reg, readUUID)
 
 	return reg
 }

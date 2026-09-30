@@ -22,12 +22,16 @@ type unaryKey struct {
 type OperatorRegistry struct {
 	binary map[binaryKey]BinaryOp
 	unary  map[unaryKey]UnaryOp
+	// readers are what a string constant beside a value of the type is
+	// read with: reading.go.
+	readers map[reflect.Type]Reader
 }
 
 func NewOperatorRegistry() *OperatorRegistry {
 	return &OperatorRegistry{
-		binary: make(map[binaryKey]BinaryOp),
-		unary:  make(map[unaryKey]UnaryOp),
+		binary:  make(map[binaryKey]BinaryOp),
+		unary:   make(map[unaryKey]UnaryOp),
+		readers: make(map[reflect.Type]Reader),
 	}
 }
 

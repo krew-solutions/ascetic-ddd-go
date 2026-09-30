@@ -1,7 +1,9 @@
 package specification
 
 import (
+	"cmp"
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"math"
@@ -1026,20 +1028,51 @@ func TestATextWithANulIsNoTextOfTheServer(t *testing.T) {
 	}
 }
 
-// A point in time or a UUID in a template is a string; the server reads it
-// by the column, and so does the evaluator now (ADR-0015). A time.Time has
-// a zone, so a `date` column is a midnight to it, and agrees with the server
-// on a string that is a date alone.
+// calendarDate is the type a domain under test holds a date in, which the
+// library does not know: the domain registers its order and the reader of a
+// string beside it, and the driver writes it as the storage's date.
+type calendarDate struct {
+	year  int
+	month time.Month
+	day   int
+}
+
+func (d calendarDate) Value() (driver.Value, error) {
+	return fmt.Sprintf("%04d-%02d-%02d", d.year, int(d.month), d.day), nil
+}
+
+// readCalendarDate is the domain's reader: the date of the point in time as
+// spelled, which is what the server takes for a `date`.
+func readCalendarDate(text string) (calendarDate, error) {
+	moment, err := operators.ReadPointInTime(text)
+	if err != nil {
+		return calendarDate{}, err
+	}
+	year, month, day := moment.Date()
+	return calendarDate{year, month, day}, nil
+}
+
+func compareCalendarDate(a, b calendarDate) int {
+	ordinal := func(d calendarDate) int { return d.year*10000 + int(d.month)*100 + d.day }
+	return cmp.Compare(ordinal(a), ordinal(b))
+}
+
+// A point in time, a date or a UUID in a template is a string; the server
+// reads it by the column, and so does the evaluator now (ADR-0015): a
+// time.Time and a uuid.UUID by the default registry, a date by the reader the
+// domain registers for the type it holds one in. A date takes the date of a
+// full timestamp, as the server does. A date of the domain goes to the server
+// as the driver writes it.
 func TestAStringConstantIsReadAsTheKindOfTheColumnBesideIt(t *testing.T) {
 	rows := map[int]s.MapContext{
 		1: {
 			"at":  time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
-			"day": time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+			"day": calendarDate{2026, time.September, 1},
 			"uid": uuid.MustParse("3f2a0c1e-5b7d-4e8a-9f01-23456789abcd"),
 		},
 		2: {
 			"at":  time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC),
-			"day": time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC),
+			"day": calendarDate{2026, time.September, 2},
 			"uid": uuid.UUID{1},
 		},
 	}
@@ -1055,10 +1088,17 @@ func TestAStringConstantIsReadAsTheKindOfTheColumnBesideIt(t *testing.T) {
 		{s.Equal(at, s.Value("2026-09-01T12:00:00.000000Z")), []int{1}},
 		{s.Equal(day, s.Value("2026-09-01")), []int{1}},
 		{s.LessThan(day, s.Value("2026-09-02")), []int{1}},
+		// The date of a full timestamp: a midnight would be less than noon.
+		{s.LessThan(day, s.Value("2026-09-02T12:00:00Z")), []int{1}},
+		{s.Equal(day, s.Value("2026-09-01T23:59:59+03:00")), []int{1}},
 		{s.Equal(uid, s.Value("3F2A0C1E-5B7D-4E8A-9F01-23456789ABCD")), []int{1}},
 		{s.Equal(s.Value("2026-09-02"), day), []int{2}},
+		// A date of the domain, written by the driver.
+		{s.Equal(day, s.Value(calendarDate{2026, time.September, 2})), []int{2}},
 	}
 	reg := operators.NewDefaultRegistry()
+	operators.RegisterOrder(reg, compareCalendarDate)
+	operators.RegisterReader(reg, readCalendarDate)
 	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
 		for _, statement := range []string{
 			"SET LOCAL TIME ZONE 'UTC'",

@@ -1,6 +1,7 @@
 package operators
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -147,5 +148,39 @@ func TestInterfaceFallback_NullPropagation(t *testing.T) {
 	}
 	if result != nil {
 		t.Errorf("Expected nil (NULL), got %v", result)
+	}
+}
+
+// A reader is registered by the type it reads, as an operator is by the types
+// it applies to, and found by the value beside the string: through a pointer,
+// as an operator is. Where none is registered the string is a string.
+func TestAReaderIsFoundByTheKindBesideTheString(t *testing.T) {
+	reg := NewOperatorRegistry()
+	RegisterReader(reg, func(text string) (Money, error) {
+		if text == "" {
+			return Money{}, errors.New("no money")
+		}
+		return Money{len(text), "USD"}, nil
+	})
+	beside := Money{1, "USD"}
+	for _, c := range []struct {
+		name  string
+		other any
+		want  any
+	}{
+		{"the kind", beside, Money{3, "USD"}},
+		{"a pointer to it", &beside, Money{3, "USD"}},
+		{"no reader", 100, "abc"},
+		{"a null", nil, "abc"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := reg.Read("abc", c.other)
+			if err != nil || got != c.want {
+				t.Errorf("got %v, %v, want %v", got, err, c.want)
+			}
+		})
+	}
+	if got, err := reg.Read("", beside); err == nil {
+		t.Errorf("got %v, want the reader's error", got)
 	}
 }

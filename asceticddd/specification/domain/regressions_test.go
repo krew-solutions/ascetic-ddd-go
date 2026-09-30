@@ -1,6 +1,7 @@
 package specification
 
 import (
+	"cmp"
 	"errors"
 	"math"
 	"strings"
@@ -91,12 +92,11 @@ func TestAMapContextIsACandidateMadeOfPlainData(t *testing.T) {
 func TestAStringConstantIsReadAsTheKindOfTheMemberBesideIt(t *testing.T) {
 	row := MapContext{
 		"at":    time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
-		"day":   time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
 		"uid":   uuid.MustParse("3f2a0c1e-5b7d-4e8a-9f01-23456789abcd"),
 		"price": 100,
 		"name":  "2026-09-01",
 	}
-	at, day, uid := Field(GlobalScope(), "at"), Field(GlobalScope(), "day"), Field(GlobalScope(), "uid")
+	at, uid := Field(GlobalScope(), "at"), Field(GlobalScope(), "uid")
 	for _, c := range []struct {
 		name string
 		node Visitable
@@ -110,8 +110,6 @@ func TestAStringConstantIsReadAsTheKindOfTheMemberBesideIt(t *testing.T) {
 		{"a fraction", GreaterThan(at, Value("2026-09-01T11:59:59.999999Z")), true},
 		{"on either side", Equal(Value("2026-09-01T15:00:00+03:00"), at), true},
 		{"under IS", Is(at, Value("2026-09-01T12:00:00Z")), true},
-		{"a date", Equal(day, Value("2026-09-01")), true},
-		{"a date, ordered", LessThan(day, Value("2026-09-02")), true},
 		{"a UUID in upper case", Equal(uid, Value("3F2A0C1E-5B7D-4E8A-9F01-23456789ABCD")), true},
 		{"another UUID", NotEqual(uid, Value("00000000-0000-0000-0000-000000000000")), true},
 		// Two strings are two strings.
@@ -143,7 +141,7 @@ func TestAStringConstantIsReadAsTheKindOfTheMemberBesideIt(t *testing.T) {
 		{"a UUID without hyphens", Equal(uid, Value("3f2a0c1e5b7d4e8a9f0123456789abcd"))},
 		{"not a UUID", Equal(uid, Value("not-a-uuid"))},
 		{"a string beside a number", GreaterThan(Field(GlobalScope(), "price"), Value("100"))},
-		{"a member holding a string", GreaterThan(Field(GlobalScope(), "name"), day)},
+		{"a member holding a string", GreaterThan(Field(GlobalScope(), "name"), at)},
 		{"added, not compared", Add(at, Value("1 day"))},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -151,6 +149,84 @@ func TestAStringConstantIsReadAsTheKindOfTheMemberBesideIt(t *testing.T) {
 				t.Errorf("got %v, want an error", got)
 			}
 		})
+	}
+}
+
+// calendarDate is the type a domain under test holds a date in: one the
+// library does not know, and does not choose. A `date` column held as a
+// time.Time midnight agrees with the server on a string that is a date alone,
+// and parts from it in silence on `< '2026-09-02T12:00:00Z'`: the server
+// takes the date of it, a midnight is less than the noon.
+type calendarDate struct {
+	year  int
+	month time.Month
+	day   int
+}
+
+// readCalendarDate is the domain's reader of its date: the date of the point
+// in time as spelled, which is what the server takes for a `date`.
+func readCalendarDate(text string) (calendarDate, error) {
+	moment, err := operators.ReadPointInTime(text)
+	if err != nil {
+		return calendarDate{}, err
+	}
+	year, month, day := moment.Date()
+	return calendarDate{year, month, day}, nil
+}
+
+func compareCalendarDate(a, b calendarDate) int {
+	ordinal := func(d calendarDate) int { return d.year*10000 + int(d.month)*100 + d.day }
+	return cmp.Compare(ordinal(a), ordinal(b))
+}
+
+// registryOfTheDomain is the default registry with what the domain registers
+// for a type of its own: the order of it, and the reader of a string beside
+// it.
+func registryOfTheDomain() *operators.OperatorRegistry {
+	reg := operators.NewDefaultRegistry()
+	operators.RegisterOrder(reg, compareCalendarDate)
+	operators.RegisterReader(reg, readCalendarDate)
+	return reg
+}
+
+// A kind of the domain's own is read as the domain registers, as a time.Time
+// and a uuid.UUID are read by the default registry: the library does not
+// choose the type an aggregate holds a date in.
+func TestAStringConstantBesideAKindOfTheDomainIsReadAsTheDomainRegisters(t *testing.T) {
+	row := MapContext{"day": calendarDate{2026, time.September, 1}}
+	day := Field(GlobalScope(), "day")
+	reg := registryOfTheDomain()
+	for _, c := range []struct {
+		name string
+		node Visitable
+		want any
+	}{
+		{"a date", Equal(day, Value("2026-09-01")), true},
+		{"a date, ordered", LessThan(day, Value("2026-09-02")), true},
+		// The date of a full timestamp, as the server takes it: the time and
+		// the offset are not looked at. A midnight would be less than noon.
+		{"the date of a timestamp", LessThan(day, Value("2026-09-01T12:00:00Z")), false},
+		{"the date before the offset", Equal(day, Value("2026-09-01T23:59:59+03:00")), true},
+		{"on either side", Equal(Value("2026-09-01"), day), true},
+		{"under IS", Is(day, Value("2026-09-01")), true},
+		{"a date of the domain", Equal(day, Value(calendarDate{2026, time.September, 1})), true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := Accept[any](c.node, NewEvaluateVisitor(row, reg))
+			if err != nil || got != c.want {
+				t.Errorf("got %v, %v, want %v", got, err, c.want)
+			}
+		})
+	}
+	// What the domain's reader refuses is an error; and without the reader
+	// a string beside the type is a string, which no operator compares.
+	if got, err := Accept[any](Equal(day, Value("Sep 1 2026")), NewEvaluateVisitor(row, reg)); err == nil {
+		t.Errorf("got %v, want an error", got)
+	}
+	unread := operators.NewDefaultRegistry()
+	operators.RegisterOrder(unread, compareCalendarDate)
+	if got, err := Accept[any](Equal(day, Value("2026-09-01")), NewEvaluateVisitor(row, unread)); err == nil {
+		t.Errorf("got %v, want an error", got)
 	}
 }
 
