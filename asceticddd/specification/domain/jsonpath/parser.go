@@ -573,7 +573,9 @@ type NativeParametrizedSpecification struct {
 //
 // The template is parsed once and cached for all subsequent Match() calls.
 // This makes the specification thread-safe and efficient for repeated use.
-func Parse(template string) (*NativeParametrizedSpecification, error) {
+// The options are what the template is evaluated with, WithRegistry; without
+// them, the default registry.
+func Parse(template string, options ...ParseOption) (*NativeParametrizedSpecification, error) {
 	if len(template) > MaxLength {
 		return nil, &JSONPathSyntaxError{
 			Message:  "Template too long",
@@ -585,6 +587,9 @@ func Parse(template string) (*NativeParametrizedSpecification, error) {
 		template:        template,
 		placeholderInfo: nil,
 		registry:        operators.NewDefaultRegistry(),
+	}
+	for _, option := range options {
+		option(p)
 	}
 
 	// Parse once at initialization (cached for all match() calls)
@@ -613,12 +618,26 @@ func Parse(template string) (*NativeParametrizedSpecification, error) {
 }
 
 // MustParse is like Parse but panics on error.
-func MustParse(template string) *NativeParametrizedSpecification {
-	p, err := Parse(template)
+func MustParse(template string, options ...ParseOption) *NativeParametrizedSpecification {
+	p, err := Parse(template, options...)
 	if err != nil {
 		panic(err)
 	}
 	return p
+}
+
+// A ParseOption is what Parse is told beside the template.
+type ParseOption func(*NativeParametrizedSpecification)
+
+// WithRegistry has the template evaluated with reg: the operators, and the
+// readers of a string beside them, of the kinds the domain holds its values
+// in, which the default registry does not know. What is registered in it is
+// registered before the specification is shared, as the registry is read by
+// every Match.
+func WithRegistry(reg *operators.OperatorRegistry) ParseOption {
+	return func(p *NativeParametrizedSpecification) {
+		p.registry = reg
+	}
 }
 
 // extractPlaceholders extracts placeholder information from the tokens of the

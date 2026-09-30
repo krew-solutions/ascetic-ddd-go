@@ -5,9 +5,11 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/option"
 	spec "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/internal/calendar"
 )
 
 // Regression tests of the defects found while porting the package to Rust.
@@ -479,5 +481,42 @@ func TestAParameterMayBeAnOption(t *testing.T) {
 		if err != nil || !matched {
 			t.Errorf("%s: got %v, %v", name, matched, err)
 		}
+	}
+}
+
+// A template is evaluated with the registry it is parsed with: the operators
+// and the readers of the kinds the domain holds its values in. Parse built a
+// default registry of its own and took no other, so a kind of the domain
+// reached a template through the operand interfaces alone, and a string
+// beside it - the filter of a REST request - was read by no one.
+func TestATemplateIsEvaluatedWithTheRegistryItIsParsedWith(t *testing.T) {
+	row := spec.MapContext{"day": calendar.New(2026, time.September, 1)}
+	before, err := Parse("$[?@.day < %s]", WithRegistry(calendar.Registry()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for text, want := range map[string]bool{
+		"2026-09-02": true,
+		// The date of a full timestamp: a midnight would be less than noon.
+		"2026-09-01T12:00:00Z": false,
+	} {
+		if got, err := before.Match(row, text); err != nil || got != want {
+			t.Errorf("%s: got %v, %v, want %v", text, got, err, want)
+		}
+	}
+	// A literal of the template, in either of RFC 9535's quotes.
+	for _, template := range []string{
+		"$[?@.day == '2026-09-01T23:59:59+03:00']",
+		`$[?@.day == "2026-09-01T23:59:59+03:00"]`,
+	} {
+		literal := MustParse(template, WithRegistry(calendar.Registry()))
+		if got, err := literal.Match(row); err != nil || !got {
+			t.Errorf("%s: got %v, %v", template, got, err)
+		}
+	}
+	// Without the registry the string is a string, and no operator compares
+	// it with a date of the domain.
+	if got, err := MustParse("$[?@.day < %s]").Match(row, "2026-09-02"); err == nil {
+		t.Errorf("without the registry: got %v, want an error", got)
 	}
 }

@@ -1,9 +1,7 @@
 package specification
 
 import (
-	"cmp"
 	"context"
-	"database/sql/driver"
 	"errors"
 	"fmt"
 	"math"
@@ -19,6 +17,7 @@ import (
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/session"
 	s "github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/domain/operators"
+	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/specification/internal/calendar"
 	"github.com/krew-solutions/ascetic-ddd-go/asceticddd/utils/testutils"
 )
 
@@ -1028,51 +1027,22 @@ func TestATextWithANulIsNoTextOfTheServer(t *testing.T) {
 	}
 }
 
-// calendarDate is the type a domain under test holds a date in, which the
-// library does not know: the domain registers its order and the reader of a
-// string beside it, and the driver writes it as the storage's date.
-type calendarDate struct {
-	year  int
-	month time.Month
-	day   int
-}
-
-func (d calendarDate) Value() (driver.Value, error) {
-	return fmt.Sprintf("%04d-%02d-%02d", d.year, int(d.month), d.day), nil
-}
-
-// readCalendarDate is the domain's reader: the date of the point in time as
-// spelled, which is what the server takes for a `date`.
-func readCalendarDate(text string) (calendarDate, error) {
-	moment, err := operators.ReadPointInTime(text)
-	if err != nil {
-		return calendarDate{}, err
-	}
-	year, month, day := moment.Date()
-	return calendarDate{year, month, day}, nil
-}
-
-func compareCalendarDate(a, b calendarDate) int {
-	ordinal := func(d calendarDate) int { return d.year*10000 + int(d.month)*100 + d.day }
-	return cmp.Compare(ordinal(a), ordinal(b))
-}
-
 // A point in time, a date or a UUID in a template is a string; the server
 // reads it by the column, and so does the evaluator now (ADR-0015): a
 // time.Time and a uuid.UUID by the default registry, a date by the reader the
-// domain registers for the type it holds one in. A date takes the date of a
-// full timestamp, as the server does. A date of the domain goes to the server
-// as the driver writes it.
+// domain registers for the type it holds one in, calendar.Date here. A date
+// takes the date of a full timestamp, as the server does. A date of the
+// domain goes to the server as the driver writes it.
 func TestAStringConstantIsReadAsTheKindOfTheColumnBesideIt(t *testing.T) {
 	rows := map[int]s.MapContext{
 		1: {
 			"at":  time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC),
-			"day": calendarDate{2026, time.September, 1},
+			"day": calendar.New(2026, time.September, 1),
 			"uid": uuid.MustParse("3f2a0c1e-5b7d-4e8a-9f01-23456789abcd"),
 		},
 		2: {
 			"at":  time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC),
-			"day": calendarDate{2026, time.September, 2},
+			"day": calendar.New(2026, time.September, 2),
 			"uid": uuid.UUID{1},
 		},
 	}
@@ -1094,11 +1064,9 @@ func TestAStringConstantIsReadAsTheKindOfTheColumnBesideIt(t *testing.T) {
 		{s.Equal(uid, s.Value("3F2A0C1E-5B7D-4E8A-9F01-23456789ABCD")), []int{1}},
 		{s.Equal(s.Value("2026-09-02"), day), []int{2}},
 		// A date of the domain, written by the driver.
-		{s.Equal(day, s.Value(calendarDate{2026, time.September, 2})), []int{2}},
+		{s.Equal(day, s.Value(calendar.New(2026, time.September, 2))), []int{2}},
 	}
-	reg := operators.NewDefaultRegistry()
-	operators.RegisterOrder(reg, compareCalendarDate)
-	operators.RegisterReader(reg, readCalendarDate)
+	reg := calendar.Registry()
 	withConnection(t, func(_ session.Session, conn session.DbConnection) error {
 		for _, statement := range []string{
 			"SET LOCAL TIME ZONE 'UTC'",
